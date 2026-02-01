@@ -146,6 +146,12 @@ spec:
                     - recordType
                     - value
                     type: object
+                  gracePeriod:
+                    default: 60s
+                    description: |-
+                      GracePeriod is the time to wait before sending an alert after the monitor goes down.
+                      Maximum value is 24 hours (86400 seconds).
+                    type: string
                   heartbeat:
                     description: Heartbeat provides configuration for the Heartbeat
                       monitor type.

@@ -123,12 +123,25 @@ func (c Client) doJSON(ctx context.Context, method, endpoint string, body any, r
 
 // buildCreateMonitorRequest converts internal types to v3 API request format.
 func (c Client) buildCreateMonitorRequest(monitor uptimerobotv1.MonitorValues, contacts uptimerobotv1.MonitorContacts) CreateMonitorRequest {
+	// Calculate grace period (default 60s, max 86400s)
+	gracePeriod := 60
+	if monitor.GracePeriod != nil {
+		gracePeriod = int(monitor.GracePeriod.Seconds())
+	}
+	if gracePeriod > 86400 {
+		gracePeriod = 86400
+	}
+	if gracePeriod < 0 {
+		gracePeriod = 0
+	}
+
 	req := CreateMonitorRequest{
 		FriendlyName: monitor.Name,
 		URL:          monitor.URL,
 		Type:         monitor.Type.ToAPIString(),
 		Interval:     int(monitor.Interval.Seconds()),
 		Timeout:      int(monitor.Timeout.Seconds()),
+		GracePeriod:  gracePeriod,
 		HTTPMethod:   httpMethodToString(monitor.Method),
 	}
 
@@ -177,19 +190,32 @@ func (c Client) buildCreateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 	}
 
 	// Convert contacts to v3 format
-	req.AlertContacts = contactsToV3Format(contacts)
+	req.AssignedAlertContacts = contactsToV3Format(contacts)
 
 	return req
 }
 
 // buildUpdateMonitorRequest converts internal types to v3 API update request format.
 func (c Client) buildUpdateMonitorRequest(monitor uptimerobotv1.MonitorValues, contacts uptimerobotv1.MonitorContacts) UpdateMonitorRequest {
+	// Calculate grace period (default 60s, max 86400s)
+	gracePeriod := 60
+	if monitor.GracePeriod != nil {
+		gracePeriod = int(monitor.GracePeriod.Seconds())
+	}
+	if gracePeriod > 86400 {
+		gracePeriod = 86400
+	}
+	if gracePeriod < 0 {
+		gracePeriod = 0
+	}
+
 	req := UpdateMonitorRequest{
 		FriendlyName: monitor.Name,
 		URL:          monitor.URL,
 		Interval:     int(monitor.Interval.Seconds()),
 		Timeout:      int(monitor.Timeout.Seconds()),
-		Status:       int(monitor.Status),
+		GracePeriod:  gracePeriod,
+		// Note: Status is not supported in v3 PATCH requests - use pause/resume endpoints instead
 		HTTPMethod:   httpMethodToString(monitor.Method),
 	}
 
@@ -238,19 +264,29 @@ func (c Client) buildUpdateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 	}
 
 	// Convert contacts to v3 format
-	req.AlertContacts = contactsToV3Format(contacts)
+	req.AssignedAlertContacts = contactsToV3Format(contacts)
 
 	return req
 }
 
 // contactsToV3Format converts MonitorContacts to v3 API format.
-func contactsToV3Format(contacts uptimerobotv1.MonitorContacts) []AlertContactRequest {
-	result := make([]AlertContactRequest, 0, len(contacts))
+// Note: v3 API uses assignedAlertContacts with alertContactId (string), threshold, and recurrence.
+func contactsToV3Format(contacts uptimerobotv1.MonitorContacts) []AssignedAlertContactRequest {
+	result := make([]AssignedAlertContactRequest, 0, len(contacts))
 	for _, c := range contacts {
-		result = append(result, AlertContactRequest{
-			ID:         c.ID,
-			Threshold:  int(c.Threshold.Round(time.Minute).Minutes()),
-			Recurrence: int(c.Recurrence.Round(time.Minute).Minutes()),
+		// Skip contacts without valid IDs
+		if c.ID == "" {
+			continue
+		}
+		// Calculate threshold in seconds (per-contact wait time before alerting)
+		threshold := int(c.Threshold.Seconds())
+		if threshold < 0 {
+			threshold = 0
+		}
+		result = append(result, AssignedAlertContactRequest{
+			AlertContactID: c.ID, // v3 API uses alertContactId as a string
+			Threshold:      threshold,
+			Recurrence:     int(c.Recurrence.Round(time.Minute).Minutes()),
 		})
 	}
 	return result
@@ -263,14 +299,31 @@ func (c Client) CreateMonitor(ctx context.Context, monitor uptimerobotv1.Monitor
 
 	var resp MonitorCreateResponse
 	if err := c.doJSON(ctx, http.MethodPost, "monitors", reqBody, &resp); err != nil {
-		// If creation fails, check if monitor already exists
-		if id, findErr := c.FindMonitorID(ctx, FindByURL(monitor)); findErr == nil {
+		// If creation fails (e.g., 409 Conflict), check if monitor already exists by URL
+		if id, findErr := c.FindMonitorByURL(ctx, monitor.URL); findErr == nil {
 			return id, nil
 		}
 		return "", err
 	}
 
-	return strconv.Itoa(resp.Monitor.ID), nil
+	return strconv.Itoa(resp.ID), nil
+}
+
+// FindMonitorByURL searches for a monitor by its URL by fetching all monitors.
+// This is used as a fallback when the v3 API doesn't support URL filtering via query params.
+func (c Client) FindMonitorByURL(ctx context.Context, url string) (string, error) {
+	var resp MonitorsListResponse
+	if err := c.doJSON(ctx, http.MethodGet, "monitors", nil, &resp); err != nil {
+		return "", err
+	}
+
+	for _, m := range resp.Monitors {
+		if m.URL == url {
+			return strconv.Itoa(m.ID), nil
+		}
+	}
+
+	return "", ErrMonitorNotFound
 }
 
 // DeleteMonitor deletes a monitor using the v3 API.
@@ -315,7 +368,7 @@ func (c Client) EditMonitor(ctx context.Context, id string, monitor uptimerobotv
 		return id, err
 	}
 
-	return strconv.Itoa(resp.Monitor.ID), nil
+	return strconv.Itoa(resp.ID), nil
 }
 
 // FindMonitorID finds a monitor ID using the v3 API.
@@ -353,7 +406,8 @@ func (c Client) FindContactID(ctx context.Context, friendlyName string) (string,
 	}
 
 	for _, contact := range contacts {
-		if contact.FriendlyName == friendlyName {
+		// FriendlyName can be null in the API response
+		if contact.FriendlyName != nil && *contact.FriendlyName == friendlyName {
 			return strconv.Itoa(contact.ID), nil
 		}
 	}

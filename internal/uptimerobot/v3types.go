@@ -17,86 +17,95 @@ limitations under the License.
 package uptimerobot
 
 // CreateMonitorRequest represents the v3 API request payload for creating a monitor.
+// Note: The v3 API uses camelCase field names.
 type CreateMonitorRequest struct {
-	FriendlyName    string                `json:"friendly_name"`
-	URL             string                `json:"url"`
-	Type            string                `json:"type"` // "HTTP", "Keyword", "Ping", "Port", "Heartbeat", "DNS"
-	Interval        int                   `json:"interval"`
-	Timeout         int                   `json:"timeout,omitempty"`
-	HTTPMethod      string                `json:"http_method,omitempty"`
-	HTTPUsername    string                `json:"http_username,omitempty"`
-	HTTPPassword    string                `json:"http_password,omitempty"`
-	HTTPAuthType    string                `json:"http_auth_type,omitempty"` // "basic", "digest"
-	PostType        string                `json:"post_type,omitempty"`
-	PostContentType string                `json:"post_content_type,omitempty"`
-	PostValue       string                `json:"post_value,omitempty"`
-	KeywordType     string                `json:"keyword_type,omitempty"`      // "exists", "not_exists"
-	KeywordCaseType string                `json:"keyword_case_type,omitempty"` // "case_sensitive", "case_insensitive"
-	KeywordValue    string                `json:"keyword_value,omitempty"`
-	SubType         string                `json:"sub_type,omitempty"` // For port monitors
-	Port            int                   `json:"port,omitempty"`
-	AlertContacts   []AlertContactRequest `json:"alert_contacts,omitempty"`
+	FriendlyName           string                       `json:"friendlyName"`
+	URL                    string                       `json:"url"`
+	Type                   string                       `json:"type"` // "HTTP", "KEYWORD", "PING", "PORT", "HEARTBEAT", "DNS"
+	Interval               int                          `json:"interval"`
+	Timeout                int                          `json:"timeout,omitempty"`
+	GracePeriod            int                          `json:"gracePeriod"` // Required: seconds to wait before alerting (0-86400)
+	HTTPMethod             string                       `json:"httpMethodType,omitempty"` // HEAD, GET, POST, PUT, PATCH, DELETE, OPTIONS
+	HTTPUsername           string                       `json:"httpUsername,omitempty"`
+	HTTPPassword           string                       `json:"httpPassword,omitempty"`
+	HTTPAuthType           string                       `json:"httpAuthType,omitempty"` // "basic", "digest"
+	PostType               string                       `json:"postType,omitempty"`
+	PostContentType        string                       `json:"postContentType,omitempty"`
+	PostValue              string                       `json:"postValue,omitempty"`
+	KeywordType            string                       `json:"keywordType,omitempty"`     // "exists", "not_exists"
+	KeywordCaseType        string                       `json:"keywordCaseType,omitempty"` // "case_sensitive", "case_insensitive"
+	KeywordValue           string                       `json:"keywordValue,omitempty"`
+	SubType                string                       `json:"subType,omitempty"` // For port monitors
+	Port                   int                          `json:"port,omitempty"`
+	AssignedAlertContacts  []AssignedAlertContactRequest `json:"assignedAlertContacts,omitempty"`
 	// DNS monitor specific fields
-	DNSRecordType string `json:"dns_record_type,omitempty"` // "A", "AAAA", "MX", etc.
-	DNSValue      string `json:"dns_value,omitempty"`
+	DNSRecordType string `json:"dnsRecordType,omitempty"` // "A", "AAAA", "MX", etc.
+	DNSValue      string `json:"dnsValue,omitempty"`
 }
 
 // UpdateMonitorRequest represents the v3 API request payload for updating a monitor.
+// Note: The v3 API uses camelCase field names. Status is not supported in PATCH/update requests.
 type UpdateMonitorRequest struct {
-	FriendlyName    string                `json:"friendly_name,omitempty"`
-	URL             string                `json:"url,omitempty"`
-	Interval        int                   `json:"interval,omitempty"`
-	Timeout         int                   `json:"timeout,omitempty"`
-	Status          int                   `json:"status,omitempty"` // 0 = paused, 1 = running
-	HTTPMethod      string                `json:"http_method,omitempty"`
-	HTTPUsername    string                `json:"http_username,omitempty"`
-	HTTPPassword    string                `json:"http_password,omitempty"`
-	HTTPAuthType    string                `json:"http_auth_type,omitempty"`
-	PostType        string                `json:"post_type,omitempty"`
-	PostContentType string                `json:"post_content_type,omitempty"`
-	PostValue       string                `json:"post_value,omitempty"`
-	KeywordType     string                `json:"keyword_type,omitempty"`
-	KeywordCaseType string                `json:"keyword_case_type,omitempty"`
-	KeywordValue    string                `json:"keyword_value,omitempty"`
-	SubType         string                `json:"sub_type,omitempty"`
-	Port            int                   `json:"port,omitempty"`
-	AlertContacts   []AlertContactRequest `json:"alert_contacts,omitempty"`
-	DNSRecordType   string                `json:"dns_record_type,omitempty"`
-	DNSValue        string                `json:"dns_value,omitempty"`
+	FriendlyName          string                        `json:"friendlyName,omitempty"`
+	URL                   string                        `json:"url,omitempty"`
+	Interval              int                           `json:"interval,omitempty"`
+	Timeout               int                           `json:"timeout,omitempty"`
+	GracePeriod           int                           `json:"gracePeriod,omitempty"` // Seconds to wait before alerting (0-86400)
+	// Note: Status field is not supported in v3 API PATCH requests - use pause/resume endpoints instead
+	HTTPMethod            string                        `json:"httpMethodType,omitempty"`
+	HTTPUsername          string                        `json:"httpUsername,omitempty"`
+	HTTPPassword          string                        `json:"httpPassword,omitempty"`
+	HTTPAuthType          string                        `json:"httpAuthType,omitempty"`
+	PostType              string                        `json:"postType,omitempty"`
+	PostContentType       string                        `json:"postContentType,omitempty"`
+	PostValue             string                        `json:"postValue,omitempty"`
+	KeywordType           string                        `json:"keywordType,omitempty"`
+	KeywordCaseType       string                        `json:"keywordCaseType,omitempty"`
+	KeywordValue          string                        `json:"keywordValue,omitempty"`
+	SubType               string                        `json:"subType,omitempty"`
+	Port                  int                           `json:"port,omitempty"`
+	AssignedAlertContacts []AssignedAlertContactRequest `json:"assignedAlertContacts,omitempty"`
+	DNSRecordType         string                        `json:"dnsRecordType,omitempty"`
+	DNSValue              string                        `json:"dnsValue,omitempty"`
 }
 
-// AlertContactRequest represents an alert contact assignment in v3 API.
-type AlertContactRequest struct {
-	ID         string `json:"id"`
-	Threshold  int    `json:"threshold"`  // Minutes to wait before alerting
-	Recurrence int    `json:"recurrence"` // Minutes between repeat notifications (0 = disabled)
+// AssignedAlertContactRequest represents an alert contact assignment in v3 API.
+// Note: The v3 API uses camelCase field names and alertContactId is a string.
+type AssignedAlertContactRequest struct {
+	AlertContactID string `json:"alertContactId"` // Alert contact ID (string in v3)
+	Threshold      int    `json:"threshold"`      // Per-contact threshold in seconds
+	Recurrence     int    `json:"recurrence"`     // Minutes between repeat notifications (0 = disabled)
 }
+
+// AlertContactRequest is deprecated, use AssignedAlertContactRequest instead.
+// Kept for backwards compatibility.
+type AlertContactRequest = AssignedAlertContactRequest
 
 // MonitorResponse represents a single monitor in v3 API responses.
+// Note: The v3 API uses camelCase field names and status as string.
 type MonitorResponse struct {
 	ID           int    `json:"id"`
-	FriendlyName string `json:"friendly_name"`
+	FriendlyName string `json:"friendlyName"`
 	URL          string `json:"url"`
 	Type         string `json:"type"`
-	Status       int    `json:"status"`
+	Status       string `json:"status"` // e.g., "UP", "DOWN", "STARTED", "PAUSED"
 	Interval     int    `json:"interval"`
 }
 
 // MonitorsListResponse represents the v3 API response for listing monitors.
+// Note: v3 API returns monitors in the "data" field, not "monitors"
 type MonitorsListResponse struct {
-	Monitors   []MonitorResponse `json:"monitors"`
-	Pagination PaginationInfo    `json:"pagination"`
+	Monitors []MonitorResponse `json:"data"`
+	NextLink *string           `json:"nextLink"`
 }
 
-// MonitorCreateResponse represents the v3 API response for creating a monitor.
-type MonitorCreateResponse struct {
-	Monitor MonitorResponse `json:"monitor"`
-}
+// MonitorCreateResponse is an alias for MonitorResponse since v3 API
+// returns the created monitor directly without wrapping.
+type MonitorCreateResponse = MonitorResponse
 
-// MonitorUpdateResponse represents the v3 API response for updating a monitor.
-type MonitorUpdateResponse struct {
-	Monitor MonitorResponse `json:"monitor"`
-}
+// MonitorUpdateResponse is an alias for MonitorResponse since v3 API
+// returns the updated monitor directly without wrapping.
+type MonitorUpdateResponse = MonitorResponse
 
 // PaginationInfo represents cursor-based pagination in v3 API responses.
 type PaginationInfo struct {
@@ -106,13 +115,13 @@ type PaginationInfo struct {
 }
 
 // AlertContactResponse represents an alert contact in v3 API responses.
-// Note: The v3 API returns type and status as strings, not integers.
+// Note: The v3 API returns camelCase field names and type/status as strings.
 type AlertContactResponse struct {
-	ID           int    `json:"id"`
-	FriendlyName string `json:"friendly_name"`
-	Type         string `json:"type"`
-	Status       string `json:"status"`
-	Value        string `json:"value"`
+	ID           int     `json:"id"`
+	FriendlyName *string `json:"friendlyName"` // Pointer to handle null values
+	Type         string  `json:"type"`
+	Status       string  `json:"status"`
+	Value        string  `json:"value"`
 }
 
 // AlertContactsListResponse represents the v3 API response for listing alert contacts.
@@ -127,12 +136,13 @@ type UserMeResponse struct {
 }
 
 // UserInfo represents user account information in v3 API.
+// Note: The v3 API uses camelCase field names.
 type UserInfo struct {
 	Email        string `json:"email"`
-	MonitorLimit int    `json:"monitor_limit"`
-	MonitorUsage int    `json:"monitor_usage"`
-	SMSLimit     int    `json:"sms_limit"`
-	SMSUsage     int    `json:"sms_usage"`
+	MonitorLimit int    `json:"monitorLimit"`
+	MonitorUsage int    `json:"monitorUsage"`
+	SMSLimit     int    `json:"smsLimit"`
+	SMSUsage     int    `json:"smsUsage"`
 }
 
 // APIError represents an error response from the v3 API.

@@ -1,6 +1,7 @@
 ---
-# NOTE: The contact.name must match an existing alert contact in your UptimeRobot account.
+# NOTE: The contact.name must match an existing alert contact's friendlyName in your UptimeRobot account.
 # Find your contact names at: https://dashboard.uptimerobot.com/integrations
+# Use the API: curl -H "Authorization: Bearer YOUR_API_KEY" https://api.uptimerobot.com/v3/user/alert-contacts
 apiVersion: uptimerobot.com/v1
 kind: Contact
 metadata:
@@ -11,5 +12,6 @@ metadata:
 spec:
   isDefault: true
   contact:
-    # Replace with the actual name of a contact from your UptimeRobot account
-    name: "joel.pinder@protonmail.com"
+    # Replace with the actual friendlyName of a contact from your UptimeRobot account
+    # Note: contacts without a friendlyName set cannot be referenced by name
+    name: "iPhone"

@@ -102,6 +102,11 @@ type MonitorValues struct {
 	//+kubebuilder:default:="30s"
 	Timeout *metav1.Duration `json:"timeout,omitempty"`
 
+	// GracePeriod is the time to wait before sending an alert after the monitor goes down.
+	// Maximum value is 24 hours (86400 seconds).
+	//+kubebuilder:default:="60s"
+	GracePeriod *metav1.Duration `json:"gracePeriod,omitempty"`
+
 	// Method defines the HTTP verb to use.
 	//+kubebuilder:default:="HEAD"
 	Method urtypes.HTTPMethod `json:"method,omitempty"`

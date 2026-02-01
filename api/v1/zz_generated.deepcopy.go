@@ -510,6 +510,11 @@ func (in *MonitorValues) DeepCopyInto(out *MonitorValues) {
 		*out = new(metav1.Duration)
 		**out = **in
 	}
+	if in.GracePeriod != nil {
+		in, out := &in.GracePeriod, &out.GracePeriod
+		*out = new(metav1.Duration)
+		**out = **in
+	}
 	if in.POST != nil {
 		in, out := &in.POST, &out.POST
 		*out = new(MonitorPOST)
