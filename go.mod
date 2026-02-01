@@ -4,7 +4,7 @@ go 1.24.1
 
 require (
 	github.com/dmarkham/enumer v1.5.11
-	github.com/go-viper/mapstructure/v2 v2.2.1
+	github.com/go-viper/mapstructure/v2 v2.4.0
 	github.com/knadh/koanf/maps v0.1.1
 	github.com/onsi/ginkgo/v2 v2.23.0
 	github.com/onsi/gomega v1.36.2
