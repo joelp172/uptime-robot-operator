@@ -1,0 +1,2 @@
+# False positives - example curl commands in documentation/comments
+eec81ded7f547d734cf47017f5d8fec9391f34b4:config/samples/uptime-robot_v1_contact.yaml:curl-auth-header:4
