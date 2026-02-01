@@ -423,12 +423,22 @@ func (c Client) FindMonitorID(ctx context.Context, opts ...FindOpt) (string, err
 	return strconv.Itoa(resp.Monitors[0].ID), nil
 }
 
-// FindContactID finds an alert contact ID by friendly name using the v3 API.
+// GetAlertContacts returns all alert contacts for the account.
 // GET /user/alert-contacts
-func (c Client) FindContactID(ctx context.Context, friendlyName string) (string, error) {
+func (c Client) GetAlertContacts(ctx context.Context) ([]AlertContactResponse, error) {
 	// v3 API returns array directly, not wrapped in an object
 	var contacts []AlertContactResponse
 	if err := c.doJSON(ctx, http.MethodGet, "user/alert-contacts", nil, &contacts); err != nil {
+		return nil, err
+	}
+	return contacts, nil
+}
+
+// FindContactID finds an alert contact ID by friendly name using the v3 API.
+// GET /user/alert-contacts
+func (c Client) FindContactID(ctx context.Context, friendlyName string) (string, error) {
+	contacts, err := c.GetAlertContacts(ctx)
+	if err != nil {
 		return "", err
 	}
 

@@ -78,8 +78,30 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
+	// Fetch alert contacts
+	contacts, err := urclient.GetAlertContacts(ctx)
+	if err != nil {
+		log.FromContext(ctx).Error(err, "failed to fetch alert contacts")
+		// Don't fail the reconciliation if we can't get contacts
+	}
+
+	// Convert to status format
+	alertContacts := make([]uptimerobotv1.AlertContactInfo, 0, len(contacts))
+	for _, c := range contacts {
+		info := uptimerobotv1.AlertContactInfo{
+			ID:    fmt.Sprintf("%d", c.ID),
+			Type:  c.Type,
+			Value: c.Value,
+		}
+		if c.FriendlyName != nil {
+			info.FriendlyName = *c.FriendlyName
+		}
+		alertContacts = append(alertContacts, info)
+	}
+
 	account.Status.Ready = true
 	account.Status.Email = email
+	account.Status.AlertContacts = alertContacts
 	if err := r.Status().Update(ctx, account); err != nil {
 		return ctrl.Result{}, err
 	}
