@@ -66,8 +66,16 @@ type ContactList struct {
 }
 
 type ContactValues struct {
-	// Name sets the name that is shown in Uptime Robot.
-	Name string `json:"name"`
+	// ID is the UptimeRobot alert contact ID. Use this when the contact has no friendlyName set.
+	// Get contact IDs via: curl -H "Authorization: Bearer YOUR_API_KEY" https://api.uptimerobot.com/v3/user/alert-contacts
+	// Either ID or Name must be specified, but not both.
+	// +optional
+	ID string `json:"id,omitempty"`
+
+	// Name matches the friendlyName of an existing alert contact in UptimeRobot.
+	// Either ID or Name must be specified, but not both.
+	// +optional
+	Name string `json:"name,omitempty"`
 }
 
 func init() {

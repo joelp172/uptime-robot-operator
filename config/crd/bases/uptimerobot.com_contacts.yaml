@@ -70,11 +70,17 @@ spec:
               contact:
                 description: Contact configures the Uptime Robot monitor.
                 properties:
-                  name:
-                    description: Name sets the name that is shown in Uptime Robot.
+                  id:
+                    description: |-
+                      ID is the UptimeRobot alert contact ID. Use this when the contact has no friendlyName set.
+                      Get contact IDs via: curl -H "Authorization: Bearer YOUR_API_KEY" https://api.uptimerobot.com/v3/user/alert-contacts
+                      Either ID or Name must be specified, but not both.
                     type: string
-                required:
-                - name
+                  name:
+                    description: |-
+                      Name matches the friendlyName of an existing alert contact in UptimeRobot.
+                      Either ID or Name must be specified, but not both.
+                    type: string
                 type: object
               isDefault:
                 default: false

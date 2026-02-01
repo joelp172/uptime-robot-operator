@@ -68,9 +68,19 @@ func (r *ContactReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	urclient := uptimerobot.NewClient(apiKey)
 
 	if contact.Status.ID == "" {
-		id, err := urclient.FindContactID(ctx, contact.Spec.Contact.Name)
-		if err != nil {
-			return ctrl.Result{}, err
+		var id string
+
+		// If ID is specified directly, use it; otherwise look up by name
+		if contact.Spec.Contact.ID != "" {
+			id = contact.Spec.Contact.ID
+		} else if contact.Spec.Contact.Name != "" {
+			var err error
+			id, err = urclient.FindContactID(ctx, contact.Spec.Contact.Name)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+		} else {
+			return ctrl.Result{}, errors.New("contact must specify either id or name")
 		}
 
 		contact.Status.Ready = true
