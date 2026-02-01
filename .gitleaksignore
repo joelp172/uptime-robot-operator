@@ -4,3 +4,4 @@ eec81ded7f547d734cf47017f5d8fec9391f34b4:config/samples/uptime-robot_v1_contact.
 config/crd/bases/uptimerobot.com_contacts.yaml:curl-auth-header:76
 config/samples/uptime-robot_v1alpha1_contact.yaml:curl-auth-header:4
 api/v1alpha1/contact_types.go:curl-auth-header:70
+docs/configure-alerts.md:curl-auth-header:35
