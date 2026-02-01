@@ -91,11 +91,11 @@ func serveJSONFile(w http.ResponseWriter, filename string) {
 	if err != nil {
 		// Return a generic success response if file doesn't exist
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	w.Header().Set("Content-Type", "application/json")
-	io.Copy(w, f)
+	_, _ = io.Copy(w, f)
 }

@@ -5,6 +5,16 @@ const (
 	MonitorRunning
 )
 
+// API string constants for monitor types.
+const (
+	APITypeHTTP      = "HTTP"
+	APITypeKeyword   = "Keyword"
+	APITypePing      = "Ping"
+	APITypePort      = "Port"
+	APITypeHeartbeat = "Heartbeat"
+	APITypeDNS       = "DNS"
+)
+
 //go:generate go run github.com/dmarkham/enumer -type MonitorType -trimprefix Type -json -text
 
 //+kubebuilder:validation:Type:=string
@@ -25,36 +35,36 @@ const (
 func (m MonitorType) ToAPIString() string {
 	switch m {
 	case TypeHTTPS:
-		return "HTTP"
+		return APITypeHTTP
 	case TypeKeyword:
-		return "Keyword"
+		return APITypeKeyword
 	case TypePing:
-		return "Ping"
+		return APITypePing
 	case TypePort:
-		return "Port"
+		return APITypePort
 	case TypeHeartbeat:
-		return "Heartbeat"
+		return APITypeHeartbeat
 	case TypeDNS:
-		return "DNS"
+		return APITypeDNS
 	default:
-		return "HTTP"
+		return APITypeHTTP
 	}
 }
 
 // MonitorTypeFromAPIString converts a v3 API string to MonitorType.
 func MonitorTypeFromAPIString(s string) MonitorType {
 	switch s {
-	case "HTTP":
+	case APITypeHTTP:
 		return TypeHTTPS
-	case "Keyword":
+	case APITypeKeyword:
 		return TypeKeyword
-	case "Ping":
+	case APITypePing:
 		return TypePing
-	case "Port":
+	case APITypePort:
 		return TypePort
-	case "Heartbeat":
+	case APITypeHeartbeat:
 		return TypeHeartbeat
-	case "DNS":
+	case APITypeDNS:
 		return TypeDNS
 	default:
 		return TypeHTTPS

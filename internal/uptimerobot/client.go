@@ -91,7 +91,7 @@ func (c Client) do(req *http.Request) (*http.Response, error) {
 	}
 
 	if res.StatusCode >= 400 {
-		defer res.Body.Close()
+		defer func() { _ = res.Body.Close() }()
 		body, _ := io.ReadAll(res.Body)
 		return nil, fmt.Errorf("%w: %s - %s", ErrStatus, res.Status, string(body))
 	}
@@ -110,7 +110,7 @@ func (c Client) doJSON(ctx context.Context, method, endpoint string, body any, r
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	if result != nil {
 		if err := json.NewDecoder(res.Body).Decode(result); err != nil {
@@ -295,7 +295,7 @@ func (c Client) DeleteMonitor(ctx context.Context, id string) error {
 		}
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	return nil
 }
