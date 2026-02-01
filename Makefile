@@ -77,6 +77,19 @@ test-e2e: manifests generate fmt vet ## Run the e2e tests. Expected an isolated 
 	}
 	go test ./test/e2e/ -v -ginkgo.v
 
+.PHONY: dev-cluster
+dev-cluster: ## Create a local development cluster with cert-manager and prometheus-operator.
+	./hack/setup-dev-cluster.sh
+
+.PHONY: dev-cluster-kind
+dev-cluster-kind: ## Create a local Kind cluster for development.
+	./hack/setup-dev-cluster.sh --driver kind
+
+.PHONY: dev-cluster-delete
+dev-cluster-delete: ## Delete the local development cluster.
+	./hack/setup-dev-cluster.sh --delete --driver minikube || true
+	./hack/setup-dev-cluster.sh --delete --driver kind || true
+
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
 	$(GOLANGCI_LINT) run

@@ -104,7 +104,7 @@ func ReconcileContact(ctx context.Context, contact *uptimerobotv1.Contact) {
 
 	Expect(k8sClient.Get(ctx, namespacedName, contact)).To(Succeed())
 	Expect(contact.Status.Ready).To(Equal(true))
-	Expect(contact.Status.ID).To(Equal("0993765"))
+	Expect(contact.Status.ID).To(Equal("993765"))
 }
 
 func CleanupContact(ctx context.Context, contact *uptimerobotv1.Contact) {

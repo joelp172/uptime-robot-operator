@@ -1,3 +1,6 @@
+---
+# NOTE: The contact.name must match an existing alert contact in your UptimeRobot account.
+# Find your contact names at: https://dashboard.uptimerobot.com/integrations
 apiVersion: uptimerobot.com/v1
 kind: Contact
 metadata:
@@ -8,4 +11,5 @@ metadata:
 spec:
   isDefault: true
   contact:
-    name: "Slack #outages"
+    # Replace with the actual name of a contact from your UptimeRobot account
+    name: "joel.pinder@protonmail.com"

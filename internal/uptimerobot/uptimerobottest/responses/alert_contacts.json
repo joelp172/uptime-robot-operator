@@ -1,30 +1,23 @@
-{
-  "alert_contacts": [
-    {
-      "id": "0102759",
-      "friendly_name": "Default Alert Contact",
-      "type": 2,
-      "status": 2,
-      "value": "test@example.com"
-    },
-    {
-      "id": "0993765",
-      "friendly_name": "John Doe",
-      "type": 2,
-      "status": 2,
-      "value": "john.doe@example.com"
-    },
-    {
-      "id": "2104569",
-      "friendly_name": "Slack Alerts",
-      "type": 11,
-      "status": 2,
-      "value": "https://hooks.slack.com/services/xxx"
-    }
-  ],
-  "pagination": {
-    "cursor": "",
-    "limit": 50,
-    "total": 3
+[
+  {
+    "id": 102759,
+    "friendly_name": "Default Alert Contact",
+    "type": "email",
+    "status": "active",
+    "value": "test@example.com"
+  },
+  {
+    "id": 993765,
+    "friendly_name": "John Doe",
+    "type": "email",
+    "status": "active",
+    "value": "john.doe@example.com"
+  },
+  {
+    "id": 2104569,
+    "friendly_name": "Slack Alerts",
+    "type": "slack",
+    "status": "active",
+    "value": "https://hooks.slack.com/services/xxx"
   }
-}
+]

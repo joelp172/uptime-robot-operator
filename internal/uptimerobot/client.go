@@ -346,14 +346,15 @@ func (c Client) FindMonitorID(ctx context.Context, opts ...FindOpt) (string, err
 // FindContactID finds an alert contact ID by friendly name using the v3 API.
 // GET /user/alert-contacts
 func (c Client) FindContactID(ctx context.Context, friendlyName string) (string, error) {
-	var resp AlertContactsListResponse
-	if err := c.doJSON(ctx, http.MethodGet, "user/alert-contacts", nil, &resp); err != nil {
+	// v3 API returns array directly, not wrapped in an object
+	var contacts []AlertContactResponse
+	if err := c.doJSON(ctx, http.MethodGet, "user/alert-contacts", nil, &contacts); err != nil {
 		return "", err
 	}
 
-	for _, contact := range resp.AlertContacts {
+	for _, contact := range contacts {
 		if contact.FriendlyName == friendlyName {
-			return contact.ID, nil
+			return strconv.Itoa(contact.ID), nil
 		}
 	}
 

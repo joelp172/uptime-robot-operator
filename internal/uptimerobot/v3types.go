@@ -106,11 +106,12 @@ type PaginationInfo struct {
 }
 
 // AlertContactResponse represents an alert contact in v3 API responses.
+// Note: The v3 API returns type and status as strings, not integers.
 type AlertContactResponse struct {
-	ID           string `json:"id"`
+	ID           int    `json:"id"`
 	FriendlyName string `json:"friendly_name"`
-	Type         int    `json:"type"`
-	Status       int    `json:"status"`
+	Type         string `json:"type"`
+	Status       string `json:"status"`
 	Value        string `json:"value"`
 }
 

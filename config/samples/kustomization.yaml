@@ -1,9 +1,10 @@
 ## Append samples of your project ##
 resources:
+- uptime-robot_v1_secret.yaml
+- uptime-robot_v1_account.yaml
+- uptime-robot_v1_contact.yaml
 - uptime-robot_v1_monitor.yaml
 - uptime-robot_v1_monitor_dns.yaml
 - uptime-robot_v1_monitor_heartbeat.yaml
 - uptime-robot_v1_monitor_keyword.yaml
-- uptime-robot_v1_contact.yaml
-- uptime-robot_v1_account.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples
