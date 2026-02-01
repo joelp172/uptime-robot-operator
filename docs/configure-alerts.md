@@ -10,7 +10,7 @@ This guide explains how to set up alert notifications for your monitors.
 
 ## Overview
 
-The operator references existing alert contacts in your UptimeRobot account. It does not create new contacts. You must first create contacts (email, SMS, mobile app, etc.) in the [UptimeRobot Dashboard](https://dashboard.uptimerobot.com/integrations), then reference them in Kubernetes.
+The operator references existing alert contacts in your UptimeRobot account. It does not create new contacts. You must first create contacts (email, SMS, mobile app, etc.) in [UptimeRobot](https://uptimerobot.com/?red=joelpi) (Dashboard > Integrations), then reference them in Kubernetes.
 
 ## Step 1: Find Your Contact IDs
 

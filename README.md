@@ -2,7 +2,7 @@
 
 [![Build](https://github.com/joelp172/uptime-robot-operator/actions/workflows/build.yml/badge.svg)](https://github.com/joelp172/uptime-robot-operator/actions/workflows/build.yml)
 
-A Kubernetes operator that manages [UptimeRobot](https://uptimerobot.com/) monitors declaratively using Custom Resources. Monitors are automatically reconciled to prevent configuration drift.
+A Kubernetes operator that manages [UptimeRobot](https://uptimerobot.com/?red=joelpi) monitors declaratively using Custom Resources. Monitors are automatically reconciled to prevent configuration drift.
 
 ## Features
 
@@ -18,7 +18,7 @@ A Kubernetes operator that manages [UptimeRobot](https://uptimerobot.com/) monit
 
 - Kubernetes cluster v1.19+
 - kubectl configured to access your cluster
-- UptimeRobot API key ([get one here](https://dashboard.uptimerobot.com/integrations))
+- UptimeRobot API key ([sign up free](https://uptimerobot.com/?red=joelpi) then go to Integrations > API)
 
 ### Install
 
