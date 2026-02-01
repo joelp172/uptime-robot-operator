@@ -11,7 +11,7 @@ spec:
   prune: true
   monitor:
     name: Example Keyword Monitor
-    url: https://example.com
+    url: https://www.example.org  # Different URL to avoid conflict with HTTP sample
     type: Keyword
     interval: 5m  # How often UptimeRobot checks the URL
     keyword:

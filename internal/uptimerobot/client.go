@@ -168,9 +168,9 @@ func (c Client) buildCreateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 	if monitor.Type == urtypes.TypeKeyword && monitor.Keyword != nil {
 		req.KeywordType = keywordTypeToString(monitor.Keyword.Type)
 		if monitor.Keyword.CaseSensitive != nil && *monitor.Keyword.CaseSensitive {
-			req.KeywordCaseType = "case_sensitive"
+			req.KeywordCaseType = "CaseSensitive"
 		} else {
-			req.KeywordCaseType = "case_insensitive"
+			req.KeywordCaseType = "CaseInsensitive"
 		}
 		req.KeywordValue = monitor.Keyword.Value
 	}
@@ -246,9 +246,9 @@ func (c Client) buildUpdateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 	if monitor.Type == urtypes.TypeKeyword && monitor.Keyword != nil {
 		req.KeywordType = keywordTypeToString(monitor.Keyword.Type)
 		if monitor.Keyword.CaseSensitive != nil && *monitor.Keyword.CaseSensitive {
-			req.KeywordCaseType = "case_sensitive"
+			req.KeywordCaseType = "CaseSensitive"
 		} else {
-			req.KeywordCaseType = "case_insensitive"
+			req.KeywordCaseType = "CaseInsensitive"
 		}
 		req.KeywordValue = monitor.Keyword.Value
 	}
@@ -512,11 +512,11 @@ func postContentTypeToString(t urtypes.POSTContentType) string {
 func keywordTypeToString(t urtypes.KeywordType) string {
 	switch t {
 	case urtypes.KeywordExists:
-		return "exists"
+		return "ALERT_EXISTS"
 	case urtypes.KeywordNotExists:
-		return "not_exists"
+		return "ALERT_NOT_EXISTS"
 	default:
-		return "exists"
+		return "ALERT_EXISTS"
 	}
 }
 
