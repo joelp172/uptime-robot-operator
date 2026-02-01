@@ -361,14 +361,33 @@ func (c Client) EditMonitor(ctx context.Context, id string, monitor uptimerobotv
 
 	var resp MonitorUpdateResponse
 	if err := c.doJSON(ctx, http.MethodPatch, endpoint, reqBody, &resp); err != nil {
-		// If update fails because monitor doesn't exist, recreate it
-		if _, findErr := c.FindMonitorID(ctx, FindByID(id)); errors.Is(findErr, ErrMonitorNotFound) {
+		// If update fails because monitor doesn't exist (404), recreate it
+		// Check using GetMonitor which uses GET /monitors/{id} directly
+		if _, getErr := c.GetMonitor(ctx, id); errors.Is(getErr, ErrMonitorNotFound) {
 			return c.CreateMonitor(ctx, monitor, contacts)
 		}
 		return id, err
 	}
 
 	return strconv.Itoa(resp.ID), nil
+}
+
+// GetMonitor retrieves a single monitor by ID using the v3 API.
+// GET /monitors/{id}
+// Returns ErrMonitorNotFound if the monitor doesn't exist (404).
+func (c Client) GetMonitor(ctx context.Context, id string) (*MonitorResponse, error) {
+	endpoint := "monitors/" + id
+
+	var resp MonitorResponse
+	if err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &resp); err != nil {
+		// Check if it's a 404 error (monitor not found)
+		if strings.Contains(err.Error(), "404") {
+			return nil, ErrMonitorNotFound
+		}
+		return nil, err
+	}
+
+	return &resp, nil
 }
 
 // FindMonitorID finds a monitor ID using the v3 API.
