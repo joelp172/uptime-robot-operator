@@ -4,26 +4,10 @@ run:
   timeout: 5m
   allow-parallel-runners: true
 
-issues:
-  exclude-use-default: false
-  exclude-rules:
-    - path: "api/*"
-      linters:
-        - dupl
-    - path: "internal/*"
-      linters:
-        - dupl
-    # Allow dot imports in test files (ginkgo/gomega convention)
-    - path: "_test\\.go$"
-      text: "ST1001"
-    - path: "test/"
-      text: "ST1001"
-
 linters:
   default: none
   enable:
     - copyloopvar
-    - dupl
     - errcheck
     - goconst
     - govet
