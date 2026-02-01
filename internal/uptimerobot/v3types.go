@@ -16,31 +16,37 @@ limitations under the License.
 
 package uptimerobot
 
+// MonitorConfig represents the config object for certain monitor types (DNS, Heartbeat, etc.)
+// The v3 API uses a config object for type-specific settings.
+type MonitorConfig struct {
+	// Empty struct - the v3 API requires a config object but specific DNS/Heartbeat
+	// fields are not yet documented. The API accepts an empty config object.
+}
+
 // CreateMonitorRequest represents the v3 API request payload for creating a monitor.
 // Note: The v3 API uses camelCase field names.
 type CreateMonitorRequest struct {
-	FriendlyName           string                       `json:"friendlyName"`
-	URL                    string                       `json:"url"`
-	Type                   string                       `json:"type"` // "HTTP", "KEYWORD", "PING", "PORT", "HEARTBEAT", "DNS"
-	Interval               int                          `json:"interval"`
-	Timeout                int                          `json:"timeout,omitempty"`
-	GracePeriod            int                          `json:"gracePeriod"` // Required: seconds to wait before alerting (0-86400)
-	HTTPMethod             string                       `json:"httpMethodType,omitempty"` // HEAD, GET, POST, PUT, PATCH, DELETE, OPTIONS
-	HTTPUsername           string                       `json:"httpUsername,omitempty"`
-	HTTPPassword           string                       `json:"httpPassword,omitempty"`
-	HTTPAuthType           string                       `json:"httpAuthType,omitempty"` // "basic", "digest"
-	PostType               string                       `json:"postType,omitempty"`
-	PostContentType        string                       `json:"postContentType,omitempty"`
-	PostValue              string                       `json:"postValue,omitempty"`
-	KeywordType            string                       `json:"keywordType,omitempty"`     // "exists", "not_exists"
-	KeywordCaseType        string                       `json:"keywordCaseType,omitempty"` // "case_sensitive", "case_insensitive"
-	KeywordValue           string                       `json:"keywordValue,omitempty"`
-	SubType                string                       `json:"subType,omitempty"` // For port monitors
-	Port                   int                          `json:"port,omitempty"`
-	AssignedAlertContacts  []AssignedAlertContactRequest `json:"assignedAlertContacts,omitempty"`
-	// DNS monitor specific fields
-	DNSRecordType string `json:"dnsRecordType,omitempty"` // "A", "AAAA", "MX", etc.
-	DNSValue      string `json:"dnsValue,omitempty"`
+	FriendlyName          string                        `json:"friendlyName"`
+	URL                   string                        `json:"url"`
+	Type                  string                        `json:"type"` // "HTTP", "KEYWORD", "PING", "PORT", "HEARTBEAT", "DNS"
+	Interval              int                           `json:"interval"`
+	Timeout               int                           `json:"timeout,omitempty"`
+	GracePeriod           int                           `json:"gracePeriod"` // Required: seconds to wait before alerting (0-86400)
+	HTTPMethod            string                        `json:"httpMethodType,omitempty"` // HEAD, GET, POST, PUT, PATCH, DELETE, OPTIONS
+	HTTPUsername          string                        `json:"httpUsername,omitempty"`
+	HTTPPassword          string                        `json:"httpPassword,omitempty"`
+	HTTPAuthType          string                        `json:"httpAuthType,omitempty"` // "basic", "digest"
+	PostType              string                        `json:"postType,omitempty"`
+	PostContentType       string                        `json:"postContentType,omitempty"`
+	PostValue             string                        `json:"postValue,omitempty"`
+	KeywordType           string                        `json:"keywordType,omitempty"`     // "exists", "not_exists"
+	KeywordCaseType       string                        `json:"keywordCaseType,omitempty"` // "case_sensitive", "case_insensitive"
+	KeywordValue          string                        `json:"keywordValue,omitempty"`
+	SubType               string                        `json:"subType,omitempty"` // For port monitors
+	Port                  int                           `json:"port,omitempty"`
+	AssignedAlertContacts []AssignedAlertContactRequest `json:"assignedAlertContacts,omitempty"`
+	// Config object required for DNS, Heartbeat monitors
+	Config *MonitorConfig `json:"config,omitempty"`
 }
 
 // UpdateMonitorRequest represents the v3 API request payload for updating a monitor.
@@ -65,8 +71,8 @@ type UpdateMonitorRequest struct {
 	SubType               string                        `json:"subType,omitempty"`
 	Port                  int                           `json:"port,omitempty"`
 	AssignedAlertContacts []AssignedAlertContactRequest `json:"assignedAlertContacts,omitempty"`
-	DNSRecordType         string                        `json:"dnsRecordType,omitempty"`
-	DNSValue              string                        `json:"dnsValue,omitempty"`
+	// Config object required for DNS, Heartbeat monitors
+	Config *MonitorConfig `json:"config,omitempty"`
 }
 
 // AssignedAlertContactRequest represents an alert contact assignment in v3 API.
@@ -131,18 +137,13 @@ type AlertContactsListResponse struct {
 }
 
 // UserMeResponse represents the v3 API response for /user/me endpoint.
+// Note: The v3 API returns user info directly without a wrapper object.
 type UserMeResponse struct {
-	User UserInfo `json:"user"`
-}
-
-// UserInfo represents user account information in v3 API.
-// Note: The v3 API uses camelCase field names.
-type UserInfo struct {
-	Email        string `json:"email"`
-	MonitorLimit int    `json:"monitorLimit"`
-	MonitorUsage int    `json:"monitorUsage"`
-	SMSLimit     int    `json:"smsLimit"`
-	SMSUsage     int    `json:"smsUsage"`
+	Email         string `json:"email"`
+	FullName      string `json:"fullName"`
+	MonitorsCount int    `json:"monitorsCount"`
+	MonitorLimit  int    `json:"monitorLimit"`
+	SMSCredits    int    `json:"smsCredits"`
 }
 
 // APIError represents an error response from the v3 API.

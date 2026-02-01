@@ -183,10 +183,14 @@ func (c Client) buildCreateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 		}
 	}
 
-	// Handle DNS monitors
-	if monitor.Type == urtypes.TypeDNS && monitor.DNS != nil {
-		req.DNSRecordType = monitor.DNS.RecordType
-		req.DNSValue = monitor.DNS.Value
+	// Handle DNS monitors - v3 API requires a config object
+	if monitor.Type == urtypes.TypeDNS {
+		req.Config = &MonitorConfig{}
+	}
+
+	// Handle Heartbeat monitors - v3 API requires a config object
+	if monitor.Type == urtypes.TypeHeartbeat {
+		req.Config = &MonitorConfig{}
 	}
 
 	// Convert contacts to v3 format
@@ -257,10 +261,14 @@ func (c Client) buildUpdateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 		}
 	}
 
-	// Handle DNS monitors
-	if monitor.Type == urtypes.TypeDNS && monitor.DNS != nil {
-		req.DNSRecordType = monitor.DNS.RecordType
-		req.DNSValue = monitor.DNS.Value
+	// Handle DNS monitors - v3 API requires a config object
+	if monitor.Type == urtypes.TypeDNS {
+		req.Config = &MonitorConfig{}
+	}
+
+	// Handle Heartbeat monitors - v3 API requires a config object
+	if monitor.Type == urtypes.TypeHeartbeat {
+		req.Config = &MonitorConfig{}
 	}
 
 	// Convert contacts to v3 format
@@ -442,7 +450,7 @@ func (c Client) GetAccountDetails(ctx context.Context) (string, error) {
 		return "", err
 	}
 
-	return resp.User.Email, nil
+	return resp.Email, nil
 }
 
 // Helper functions to convert internal types to v3 API strings
