@@ -14,23 +14,25 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1
+package v1alpha1
 
 import (
 	"fmt"
 	"strings"
 	"time"
 
-	"github.com/clevyr/uptime-robot-operator/internal/uptimerobot/urtypes"
+	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot/urtypes"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // MonitorSpec defines the desired state of Monitor.
 type MonitorSpec struct {
-	// Interval defines the reconcile interval.
+	// SyncInterval defines how often the operator reconciles with the UptimeRobot API.
+	// This controls drift detection frequency. Lower values mean faster detection of
+	// external changes but more API calls.
 	//+kubebuilder:default:="24h"
-	Interval *metav1.Duration `json:"interval,omitempty"`
+	SyncInterval *metav1.Duration `json:"syncInterval,omitempty"`
 
 	// Prune enables garbage collection.
 	//+kubebuilder:default:=true
@@ -77,6 +79,7 @@ type Monitor struct {
 //+kubebuilder:object:generate=true
 //+kubebuilder:validation:XValidation:rule="self.type != 'Keyword' || has(self.keyword)", message="Keyword config is required if type is Keyword"
 //+kubebuilder:validation:XValidation:rule="self.type != 'Port' || has(self.port)", message="Port config is required if type is Port"
+//+kubebuilder:validation:XValidation:rule="self.type != 'DNS' || has(self.dns)", message="DNS config is required if type is DNS"
 
 type MonitorValues struct {
 	// Name sets the name that is shown in Uptime Robot.
@@ -101,6 +104,11 @@ type MonitorValues struct {
 	//+kubebuilder:default:="30s"
 	Timeout *metav1.Duration `json:"timeout,omitempty"`
 
+	// GracePeriod is the time to wait before sending an alert after the monitor goes down.
+	// Maximum value is 24 hours (86400 seconds).
+	//+kubebuilder:default:="60s"
+	GracePeriod *metav1.Duration `json:"gracePeriod,omitempty"`
+
 	// Method defines the HTTP verb to use.
 	//+kubebuilder:default:="HEAD"
 	Method urtypes.HTTPMethod `json:"method,omitempty"`
@@ -116,6 +124,12 @@ type MonitorValues struct {
 
 	// Auth enables monitor auth.
 	Auth *MonitorAuth `json:"auth,omitempty"`
+
+	// DNS provides configuration for the DNS monitor type.
+	DNS *MonitorDNS `json:"dns,omitempty"`
+
+	// Heartbeat provides configuration for the Heartbeat monitor type.
+	Heartbeat *MonitorHeartbeat `json:"heartbeat,omitempty"`
 }
 
 //+kubebuilder:object:generate=true
@@ -161,6 +175,29 @@ type MonitorPOST struct {
 
 	// Value is the JSON form of data to be sent with POST, PUT, PATCH, DELETE, and OPTIONS requests.
 	Value string `json:"value,omitempty"`
+}
+
+//+kubebuilder:object:generate=true
+
+// MonitorDNS provides configuration for DNS monitor type.
+type MonitorDNS struct {
+	// RecordType is the DNS record type to check.
+	//+kubebuilder:validation:Enum:=A;AAAA;MX;NS;CNAME;TXT;SOA
+	RecordType string `json:"recordType"`
+
+	// Value is the expected DNS record value.
+	Value string `json:"value"`
+}
+
+//+kubebuilder:object:generate=true
+
+// MonitorHeartbeat provides configuration for Heartbeat monitor type.
+// Heartbeat monitors expect periodic pings from your services/jobs.
+type MonitorHeartbeat struct {
+	// Interval is the expected interval between heartbeats.
+	// If no heartbeat is received within this interval, an alert is triggered.
+	//+kubebuilder:default:="60s"
+	Interval *metav1.Duration `json:"interval,omitempty"`
 }
 
 // MonitorContactRef attaches alert contacts. If blank, the default will be used.

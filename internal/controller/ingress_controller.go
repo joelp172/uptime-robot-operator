@@ -22,9 +22,9 @@ import (
 	"strconv"
 	"strings"
 
-	uptimerobotv1 "github.com/clevyr/uptime-robot-operator/api/v1"
-	"github.com/clevyr/uptime-robot-operator/internal/util"
 	"github.com/go-viper/mapstructure/v2"
+	uptimerobotv1 "github.com/joelp172/uptime-robot-operator/api/v1alpha1"
+	"github.com/joelp172/uptime-robot-operator/internal/util"
 	"github.com/knadh/koanf/maps"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -40,7 +40,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
-var IngressAnnotationPrefix = "uptime-robot.clevyr.com/"
+var IngressAnnotationPrefix = "uptimerobot.com/"
 
 // IngressReconciler reconciles a Ingress object
 type IngressReconciler struct {
@@ -72,7 +72,7 @@ func (r *IngressReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
-	const myFinalizerName = "uptime-robot.clevyr.com/finalizer"
+	const myFinalizerName = "uptimerobot.com/finalizer"
 	if !ingress.DeletionTimestamp.IsZero() {
 		// Object is being deleted
 		if controllerutil.ContainsFinalizer(ingress, myFinalizerName) {
@@ -171,7 +171,7 @@ func (r *IngressReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 func (r *IngressReconciler) findMonitors(ctx context.Context, ingress *networkingv1.Ingress) (*uptimerobotv1.MonitorList, error) {
 	list := &uptimerobotv1.MonitorList{}
-	err := r.Client.List(ctx, list, &client.ListOptions{
+	err := r.List(ctx, list, &client.ListOptions{
 		FieldSelector: fields.OneTermEqualSelector("spec.sourceRef", ingress.Kind+"/"+ingress.Name),
 	})
 	if err != nil {

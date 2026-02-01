@@ -4,5 +4,5 @@ resources:
 - manager.yaml
 images:
 - name: controller
-  newName: ghcr.io/clevyr/uptime-robot-operator
-  newTag: latest
+  newName: uptime-robot-operator
+  newTag: dev-1769977472

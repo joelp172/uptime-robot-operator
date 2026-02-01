@@ -1,0 +1,23 @@
+[
+  {
+    "id": 102759,
+    "friendlyName": "Default Alert Contact",
+    "type": "Email",
+    "status": "Active",
+    "value": "test@example.com"
+  },
+  {
+    "id": 993765,
+    "friendlyName": "John Doe",
+    "type": "Email",
+    "status": "Active",
+    "value": "john.doe@example.com"
+  },
+  {
+    "id": 2104569,
+    "friendlyName": "Slack Alerts",
+    "type": "Slack",
+    "status": "Active",
+    "value": "https://hooks.slack.com/services/xxx"
+  }
+]

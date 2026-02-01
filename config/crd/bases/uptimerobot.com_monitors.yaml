@@ -4,9 +4,9 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.17.2
-  name: monitors.uptime-robot.clevyr.com
+  name: monitors.uptimerobot.com
 spec:
-  group: uptime-robot.clevyr.com
+  group: uptimerobot.com
   names:
     kind: Monitor
     listKind: MonitorList
@@ -27,7 +27,7 @@ spec:
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
-    name: v1
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: Monitor is the Schema for the monitors API.
@@ -96,10 +96,6 @@ spec:
                   type: object
                   x-kubernetes-map-type: atomic
                 type: array
-              interval:
-                default: 24h
-                description: Interval defines the reconcile interval.
-                type: string
               monitor:
                 description: Monitor configures the Uptime Robot monitor.
                 properties:
@@ -124,6 +120,44 @@ spec:
                         type: string
                     required:
                     - type
+                    type: object
+                  dns:
+                    description: DNS provides configuration for the DNS monitor type.
+                    properties:
+                      recordType:
+                        description: RecordType is the DNS record type to check.
+                        enum:
+                        - A
+                        - AAAA
+                        - MX
+                        - NS
+                        - CNAME
+                        - TXT
+                        - SOA
+                        type: string
+                      value:
+                        description: Value is the expected DNS record value.
+                        type: string
+                    required:
+                    - recordType
+                    - value
+                    type: object
+                  gracePeriod:
+                    default: 60s
+                    description: |-
+                      GracePeriod is the time to wait before sending an alert after the monitor goes down.
+                      Maximum value is 24 hours (86400 seconds).
+                    type: string
+                  heartbeat:
+                    description: Heartbeat provides configuration for the Heartbeat
+                      monitor type.
+                    properties:
+                      interval:
+                        default: 60s
+                        description: |-
+                          Interval is the expected interval between heartbeats.
+                          If no heartbeat is received within this interval, an alert is triggered.
+                        type: string
                     type: object
                   interval:
                     default: 60s
@@ -228,6 +262,7 @@ spec:
                     - Ping
                     - Port
                     - Heartbeat
+                    - DNS
                     type: string
                   url:
                     description: URL is the URL or IP to monitor, including the scheme.
@@ -241,6 +276,8 @@ spec:
                   rule: self.type != 'Keyword' || has(self.keyword)
                 - message: Port config is required if type is Port
                   rule: self.type != 'Port' || has(self.port)
+                - message: DNS config is required if type is DNS
+                  rule: self.type != 'DNS' || has(self.dns)
               prune:
                 default: true
                 description: Prune enables garbage collection.
@@ -266,6 +303,13 @@ spec:
                 - name
                 type: object
                 x-kubernetes-map-type: atomic
+              syncInterval:
+                default: 24h
+                description: |-
+                  SyncInterval defines how often the operator reconciles with the UptimeRobot API.
+                  This controls drift detection frequency. Lower values mean faster detection of
+                  external changes but more API calls.
+                type: string
             required:
             - monitor
             type: object
@@ -285,6 +329,7 @@ spec:
                 - Ping
                 - Port
                 - Heartbeat
+                - DNS
                 type: string
             required:
             - ready

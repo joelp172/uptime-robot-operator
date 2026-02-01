@@ -20,9 +20,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
-	"github.com/clevyr/uptime-robot-operator/internal/uptimerobot"
-	"github.com/clevyr/uptime-robot-operator/internal/uptimerobot/urtypes"
+	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot"
+	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot/urtypes"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -32,7 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	uptimerobotv1 "github.com/clevyr/uptime-robot-operator/api/v1"
+	uptimerobotv1 "github.com/joelp172/uptime-robot-operator/api/v1alpha1"
 )
 
 // MonitorReconciler reconciles a Monitor object
@@ -46,9 +47,9 @@ var (
 	ErrSecretMissingKey = errors.New("secret missing key")
 )
 
-//+kubebuilder:rbac:groups=uptime-robot.clevyr.com,resources=monitors,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=uptime-robot.clevyr.com,resources=monitors/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=uptime-robot.clevyr.com,resources=monitors/finalizers,verbs=update
+//+kubebuilder:rbac:groups=uptimerobot.com,resources=monitors,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=uptimerobot.com,resources=monitors/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=uptimerobot.com,resources=monitors/finalizers,verbs=update
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -60,7 +61,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	_ = log.FromContext(ctx)
 
 	monitor := &uptimerobotv1.Monitor{}
-	if err := r.Client.Get(ctx, req.NamespacedName, monitor); err != nil {
+	if err := r.Get(ctx, req.NamespacedName, monitor); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
@@ -75,7 +76,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 	urclient := uptimerobot.NewClient(apiKey)
 
-	const myFinalizerName = "uptime-robot.clevyr.com/finalizer"
+	const myFinalizerName = "uptimerobot.com/finalizer"
 	if !monitor.DeletionTimestamp.IsZero() {
 		// Object is being deleted
 		if controllerutil.ContainsFinalizer(monitor, myFinalizerName) {
@@ -111,7 +112,9 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 
 		if contact.Status.ID == "" {
-			return ctrl.Result{}, ErrContactMissingID
+			// Contact hasn't been reconciled yet - requeue without error
+			log.FromContext(ctx).Info("Contact not ready yet, requeuing", "contact", ref.Name)
+			return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
 		}
 
 		contacts = append(contacts, uptimerobotv1.MonitorContact{
@@ -122,7 +125,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	if auth := monitor.Spec.Monitor.Auth; auth != nil && auth.SecretName != "" {
 		secret := &corev1.Secret{}
-		if err := r.Client.Get(ctx, client.ObjectKey{
+		if err := r.Get(ctx, client.ObjectKey{
 			Namespace: req.Namespace,
 			Name:      auth.SecretName,
 		}, secret); err != nil {
@@ -183,7 +186,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 	}
 
-	return ctrl.Result{RequeueAfter: monitor.Spec.Interval.Duration}, nil
+	return ctrl.Result{RequeueAfter: monitor.Spec.SyncInterval.Duration}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

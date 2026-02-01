@@ -1,4 +1,4 @@
-apiVersion: uptime-robot.clevyr.com/v1
+apiVersion: uptimerobot.com/v1alpha1
 kind: Monitor
 metadata:
   labels:
@@ -6,9 +6,9 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: example
 spec:
-  interval: 24h
+  syncInterval: 5m  # How often operator syncs with UptimeRobot API (drift detection)
   prune: true
   monitor:
     name: Example
     url: https://example.com
-    interval: 5m
+    interval: 5m  # How often UptimeRobot checks the URL

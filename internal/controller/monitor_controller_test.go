@@ -19,7 +19,7 @@ package controller
 import (
 	"context"
 
-	"github.com/clevyr/uptime-robot-operator/internal/uptimerobot/urtypes"
+	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot/urtypes"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -29,7 +29,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	uptimerobotv1 "github.com/clevyr/uptime-robot-operator/api/v1"
+	uptimerobotv1 "github.com/joelp172/uptime-robot-operator/api/v1alpha1"
 )
 
 var _ = Describe("Monitor Controller", func() {

@@ -1,0 +1,20 @@
+---
+apiVersion: uptimerobot.com/v1alpha1
+kind: Monitor
+metadata:
+  labels:
+    app.kubernetes.io/name: uptime-robot-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: example-keyword
+spec:
+  syncInterval: 5m  # How often operator syncs with UptimeRobot API
+  prune: true
+  monitor:
+    name: Example Keyword Monitor
+    url: https://www.example.org  # Different URL to avoid conflict with HTTP sample
+    type: Keyword
+    interval: 5m  # How often UptimeRobot checks the URL
+    keyword:
+      type: Exists
+      value: "Example Domain"
+      caseSensitive: false

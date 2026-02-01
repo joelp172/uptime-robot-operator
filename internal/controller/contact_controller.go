@@ -20,7 +20,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/clevyr/uptime-robot-operator/internal/uptimerobot"
+	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -29,7 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	uptimerobotv1 "github.com/clevyr/uptime-robot-operator/api/v1"
+	uptimerobotv1 "github.com/joelp172/uptime-robot-operator/api/v1alpha1"
 )
 
 // ContactReconciler reconciles a Contact object
@@ -38,9 +38,9 @@ type ContactReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-//+kubebuilder:rbac:groups=uptime-robot.clevyr.com,resources=contacts,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=uptime-robot.clevyr.com,resources=contacts/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=uptime-robot.clevyr.com,resources=contacts/finalizers,verbs=update
+//+kubebuilder:rbac:groups=uptimerobot.com,resources=contacts,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=uptimerobot.com,resources=contacts/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=uptimerobot.com,resources=contacts/finalizers,verbs=update
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -51,7 +51,7 @@ func (r *ContactReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	_ = log.FromContext(ctx)
 
 	contact := &uptimerobotv1.Contact{}
-	if err := r.Client.Get(ctx, req.NamespacedName, contact); err != nil {
+	if err := r.Get(ctx, req.NamespacedName, contact); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
@@ -68,9 +68,19 @@ func (r *ContactReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	urclient := uptimerobot.NewClient(apiKey)
 
 	if contact.Status.ID == "" {
-		id, err := urclient.FindContactID(ctx, contact.Spec.Contact.Name)
-		if err != nil {
-			return ctrl.Result{}, err
+		var id string
+
+		// If ID is specified directly, use it; otherwise look up by name
+		if contact.Spec.Contact.ID != "" {
+			id = contact.Spec.Contact.ID
+		} else if contact.Spec.Contact.Name != "" {
+			var err error
+			id, err = urclient.FindContactID(ctx, contact.Spec.Contact.Name)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+		} else {
+			return ctrl.Result{}, errors.New("contact must specify either id or name")
 		}
 
 		contact.Status.Ready = true

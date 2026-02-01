@@ -1,0 +1,8 @@
+{
+  "id": 777810874,
+  "friendlyName": "New Monitor",
+  "url": "https://example.com",
+  "type": "HTTP",
+  "status": "UP",
+  "interval": 60
+}

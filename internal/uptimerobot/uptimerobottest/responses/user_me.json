@@ -1,0 +1,9 @@
+{
+  "user": {
+    "email": "test@example.com",
+    "monitor_limit": 50,
+    "monitor_usage": 5,
+    "sms_limit": 100,
+    "sms_usage": 0
+  }
+}

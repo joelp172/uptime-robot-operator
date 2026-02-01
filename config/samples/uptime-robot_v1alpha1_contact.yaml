@@ -1,0 +1,23 @@
+---
+# Reference an existing alert contact in your UptimeRobot account.
+# Get contact IDs and names via:
+#   curl -H "Authorization: Bearer YOUR_API_KEY" https://api.uptimerobot.com/v3/user/alert-contacts
+#
+# You can reference a contact by either:
+#   - id: Use the numeric contact ID (works for all contacts)
+#   - name: Use the friendlyName (only works if friendlyName is set in UptimeRobot)
+apiVersion: uptimerobot.com/v1alpha1
+kind: Contact
+metadata:
+  labels:
+    app.kubernetes.io/name: uptime-robot-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: example
+spec:
+  isDefault: true
+  contact:
+    # Option 1: Reference by ID (recommended - works for all contacts)
+    # id: "6121911"
+    #
+    # Option 2: Reference by friendlyName (only if set in UptimeRobot)
+    name: "iPhone"

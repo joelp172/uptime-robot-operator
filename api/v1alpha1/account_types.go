@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1
+package v1alpha1
 
 import (
 	corev1 "k8s.io/api/core/v1"
@@ -34,6 +34,21 @@ type AccountSpec struct {
 type AccountStatus struct {
 	Ready bool   `json:"ready"`
 	Email string `json:"email"`
+	// AlertContacts lists all available alert contacts for this account.
+	// Use the ID field when creating Contact resources.
+	AlertContacts []AlertContactInfo `json:"alertContacts,omitempty"`
+}
+
+// AlertContactInfo represents an alert contact available in UptimeRobot.
+type AlertContactInfo struct {
+	// ID is the unique identifier for this contact. Use this in Contact resources.
+	ID string `json:"id"`
+	// FriendlyName is the display name (may be empty for some contacts like email).
+	FriendlyName string `json:"friendlyName,omitempty"`
+	// Type is the contact type (e.g., "EMAIL", "SMS", "PUSHOVER").
+	Type string `json:"type"`
+	// Value is the contact value (e.g., email address, phone number).
+	Value string `json:"value"`
 }
 
 //+kubebuilder:object:root=true

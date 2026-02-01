@@ -21,7 +21,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/clevyr/uptime-robot-operator/internal/uptimerobot"
+	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -31,7 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	uptimerobotv1 "github.com/clevyr/uptime-robot-operator/api/v1"
+	uptimerobotv1 "github.com/joelp172/uptime-robot-operator/api/v1alpha1"
 )
 
 var ClusterResourceNamespace = "uptime-robot-system"
@@ -44,9 +44,9 @@ type AccountReconciler struct {
 
 var ErrKeyNotFound = errors.New("secret key not found")
 
-//+kubebuilder:rbac:groups=uptime-robot.clevyr.com,resources=accounts,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=uptime-robot.clevyr.com,resources=accounts/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=uptime-robot.clevyr.com,resources=accounts/finalizers,verbs=update
+//+kubebuilder:rbac:groups=uptimerobot.com,resources=accounts,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=uptimerobot.com,resources=accounts/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=uptimerobot.com,resources=accounts/finalizers,verbs=update
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -58,7 +58,7 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	_ = log.FromContext(ctx)
 
 	account := &uptimerobotv1.Account{}
-	if err := r.Client.Get(ctx, req.NamespacedName, account); err != nil {
+	if err := r.Get(ctx, req.NamespacedName, account); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
@@ -78,8 +78,30 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
+	// Fetch alert contacts
+	contacts, err := urclient.GetAlertContacts(ctx)
+	if err != nil {
+		log.FromContext(ctx).Error(err, "failed to fetch alert contacts")
+		// Don't fail the reconciliation if we can't get contacts
+	}
+
+	// Convert to status format
+	alertContacts := make([]uptimerobotv1.AlertContactInfo, 0, len(contacts))
+	for _, c := range contacts {
+		info := uptimerobotv1.AlertContactInfo{
+			ID:    fmt.Sprintf("%d", c.ID),
+			Type:  c.Type,
+			Value: c.Value,
+		}
+		if c.FriendlyName != nil {
+			info.FriendlyName = *c.FriendlyName
+		}
+		alertContacts = append(alertContacts, info)
+	}
+
 	account.Status.Ready = true
 	account.Status.Email = email
+	account.Status.AlertContacts = alertContacts
 	if err := r.Status().Update(ctx, account); err != nil {
 		return ctrl.Result{}, err
 	}

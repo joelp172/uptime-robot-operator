@@ -4,14 +4,14 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.17.2
-  name: contacts.uptime-robot.clevyr.com
+  name: accounts.uptimerobot.com
 spec:
-  group: uptime-robot.clevyr.com
+  group: uptimerobot.com
   names:
-    kind: Contact
-    listKind: ContactList
-    plural: contacts
-    singular: contact
+    kind: Account
+    listKind: AccountList
+    plural: accounts
+    singular: account
   scope: Cluster
   versions:
   - additionalPrinterColumns:
@@ -21,16 +21,16 @@ spec:
     - jsonPath: .spec.isDefault
       name: Default
       type: boolean
-    - jsonPath: .spec.contact.name
-      name: Friendly Name
+    - jsonPath: .status.email
+      name: Email
       type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
-    name: v1
+    name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: Contact is the Schema for the contacts API.
+        description: Account is the Schema for the accounts API.
         properties:
           apiVersion:
             description: |-
@@ -50,12 +50,16 @@ spec:
           metadata:
             type: object
           spec:
-            description: ContactSpec defines the desired state of Contact.
+            description: AccountSpec defines the desired state of Account.
             properties:
-              account:
-                description: Account references this object's Account. If not specified,
-                  the default will be used.
+              apiKeySecretRef:
+                description: ApiKeySecretRef references the secret that contains the
+                  Uptime Robot API key.
                 properties:
+                  key:
+                    description: The key of the secret to select from.  Must be a
+                      valid secret key.
+                    type: string
                   name:
                     default: ""
                     description: |-
@@ -65,31 +69,58 @@ spec:
                       almost certainly wrong.
                       More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
                     type: string
+                  optional:
+                    description: Specify whether the Secret or its key must be defined
+                    type: boolean
+                required:
+                - key
                 type: object
                 x-kubernetes-map-type: atomic
-              contact:
-                description: Contact configures the Uptime Robot monitor.
-                properties:
-                  name:
-                    description: Name sets the name that is shown in Uptime Robot.
-                    type: string
-                required:
-                - name
-                type: object
               isDefault:
                 default: false
                 type: boolean
             required:
-            - contact
+            - apiKeySecretRef
             type: object
           status:
-            description: ContactStatus defines the observed state of Contact.
+            description: AccountStatus defines the observed state of Account.
             properties:
-              id:
+              alertContacts:
+                description: |-
+                  AlertContacts lists all available alert contacts for this account.
+                  Use the ID field when creating Contact resources.
+                items:
+                  description: AlertContactInfo represents an alert contact available
+                    in UptimeRobot.
+                  properties:
+                    friendlyName:
+                      description: FriendlyName is the display name (may be empty
+                        for some contacts like email).
+                      type: string
+                    id:
+                      description: ID is the unique identifier for this contact. Use
+                        this in Contact resources.
+                      type: string
+                    type:
+                      description: Type is the contact type (e.g., "EMAIL", "SMS",
+                        "PUSHOVER").
+                      type: string
+                    value:
+                      description: Value is the contact value (e.g., email address,
+                        phone number).
+                      type: string
+                  required:
+                  - id
+                  - type
+                  - value
+                  type: object
+                type: array
+              email:
                 type: string
               ready:
                 type: boolean
             required:
+            - email
             - ready
             type: object
         type: object
