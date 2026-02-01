@@ -1,0 +1,25 @@
+{
+  "monitors": [
+    {
+      "id": 777749809,
+      "friendly_name": "Google",
+      "url": "https://www.google.com",
+      "type": "HTTP",
+      "status": 1,
+      "interval": 900
+    },
+    {
+      "id": 777712827,
+      "friendly_name": "My Web Page",
+      "url": "https://mywebpage.com/",
+      "type": "HTTP",
+      "status": 2,
+      "interval": 60
+    }
+  ],
+  "pagination": {
+    "cursor": "",
+    "limit": 50,
+    "total": 2
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "alert_contacts": [
+    {
+      "id": "0102759",
+      "friendly_name": "Default Alert Contact",
+      "type": 2,
+      "status": 2,
+      "value": "test@example.com"
+    },
+    {
+      "id": "2104569",
+      "friendly_name": "Slack Alerts",
+      "type": 11,
+      "status": 2,
+      "value": "https://hooks.slack.com/services/xxx"
+    }
+  ],
+  "pagination": {
+    "cursor": "",
+    "limit": 50,
+    "total": 2
+  }
+}

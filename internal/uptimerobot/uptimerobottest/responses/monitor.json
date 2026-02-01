@@ -1,0 +1,10 @@
+{
+  "monitor": {
+    "id": 777749809,
+    "friendly_name": "Google",
+    "url": "https://www.google.com",
+    "type": "HTTP",
+    "status": 1,
+    "interval": 900
+  }
+}

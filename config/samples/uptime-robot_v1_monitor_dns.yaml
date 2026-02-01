@@ -1,0 +1,19 @@
+---
+apiVersion: uptime-robot.clevyr.com/v1
+kind: Monitor
+metadata:
+  labels:
+    app.kubernetes.io/name: uptime-robot-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: example-dns
+spec:
+  interval: 24h
+  prune: true
+  monitor:
+    name: Example DNS Monitor
+    url: example.com
+    type: DNS
+    interval: 5m
+    dns:
+      recordType: A
+      value: "93.184.216.34"

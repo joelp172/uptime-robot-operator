@@ -8,11 +8,11 @@ import (
 	"strings"
 )
 
-const _MonitorTypeName = "HTTPSKeywordPingPortHeartbeat"
+const _MonitorTypeName = "HTTPSKeywordPingPortHeartbeatDNS"
 
-var _MonitorTypeIndex = [...]uint8{0, 5, 12, 16, 20, 29}
+var _MonitorTypeIndex = [...]uint8{0, 5, 12, 16, 20, 29, 32}
 
-const _MonitorTypeLowerName = "httpskeywordpingportheartbeat"
+const _MonitorTypeLowerName = "httpskeywordpingportheartbeatdns"
 
 func (i MonitorType) String() string {
 	i -= 1
@@ -31,9 +31,10 @@ func _MonitorTypeNoOp() {
 	_ = x[TypePing-(3)]
 	_ = x[TypePort-(4)]
 	_ = x[TypeHeartbeat-(5)]
+	_ = x[TypeDNS-(6)]
 }
 
-var _MonitorTypeValues = []MonitorType{TypeHTTPS, TypeKeyword, TypePing, TypePort, TypeHeartbeat}
+var _MonitorTypeValues = []MonitorType{TypeHTTPS, TypeKeyword, TypePing, TypePort, TypeHeartbeat, TypeDNS}
 
 var _MonitorTypeNameToValueMap = map[string]MonitorType{
 	_MonitorTypeName[0:5]:        TypeHTTPS,
@@ -46,6 +47,8 @@ var _MonitorTypeNameToValueMap = map[string]MonitorType{
 	_MonitorTypeLowerName[16:20]: TypePort,
 	_MonitorTypeName[20:29]:      TypeHeartbeat,
 	_MonitorTypeLowerName[20:29]: TypeHeartbeat,
+	_MonitorTypeName[29:32]:      TypeDNS,
+	_MonitorTypeLowerName[29:32]: TypeDNS,
 }
 
 var _MonitorTypeNames = []string{
@@ -54,6 +57,7 @@ var _MonitorTypeNames = []string{
 	_MonitorTypeName[12:16],
 	_MonitorTypeName[16:20],
 	_MonitorTypeName[20:29],
+	_MonitorTypeName[29:32],
 }
 
 // MonitorTypeString retrieves an enum value from the enum constants string name.

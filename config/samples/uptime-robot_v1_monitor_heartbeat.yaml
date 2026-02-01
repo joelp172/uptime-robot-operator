@@ -1,0 +1,19 @@
+---
+apiVersion: uptime-robot.clevyr.com/v1
+kind: Monitor
+metadata:
+  labels:
+    app.kubernetes.io/name: uptime-robot-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: example-heartbeat
+spec:
+  interval: 24h
+  prune: true
+  monitor:
+    name: Example Heartbeat Monitor
+    # The URL is the heartbeat endpoint your service should ping
+    url: https://heartbeat.uptimerobot.com/xxx
+    type: Heartbeat
+    interval: 5m
+    heartbeat:
+      interval: 5m

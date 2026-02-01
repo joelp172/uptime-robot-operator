@@ -1,6 +1,23 @@
+/*
+Copyright 2025.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package uptimerobot
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -11,13 +28,15 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	uptimerobotv1 "github.com/clevyr/uptime-robot-operator/api/v1"
 	"github.com/clevyr/uptime-robot-operator/internal/uptimerobot/urtypes"
 )
 
+// NewClient creates a new UptimeRobot API v3 client.
 func NewClient(apiKey string) Client {
-	api := "https://api.uptimerobot.com/v2"
+	api := "https://api.uptimerobot.com/v3"
 	if env := os.Getenv("UPTIME_ROBOT_API"); env != "" {
 		api = strings.TrimSuffix(env, "/")
 	}
@@ -25,293 +44,415 @@ func NewClient(apiKey string) Client {
 	return Client{url: api, apiKey: apiKey}
 }
 
+// Client is the UptimeRobot API v3 client.
 type Client struct {
 	url    string
 	apiKey string
 }
 
-func (c Client) NewValues() url.Values {
-	v := make(url.Values)
-	v.Set("api_key", c.apiKey)
-	v.Set("format", "json")
-	return v
-}
+var (
+	ErrStatus          = errors.New("error code from Uptime Robot API")
+	ErrResponse        = errors.New("received fail from Uptime Robot API")
+	ErrMonitorNotFound = errors.New("monitor not found")
+	ErrContactNotFound = errors.New("contact not found")
+)
 
-func (c Client) NewRequest(ctx context.Context, endpoint string, form url.Values) (*http.Request, error) {
+// newRequest creates a new HTTP request with v3 API authentication.
+func (c Client) newRequest(ctx context.Context, method, endpoint string, body any) (*http.Request, error) {
 	u := c.url + "/" + endpoint
 
-	req, err := http.NewRequestWithContext(ctx, "POST", u, strings.NewReader(form.Encode()))
+	var bodyReader io.Reader
+	if body != nil {
+		jsonBody, err := json.Marshal(body)
+		if err != nil {
+			return nil, err
+		}
+		bodyReader = bytes.NewReader(jsonBody)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, u, bodyReader)
 	if err != nil {
 		return nil, err
 	}
 
-	req.Header.Add("Cache-Control", "no-cache")
-	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	// v3 uses Bearer token authentication
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Cache-Control", "no-cache")
 
 	return req, nil
 }
 
-func (c Client) Do(ctx context.Context, endpoint string, form url.Values) (*http.Response, error) {
-	req, err := c.NewRequest(ctx, endpoint, form)
-	if err != nil {
-		return nil, err
-	}
-
+// do executes an HTTP request and returns the response.
+func (c Client) do(req *http.Request) (*http.Response, error) {
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
 
-	if res.StatusCode > 400 {
-		return nil, fmt.Errorf("%w: %s", ErrStatus, res.Status)
+	if res.StatusCode >= 400 {
+		defer res.Body.Close()
+		body, _ := io.ReadAll(res.Body)
+		return nil, fmt.Errorf("%w: %s - %s", ErrStatus, res.Status, string(body))
 	}
 
 	return res, nil
 }
 
-func (c Client) MonitorValues(monitor uptimerobotv1.MonitorValues, form url.Values, contacts uptimerobotv1.MonitorContacts) url.Values {
-	form.Set("friendly_name", monitor.Name)
-	form.Set("url", monitor.URL)
-	form.Set("type", strconv.Itoa(int(monitor.Type)))
-	form.Set("interval", strconv.Itoa(int(monitor.Interval.Seconds())))
-	form.Set("timeout", strconv.Itoa(int(monitor.Timeout.Seconds())))
-	form.Set("alert_contacts", contacts.String())
-	form.Set("http_method", strconv.Itoa(int(monitor.Method)))
-	switch monitor.Method {
-	case urtypes.MethodHEAD, urtypes.MethodGET:
-	default:
-		if monitor.POST != nil {
-			form.Set("post_type", strconv.Itoa(int(monitor.POST.Type)))
-			form.Set("post_content_type", strconv.Itoa(int(monitor.POST.ContentType)))
-			form.Set("post_value", monitor.POST.Value)
-		}
-	}
-	var username, password string
-	if monitor.Auth != nil {
-		form.Set("http_auth_type", strconv.Itoa(int(monitor.Auth.Type)))
-		username = monitor.Auth.Username
-		password = monitor.Auth.Password
-	}
-	form.Set("http_username", username)
-	form.Set("http_password", password)
-	switch monitor.Type {
-	case urtypes.TypeKeyword:
-		if monitor.Keyword != nil {
-			form.Set("keyword_type", strconv.Itoa(int(monitor.Keyword.Type)))
-			caseType := "1"
-			if *monitor.Keyword.CaseSensitive {
-				caseType = "0"
-			}
-			form.Set("keyword_case_type", caseType)
-			form.Set("keyword_value", monitor.Keyword.Value)
-		}
-	case urtypes.TypePort:
-		if monitor.Port != nil {
-			form.Set("sub_type", strconv.Itoa(int(monitor.Port.Type)))
-			if monitor.Port.Type == urtypes.PortCustom {
-				form.Set("port", strconv.Itoa(int(monitor.Port.Type)))
-			}
-		}
-	}
-	return form
-}
-
-type Response struct {
-	Status  urtypes.Status  `json:"stat"`
-	Monitor ResponseMonitor `json:"monitor"`
-}
-
-type ResponseMonitor struct {
-	ID json.Number `json:"id"`
-}
-
-var (
-	ErrStatus   = errors.New("error code from Uptime Robot API")
-	ErrResponse = errors.New("received fail from Uptime Robot API")
-)
-
-func (c Client) CreateMonitor(ctx context.Context, monitor uptimerobotv1.MonitorValues, contacts uptimerobotv1.MonitorContacts) (string, error) {
-	form := c.MonitorValues(monitor, c.NewValues(), contacts)
-
-	res, err := c.Do(ctx, "newMonitor", form)
-	if err != nil {
-		return "", err
-	}
-	defer func(Body io.ReadCloser) {
-		_ = Body.Close()
-	}(res.Body)
-
-	parsed := &Response{}
-	if err := json.NewDecoder(res.Body).Decode(&parsed); err != nil {
-		return "", err
-	}
-
-	if parsed.Status != urtypes.StatusOK {
-		if id, err := c.FindMonitorID(ctx, FindByURL(monitor)); err == nil {
-			// Monitor already exists
-			return id, nil
-		}
-		return "", ErrResponse
-	}
-	return parsed.Monitor.ID.String(), nil
-}
-
-func (c Client) DeleteMonitor(ctx context.Context, id string) error {
-	form := c.NewValues()
-	form.Set("id", id)
-
-	res, err := c.Do(ctx, "deleteMonitor", form)
+// doJSON executes an HTTP request and decodes the JSON response.
+func (c Client) doJSON(ctx context.Context, method, endpoint string, body any, result any) error {
+	req, err := c.newRequest(ctx, method, endpoint, body)
 	if err != nil {
 		return err
 	}
-	defer func(Body io.ReadCloser) {
-		_ = Body.Close()
-	}(res.Body)
 
-	parsed := &Response{}
-	if err := json.NewDecoder(res.Body).Decode(&parsed); err != nil {
+	res, err := c.do(req)
+	if err != nil {
 		return err
 	}
+	defer res.Body.Close()
 
-	if parsed.Status != urtypes.StatusOK {
-		if _, err := c.FindMonitorID(ctx, FindByID(id)); err != nil && errors.Is(err, ErrMonitorNotFound) {
-			// Monitor already deleted
-			return nil
+	if result != nil {
+		if err := json.NewDecoder(res.Body).Decode(result); err != nil {
+			return err
 		}
-		return ErrResponse
 	}
+
 	return nil
 }
 
-func (c Client) EditMonitor(ctx context.Context, id string, monitor uptimerobotv1.MonitorValues, contacts uptimerobotv1.MonitorContacts) (string, error) {
-	form := c.MonitorValues(monitor, c.NewValues(), contacts)
-	form.Set("id", id)
-	form.Set("status", strconv.Itoa(int(monitor.Status)))
+// buildCreateMonitorRequest converts internal types to v3 API request format.
+func (c Client) buildCreateMonitorRequest(monitor uptimerobotv1.MonitorValues, contacts uptimerobotv1.MonitorContacts) CreateMonitorRequest {
+	req := CreateMonitorRequest{
+		FriendlyName: monitor.Name,
+		URL:          monitor.URL,
+		Type:         monitor.Type.ToAPIString(),
+		Interval:     int(monitor.Interval.Seconds()),
+		Timeout:      int(monitor.Timeout.Seconds()),
+		HTTPMethod:   httpMethodToString(monitor.Method),
+	}
 
-	res, err := c.Do(ctx, "editMonitor", form)
+	// Handle auth
+	if monitor.Auth != nil {
+		req.HTTPAuthType = authTypeToString(monitor.Auth.Type)
+		req.HTTPUsername = monitor.Auth.Username
+		req.HTTPPassword = monitor.Auth.Password
+	}
+
+	// Handle POST data
+	switch monitor.Method {
+	case urtypes.MethodHEAD, urtypes.MethodGET:
+		// No POST data for HEAD/GET
+	default:
+		if monitor.POST != nil {
+			req.PostType = postTypeToString(monitor.POST.Type)
+			req.PostContentType = postContentTypeToString(monitor.POST.ContentType)
+			req.PostValue = monitor.POST.Value
+		}
+	}
+
+	// Handle keyword monitors
+	if monitor.Type == urtypes.TypeKeyword && monitor.Keyword != nil {
+		req.KeywordType = keywordTypeToString(monitor.Keyword.Type)
+		if monitor.Keyword.CaseSensitive != nil && *monitor.Keyword.CaseSensitive {
+			req.KeywordCaseType = "case_sensitive"
+		} else {
+			req.KeywordCaseType = "case_insensitive"
+		}
+		req.KeywordValue = monitor.Keyword.Value
+	}
+
+	// Handle port monitors
+	if monitor.Type == urtypes.TypePort && monitor.Port != nil {
+		req.SubType = portTypeToString(monitor.Port.Type)
+		if monitor.Port.Type == urtypes.PortCustom {
+			req.Port = int(monitor.Port.Number)
+		}
+	}
+
+	// Handle DNS monitors
+	if monitor.Type == urtypes.TypeDNS && monitor.DNS != nil {
+		req.DNSRecordType = monitor.DNS.RecordType
+		req.DNSValue = monitor.DNS.Value
+	}
+
+	// Convert contacts to v3 format
+	req.AlertContacts = contactsToV3Format(contacts)
+
+	return req
+}
+
+// buildUpdateMonitorRequest converts internal types to v3 API update request format.
+func (c Client) buildUpdateMonitorRequest(monitor uptimerobotv1.MonitorValues, contacts uptimerobotv1.MonitorContacts) UpdateMonitorRequest {
+	req := UpdateMonitorRequest{
+		FriendlyName: monitor.Name,
+		URL:          monitor.URL,
+		Interval:     int(monitor.Interval.Seconds()),
+		Timeout:      int(monitor.Timeout.Seconds()),
+		Status:       int(monitor.Status),
+		HTTPMethod:   httpMethodToString(monitor.Method),
+	}
+
+	// Handle auth
+	if monitor.Auth != nil {
+		req.HTTPAuthType = authTypeToString(monitor.Auth.Type)
+		req.HTTPUsername = monitor.Auth.Username
+		req.HTTPPassword = monitor.Auth.Password
+	}
+
+	// Handle POST data
+	switch monitor.Method {
+	case urtypes.MethodHEAD, urtypes.MethodGET:
+		// No POST data for HEAD/GET
+	default:
+		if monitor.POST != nil {
+			req.PostType = postTypeToString(monitor.POST.Type)
+			req.PostContentType = postContentTypeToString(monitor.POST.ContentType)
+			req.PostValue = monitor.POST.Value
+		}
+	}
+
+	// Handle keyword monitors
+	if monitor.Type == urtypes.TypeKeyword && monitor.Keyword != nil {
+		req.KeywordType = keywordTypeToString(monitor.Keyword.Type)
+		if monitor.Keyword.CaseSensitive != nil && *monitor.Keyword.CaseSensitive {
+			req.KeywordCaseType = "case_sensitive"
+		} else {
+			req.KeywordCaseType = "case_insensitive"
+		}
+		req.KeywordValue = monitor.Keyword.Value
+	}
+
+	// Handle port monitors
+	if monitor.Type == urtypes.TypePort && monitor.Port != nil {
+		req.SubType = portTypeToString(monitor.Port.Type)
+		if monitor.Port.Type == urtypes.PortCustom {
+			req.Port = int(monitor.Port.Number)
+		}
+	}
+
+	// Handle DNS monitors
+	if monitor.Type == urtypes.TypeDNS && monitor.DNS != nil {
+		req.DNSRecordType = monitor.DNS.RecordType
+		req.DNSValue = monitor.DNS.Value
+	}
+
+	// Convert contacts to v3 format
+	req.AlertContacts = contactsToV3Format(contacts)
+
+	return req
+}
+
+// contactsToV3Format converts MonitorContacts to v3 API format.
+func contactsToV3Format(contacts uptimerobotv1.MonitorContacts) []AlertContactRequest {
+	result := make([]AlertContactRequest, 0, len(contacts))
+	for _, c := range contacts {
+		result = append(result, AlertContactRequest{
+			ID:         c.ID,
+			Threshold:  int(c.Threshold.Round(time.Minute).Minutes()),
+			Recurrence: int(c.Recurrence.Round(time.Minute).Minutes()),
+		})
+	}
+	return result
+}
+
+// CreateMonitor creates a new monitor using the v3 API.
+// POST /monitors
+func (c Client) CreateMonitor(ctx context.Context, monitor uptimerobotv1.MonitorValues, contacts uptimerobotv1.MonitorContacts) (string, error) {
+	reqBody := c.buildCreateMonitorRequest(monitor, contacts)
+
+	var resp MonitorCreateResponse
+	if err := c.doJSON(ctx, http.MethodPost, "monitors", reqBody, &resp); err != nil {
+		// If creation fails, check if monitor already exists
+		if id, findErr := c.FindMonitorID(ctx, FindByURL(monitor)); findErr == nil {
+			return id, nil
+		}
+		return "", err
+	}
+
+	return strconv.Itoa(resp.Monitor.ID), nil
+}
+
+// DeleteMonitor deletes a monitor using the v3 API.
+// DELETE /monitors/{id}
+func (c Client) DeleteMonitor(ctx context.Context, id string) error {
+	endpoint := "monitors/" + id
+
+	req, err := c.newRequest(ctx, http.MethodDelete, endpoint, nil)
 	if err != nil {
-		return "", err
-	}
-	defer func(Body io.ReadCloser) {
-		_ = Body.Close()
-	}(res.Body)
-
-	parsed := &Response{}
-	if err := json.NewDecoder(res.Body).Decode(&parsed); err != nil {
-		return "", err
+		return err
 	}
 
-	if parsed.Status != urtypes.StatusOK {
-		if _, err := c.FindMonitorID(ctx, FindByID(id)); err != nil && errors.Is(err, ErrMonitorNotFound) {
-			// Recreate deleted monitor
+	res, err := c.do(req)
+	if err != nil {
+		// If deletion fails with not found, consider it already deleted
+		if errors.Is(err, ErrStatus) && strings.Contains(err.Error(), "404") {
+			return nil
+		}
+		// Check if monitor still exists
+		if _, findErr := c.FindMonitorID(ctx, FindByID(id)); errors.Is(findErr, ErrMonitorNotFound) {
+			return nil
+		}
+		return err
+	}
+	defer res.Body.Close()
+
+	return nil
+}
+
+// EditMonitor updates an existing monitor using the v3 API.
+// PATCH /monitors/{id}
+func (c Client) EditMonitor(ctx context.Context, id string, monitor uptimerobotv1.MonitorValues, contacts uptimerobotv1.MonitorContacts) (string, error) {
+	endpoint := "monitors/" + id
+	reqBody := c.buildUpdateMonitorRequest(monitor, contacts)
+
+	var resp MonitorUpdateResponse
+	if err := c.doJSON(ctx, http.MethodPatch, endpoint, reqBody, &resp); err != nil {
+		// If update fails because monitor doesn't exist, recreate it
+		if _, findErr := c.FindMonitorID(ctx, FindByID(id)); errors.Is(findErr, ErrMonitorNotFound) {
 			return c.CreateMonitor(ctx, monitor, contacts)
 		}
-		return parsed.Monitor.ID.String(), ErrResponse
+		return id, err
 	}
-	return parsed.Monitor.ID.String(), nil
+
+	return strconv.Itoa(resp.Monitor.ID), nil
 }
 
-type FindMonitorResponse struct {
-	Status   urtypes.Status    `json:"stat"`
-	Monitors []ResponseMonitor `json:"monitors"`
-}
-
-var ErrMonitorNotFound = errors.New("monitor not found")
-
+// FindMonitorID finds a monitor ID using the v3 API.
+// GET /monitors
 func (c Client) FindMonitorID(ctx context.Context, opts ...FindOpt) (string, error) {
-	form := c.NewValues()
+	params := make(url.Values)
 	for _, opt := range opts {
-		opt(form)
+		opt(params)
 	}
 
-	res, err := c.Do(ctx, "getMonitors", form)
-	if err != nil {
-		return "", err
+	endpoint := "monitors"
+	if len(params) > 0 {
+		endpoint += "?" + params.Encode()
 	}
-	defer func(Body io.ReadCloser) {
-		_ = Body.Close()
-	}(res.Body)
 
-	parsed := &FindMonitorResponse{}
-	if err := json.NewDecoder(res.Body).Decode(&parsed); err != nil {
+	var resp MonitorsListResponse
+	if err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &resp); err != nil {
 		return "", err
 	}
 
-	if parsed.Status != urtypes.StatusOK {
-		return "", ErrResponse
+	if len(resp.Monitors) == 0 {
+		return "", ErrMonitorNotFound
 	}
 
-	for _, monitor := range parsed.Monitors {
-		return monitor.ID.String(), nil
-	}
-	return "", ErrMonitorNotFound
+	return strconv.Itoa(resp.Monitors[0].ID), nil
 }
 
-type FindContactResponse struct {
-	Status   urtypes.Status    `json:"stat"`
-	Contacts []ResponseContact `json:"alert_contacts"`
-}
-
-type ResponseContact struct {
-	ID           string `json:"id"`
-	FriendlyName string `json:"friendly_name"`
-}
-
-var ErrContactNotFound = errors.New("contact not found")
-
+// FindContactID finds an alert contact ID by friendly name using the v3 API.
+// GET /user/alert-contacts
 func (c Client) FindContactID(ctx context.Context, friendlyName string) (string, error) {
-	form := c.NewValues()
-	res, err := c.Do(ctx, "getAlertContacts", form)
-	if err != nil {
-		return "", err
-	}
-	defer func(Body io.ReadCloser) {
-		_ = Body.Close()
-	}(res.Body)
-
-	parsed := &FindContactResponse{}
-	if err := json.NewDecoder(res.Body).Decode(&parsed); err != nil {
+	var resp AlertContactsListResponse
+	if err := c.doJSON(ctx, http.MethodGet, "user/alert-contacts", nil, &resp); err != nil {
 		return "", err
 	}
 
-	if parsed.Status != urtypes.StatusOK {
-		return "", ErrResponse
-	}
-
-	for _, contact := range parsed.Contacts {
-		if friendlyName == contact.FriendlyName {
+	for _, contact := range resp.AlertContacts {
+		if contact.FriendlyName == friendlyName {
 			return contact.ID, nil
 		}
 	}
+
 	return "", ErrContactNotFound
 }
 
-type AccountDetailsResponse struct {
-	Status  urtypes.Status `json:"stat"`
-	Account Account        `json:"account"`
-}
-
-type Account struct {
-	Email string `json:"email"`
-}
-
+// GetAccountDetails retrieves account details using the v3 API.
+// GET /user/me
 func (c Client) GetAccountDetails(ctx context.Context) (string, error) {
-	form := c.NewValues()
-	res, err := c.Do(ctx, "getAccountDetails", form)
-	if err != nil {
-		return "", err
-	}
-	defer func(Body io.ReadCloser) {
-		_ = Body.Close()
-	}(res.Body)
-
-	parsed := &AccountDetailsResponse{}
-	if err := json.NewDecoder(res.Body).Decode(&parsed); err != nil {
+	var resp UserMeResponse
+	if err := c.doJSON(ctx, http.MethodGet, "user/me", nil, &resp); err != nil {
 		return "", err
 	}
 
-	if parsed.Status != urtypes.StatusOK {
-		return "", ErrResponse
+	return resp.User.Email, nil
+}
+
+// Helper functions to convert internal types to v3 API strings
+
+func httpMethodToString(m urtypes.HTTPMethod) string {
+	switch m {
+	case urtypes.MethodHEAD:
+		return "HEAD"
+	case urtypes.MethodGET:
+		return "GET"
+	case urtypes.MethodPOST:
+		return "POST"
+	case urtypes.MethodPUT:
+		return "PUT"
+	case urtypes.MethodPATCH:
+		return "PATCH"
+	case urtypes.MethodDELETE:
+		return "DELETE"
+	case urtypes.MethodOPTIONS:
+		return "OPTIONS"
+	default:
+		return "HEAD"
 	}
-	return parsed.Account.Email, err
+}
+
+func authTypeToString(t urtypes.MonitorAuthType) string {
+	switch t {
+	case urtypes.AuthBasic:
+		return "basic"
+	case urtypes.AuthDigest:
+		return "digest"
+	default:
+		return "basic"
+	}
+}
+
+func postTypeToString(t urtypes.POSTType) string {
+	switch t {
+	case urtypes.TypeKeyValue:
+		return "key_value"
+	case urtypes.TypeRawData:
+		return "raw_data"
+	default:
+		return "key_value"
+	}
+}
+
+func postContentTypeToString(t urtypes.POSTContentType) string {
+	switch t {
+	case urtypes.ContentTypeHTML:
+		return "text/html"
+	case urtypes.ContentTypeJSON:
+		return "application/json"
+	default:
+		return "text/html"
+	}
+}
+
+func keywordTypeToString(t urtypes.KeywordType) string {
+	switch t {
+	case urtypes.KeywordExists:
+		return "exists"
+	case urtypes.KeywordNotExists:
+		return "not_exists"
+	default:
+		return "exists"
+	}
+}
+
+func portTypeToString(t urtypes.PortType) string {
+	switch t {
+	case urtypes.PortHTTP:
+		return "HTTP"
+	case urtypes.PortFTP:
+		return "FTP"
+	case urtypes.PortSMTP:
+		return "SMTP"
+	case urtypes.PortPOP3:
+		return "POP3"
+	case urtypes.PortIMAP:
+		return "IMAP"
+	case urtypes.PortCustom:
+		return "Custom"
+	default:
+		return "HTTP"
+	}
 }

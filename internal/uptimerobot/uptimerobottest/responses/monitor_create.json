@@ -1,0 +1,10 @@
+{
+  "monitor": {
+    "id": 777810874,
+    "friendly_name": "New Monitor",
+    "url": "https://example.com",
+    "type": "HTTP",
+    "status": 1,
+    "interval": 60
+  }
+}

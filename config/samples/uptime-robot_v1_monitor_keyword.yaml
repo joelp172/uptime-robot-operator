@@ -1,0 +1,20 @@
+---
+apiVersion: uptime-robot.clevyr.com/v1
+kind: Monitor
+metadata:
+  labels:
+    app.kubernetes.io/name: uptime-robot-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: example-keyword
+spec:
+  interval: 24h
+  prune: true
+  monitor:
+    name: Example Keyword Monitor
+    url: https://example.com
+    type: Keyword
+    interval: 5m
+    keyword:
+      type: Exists
+      value: "Example Domain"
+      caseSensitive: false

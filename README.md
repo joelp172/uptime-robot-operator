@@ -2,20 +2,135 @@
 
 [![Build](https://github.com/clevyr/uptime-robot-operator/actions/workflows/build.yml/badge.svg)](https://github.com/clevyr/uptime-robot-operator/actions/workflows/build.yml)
 
-Kubernetes operator to manage Uptime Robot monitors.
+Kubernetes operator to manage Uptime Robot monitors using the [UptimeRobot API v3](https://uptimerobot.com/api/v3/).
 
 ## Description
+
 This operator allows a Kubernetes cluster to create, edit, and delete monitors in Uptime Robot. Monitors managed by this tool will also be reconciled regularly to prevent configuration drift.
+
+### Supported Monitor Types
+
+- **HTTPS** - Standard HTTP/HTTPS endpoint monitoring
+- **Keyword** - Monitor for specific keywords in page content
+- **Ping** - ICMP ping monitoring
+- **Port** - TCP port monitoring
+- **Heartbeat** - Expects periodic pings from your services/jobs
+- **DNS** - DNS record monitoring
 
 ## Getting Started
 
 ### Prerequisites
-- go version v1.23.0+
-- docker version 17.03+.
-- kubectl version v1.11.3+.
-- Access to a Kubernetes v1.11.3+ cluster.
 
-### To Deploy on the cluster
+- Go version v1.24.0+
+- Docker version 17.03+
+- kubectl version v1.11.3+
+- Access to a Kubernetes v1.11.3+ cluster
+- UptimeRobot API key (get from [UptimeRobot Integrations](https://dashboard.uptimerobot.com/integrations))
+
+### Configuration
+
+#### API Key Setup
+
+Create a Kubernetes Secret containing your UptimeRobot API key:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: uptimerobot-api-key
+  namespace: uptime-robot-system
+type: Opaque
+stringData:
+  api-key: "your-api-key-here"
+```
+
+Create an Account resource referencing the secret:
+
+```yaml
+apiVersion: uptime-robot.clevyr.com/v1
+kind: Account
+metadata:
+  name: default
+spec:
+  isDefault: true
+  apiKeySecretRef:
+    name: uptimerobot-api-key
+    key: api-key
+```
+
+### Monitor Examples
+
+#### Basic HTTPS Monitor
+
+```yaml
+apiVersion: uptime-robot.clevyr.com/v1
+kind: Monitor
+metadata:
+  name: example-https
+spec:
+  monitor:
+    name: My Website
+    url: https://example.com
+    type: HTTPS
+    interval: 5m
+```
+
+#### Keyword Monitor
+
+```yaml
+apiVersion: uptime-robot.clevyr.com/v1
+kind: Monitor
+metadata:
+  name: example-keyword
+spec:
+  monitor:
+    name: Keyword Check
+    url: https://example.com
+    type: Keyword
+    interval: 5m
+    keyword:
+      type: Exists
+      value: "Welcome"
+      caseSensitive: false
+```
+
+#### DNS Monitor
+
+```yaml
+apiVersion: uptime-robot.clevyr.com/v1
+kind: Monitor
+metadata:
+  name: example-dns
+spec:
+  monitor:
+    name: DNS Check
+    url: example.com
+    type: DNS
+    interval: 5m
+    dns:
+      recordType: A
+      value: "93.184.216.34"
+```
+
+#### Heartbeat Monitor
+
+```yaml
+apiVersion: uptime-robot.clevyr.com/v1
+kind: Monitor
+metadata:
+  name: example-heartbeat
+spec:
+  monitor:
+    name: Cron Job Heartbeat
+    url: https://heartbeat.uptimerobot.com/xxx
+    type: Heartbeat
+    interval: 5m
+    heartbeat:
+      interval: 5m
+```
+
+### To Deploy on the Cluster
+
 **Build and push your image to the location specified by `IMG`:**
 
 ```sh
@@ -24,7 +139,7 @@ make docker-build docker-push IMG=<some-registry>/uptime-robot-operator:tag
 
 **NOTE:** This image ought to be published in the personal registry you specified.
 And it is required to have access to pull the image from the working environment.
-Make sure you have the proper permission to the registry if the above commands don’t work.
+Make sure you have the proper permission to the registry if the above commands don't work.
 
 **Install the CRDs into the cluster:**
 
@@ -48,16 +163,17 @@ You can apply the [samples (examples)](config/samples) from the config/sample:
 kubectl apply -k config/samples/
 ```
 
->**NOTE**: Ensure that the samples has default values to test it out.
+> **NOTE**: Ensure that the samples have default values to test it out.
 
 ### To Uninstall
+
 **Delete the instances (CRs) from the cluster:**
 
 ```sh
 kubectl delete -k config/samples/
 ```
 
-**Delete the APIs(CRDs) from the cluster:**
+**Delete the APIs (CRDs) from the cluster:**
 
 ```sh
 make uninstall
@@ -68,6 +184,18 @@ make uninstall
 ```sh
 make undeploy
 ```
+
+## API v3 Migration
+
+This operator uses the UptimeRobot API v3, which introduced several improvements over v2:
+
+- RESTful endpoints with standard HTTP methods
+- Bearer token authentication via the Authorization header
+- JSON request/response format
+- Cursor-based pagination
+- New monitor types (DNS, Heartbeat)
+
+For more details, see the [UptimeRobot API v3 documentation](https://uptimerobot.com/api/v3/).
 
 ## Project Distribution
 
@@ -114,7 +242,8 @@ previously added to 'dist/chart/values.yaml' or 'dist/chart/manager/manager.yaml
 is manually re-applied afterwards.
 
 ## Contributing
-// TODO(user): Add detailed information on how you would like others to contribute to this project
+
+Contributions are welcome! Please open an issue or submit a pull request.
 
 **NOTE:** Run `make help` for more information on all potential `make` targets
 

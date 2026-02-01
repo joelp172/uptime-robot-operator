@@ -125,6 +125,38 @@ spec:
                     required:
                     - type
                     type: object
+                  dns:
+                    description: DNS provides configuration for the DNS monitor type.
+                    properties:
+                      recordType:
+                        description: RecordType is the DNS record type to check.
+                        enum:
+                        - A
+                        - AAAA
+                        - MX
+                        - NS
+                        - CNAME
+                        - TXT
+                        - SOA
+                        type: string
+                      value:
+                        description: Value is the expected DNS record value.
+                        type: string
+                    required:
+                    - recordType
+                    - value
+                    type: object
+                  heartbeat:
+                    description: Heartbeat provides configuration for the Heartbeat
+                      monitor type.
+                    properties:
+                      interval:
+                        default: 60s
+                        description: |-
+                          Interval is the expected interval between heartbeats.
+                          If no heartbeat is received within this interval, an alert is triggered.
+                        type: string
+                    type: object
                   interval:
                     default: 60s
                     description: Interval is the monitoring interval.
@@ -228,6 +260,7 @@ spec:
                     - Ping
                     - Port
                     - Heartbeat
+                    - DNS
                     type: string
                   url:
                     description: URL is the URL or IP to monitor, including the scheme.
@@ -241,6 +274,8 @@ spec:
                   rule: self.type != 'Keyword' || has(self.keyword)
                 - message: Port config is required if type is Port
                   rule: self.type != 'Port' || has(self.port)
+                - message: DNS config is required if type is DNS
+                  rule: self.type != 'DNS' || has(self.dns)
               prune:
                 default: true
                 description: Prune enables garbage collection.
@@ -285,6 +320,7 @@ spec:
                 - Ping
                 - Port
                 - Heartbeat
+                - DNS
                 type: string
             required:
             - ready
