@@ -1,5 +1,5 @@
 ---
-apiVersion: uptime-robot.clevyr.com/v1
+apiVersion: uptimerobot.com/v1
 kind: Monitor
 metadata:
   labels:

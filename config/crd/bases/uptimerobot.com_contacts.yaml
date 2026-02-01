@@ -4,14 +4,14 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.17.2
-  name: accounts.uptime-robot.clevyr.com
+  name: contacts.uptimerobot.com
 spec:
-  group: uptime-robot.clevyr.com
+  group: uptimerobot.com
   names:
-    kind: Account
-    listKind: AccountList
-    plural: accounts
-    singular: account
+    kind: Contact
+    listKind: ContactList
+    plural: contacts
+    singular: contact
   scope: Cluster
   versions:
   - additionalPrinterColumns:
@@ -21,8 +21,8 @@ spec:
     - jsonPath: .spec.isDefault
       name: Default
       type: boolean
-    - jsonPath: .status.email
-      name: Email
+    - jsonPath: .spec.contact.name
+      name: Friendly Name
       type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
@@ -30,7 +30,7 @@ spec:
     name: v1
     schema:
       openAPIV3Schema:
-        description: Account is the Schema for the accounts API.
+        description: Contact is the Schema for the contacts API.
         properties:
           apiVersion:
             description: |-
@@ -50,16 +50,12 @@ spec:
           metadata:
             type: object
           spec:
-            description: AccountSpec defines the desired state of Account.
+            description: ContactSpec defines the desired state of Contact.
             properties:
-              apiKeySecretRef:
-                description: ApiKeySecretRef references the secret that contains the
-                  Uptime Robot API key.
+              account:
+                description: Account references this object's Account. If not specified,
+                  the default will be used.
                 properties:
-                  key:
-                    description: The key of the secret to select from.  Must be a
-                      valid secret key.
-                    type: string
                   name:
                     default: ""
                     description: |-
@@ -69,28 +65,31 @@ spec:
                       almost certainly wrong.
                       More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
                     type: string
-                  optional:
-                    description: Specify whether the Secret or its key must be defined
-                    type: boolean
-                required:
-                - key
                 type: object
                 x-kubernetes-map-type: atomic
+              contact:
+                description: Contact configures the Uptime Robot monitor.
+                properties:
+                  name:
+                    description: Name sets the name that is shown in Uptime Robot.
+                    type: string
+                required:
+                - name
+                type: object
               isDefault:
                 default: false
                 type: boolean
             required:
-            - apiKeySecretRef
+            - contact
             type: object
           status:
-            description: AccountStatus defines the observed state of Account.
+            description: ContactStatus defines the observed state of Contact.
             properties:
-              email:
+              id:
                 type: string
               ready:
                 type: boolean
             required:
-            - email
             - ready
             type: object
         type: object

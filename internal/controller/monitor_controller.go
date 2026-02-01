@@ -21,8 +21,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/clevyr/uptime-robot-operator/internal/uptimerobot"
-	"github.com/clevyr/uptime-robot-operator/internal/uptimerobot/urtypes"
+	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot"
+	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot/urtypes"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -32,7 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	uptimerobotv1 "github.com/clevyr/uptime-robot-operator/api/v1"
+	uptimerobotv1 "github.com/joelp172/uptime-robot-operator/api/v1"
 )
 
 // MonitorReconciler reconciles a Monitor object
@@ -46,9 +46,9 @@ var (
 	ErrSecretMissingKey = errors.New("secret missing key")
 )
 
-//+kubebuilder:rbac:groups=uptime-robot.clevyr.com,resources=monitors,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=uptime-robot.clevyr.com,resources=monitors/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=uptime-robot.clevyr.com,resources=monitors/finalizers,verbs=update
+//+kubebuilder:rbac:groups=uptimerobot.com,resources=monitors,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=uptimerobot.com,resources=monitors/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=uptimerobot.com,resources=monitors/finalizers,verbs=update
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -75,7 +75,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 	urclient := uptimerobot.NewClient(apiKey)
 
-	const myFinalizerName = "uptime-robot.clevyr.com/finalizer"
+	const myFinalizerName = "uptimerobot.com/finalizer"
 	if !monitor.DeletionTimestamp.IsZero() {
 		// Object is being deleted
 		if controllerutil.ContainsFinalizer(monitor, myFinalizerName) {

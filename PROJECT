@@ -2,37 +2,37 @@
 # This file is used to track the info used to scaffold your project
 # and allow the plugins properly work.
 # More info: https://book.kubebuilder.io/reference/project-config.html
-domain: clevyr.com
+domain: uptimerobot.com
 layout:
 - go.kubebuilder.io/v4
 projectName: uptime-robot-operator
-repo: github.com/clevyr/uptime-robot-operator
+repo: github.com/joelp172/uptime-robot-operator
 resources:
 - api:
     crdVersion: v1
     namespaced: true
   controller: true
-  domain: clevyr.com
-  group: uptime-robot
+  domain: uptimerobot.com
+  group: ""
   kind: Monitor
-  path: github.com/clevyr/uptime-robot-operator/api/v1
+  path: github.com/joelp172/uptime-robot-operator/api/v1
   version: v1
 - api:
     crdVersion: v1
     namespaced: true
   controller: true
-  domain: clevyr.com
-  group: uptime-robot
+  domain: uptimerobot.com
+  group: ""
   kind: Contact
-  path: github.com/clevyr/uptime-robot-operator/api/v1
+  path: github.com/joelp172/uptime-robot-operator/api/v1
   version: v1
 - api:
     crdVersion: v1
   controller: true
-  domain: clevyr.com
-  group: uptime-robot
+  domain: uptimerobot.com
+  group: ""
   kind: Account
-  path: github.com/clevyr/uptime-robot-operator/api/v1
+  path: github.com/joelp172/uptime-robot-operator/api/v1
   version: v1
 - controller: true
   core: true

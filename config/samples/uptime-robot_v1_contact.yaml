@@ -1,4 +1,4 @@
-apiVersion: uptime-robot.clevyr.com/v1
+apiVersion: uptimerobot.com/v1
 kind: Contact
 metadata:
   labels:

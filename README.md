@@ -1,6 +1,6 @@
 # Uptime Robot Operator
 
-[![Build](https://github.com/clevyr/uptime-robot-operator/actions/workflows/build.yml/badge.svg)](https://github.com/clevyr/uptime-robot-operator/actions/workflows/build.yml)
+[![Build](https://github.com/joelp172/uptime-robot-operator/actions/workflows/build.yml/badge.svg)](https://github.com/joelp172/uptime-robot-operator/actions/workflows/build.yml)
 
 Kubernetes operator to manage Uptime Robot monitors using the [UptimeRobot API v3](https://uptimerobot.com/api/v3/).
 
@@ -47,7 +47,7 @@ stringData:
 Create an Account resource referencing the secret:
 
 ```yaml
-apiVersion: uptime-robot.clevyr.com/v1
+apiVersion: uptimerobot.com/v1
 kind: Account
 metadata:
   name: default
@@ -63,7 +63,7 @@ spec:
 #### Basic HTTPS Monitor
 
 ```yaml
-apiVersion: uptime-robot.clevyr.com/v1
+apiVersion: uptimerobot.com/v1
 kind: Monitor
 metadata:
   name: example-https
@@ -78,7 +78,7 @@ spec:
 #### Keyword Monitor
 
 ```yaml
-apiVersion: uptime-robot.clevyr.com/v1
+apiVersion: uptimerobot.com/v1
 kind: Monitor
 metadata:
   name: example-keyword
@@ -97,7 +97,7 @@ spec:
 #### DNS Monitor
 
 ```yaml
-apiVersion: uptime-robot.clevyr.com/v1
+apiVersion: uptimerobot.com/v1
 kind: Monitor
 metadata:
   name: example-dns
@@ -115,7 +115,7 @@ spec:
 #### Heartbeat Monitor
 
 ```yaml
-apiVersion: uptime-robot.clevyr.com/v1
+apiVersion: uptimerobot.com/v1
 kind: Monitor
 metadata:
   name: example-heartbeat

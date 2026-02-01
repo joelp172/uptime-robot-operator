@@ -46,7 +46,7 @@ rules:
   - patch
   - update
 - apiGroups:
-  - uptime-robot.clevyr.com
+  - uptimerobot.com
   resources:
   - accounts
   - contacts
@@ -60,7 +60,7 @@ rules:
   - update
   - watch
 - apiGroups:
-  - uptime-robot.clevyr.com
+  - uptimerobot.com
   resources:
   - accounts/finalizers
   - contacts/finalizers
@@ -68,7 +68,7 @@ rules:
   verbs:
   - update
 - apiGroups:
-  - uptime-robot.clevyr.com
+  - uptimerobot.com
   resources:
   - accounts/status
   - contacts/status

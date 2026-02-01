@@ -4,9 +4,9 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.17.2
-  name: monitors.uptime-robot.clevyr.com
+  name: monitors.uptimerobot.com
 spec:
-  group: uptime-robot.clevyr.com
+  group: uptimerobot.com
   names:
     kind: Monitor
     listKind: MonitorList

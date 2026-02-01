@@ -23,7 +23,7 @@ import (
 	"net/http/httptest"
 	"strings"
 
-	"github.com/clevyr/uptime-robot-operator/internal/uptimerobot/uptimerobottest/responses"
+	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot/uptimerobottest/responses"
 )
 
 // NewServer creates a new test server that mimics the UptimeRobot v3 API.

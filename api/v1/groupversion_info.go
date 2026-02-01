@@ -14,9 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package v1 contains API Schema definitions for the uptime-robot v1 API group.
+// Package v1 contains API Schema definitions for the uptimerobot v1 API group.
 // +kubebuilder:object:generate=true
-// +groupName=uptime-robot.clevyr.com
+// +groupName=uptimerobot.com
 package v1
 
 import (
@@ -26,7 +26,7 @@ import (
 
 var (
 	// GroupVersion is group version used to register these objects.
-	GroupVersion = schema.GroupVersion{Group: "uptime-robot.clevyr.com", Version: "v1"}
+	GroupVersion = schema.GroupVersion{Group: "uptimerobot.com", Version: "v1"}
 
 	// SchemeBuilder is used to add go types to the GroupVersionKind scheme.
 	SchemeBuilder = &scheme.Builder{GroupVersion: GroupVersion}

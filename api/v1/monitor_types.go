@@ -21,7 +21,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/clevyr/uptime-robot-operator/internal/uptimerobot/urtypes"
+	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot/urtypes"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )

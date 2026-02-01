@@ -23,7 +23,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/clevyr/uptime-robot-operator/internal/uptimerobot/uptimerobottest"
+	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot/uptimerobottest"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -37,7 +37,7 @@ import (
 
 	networkingv1 "k8s.io/api/networking/v1"
 
-	uptimerobotv1 "github.com/clevyr/uptime-robot-operator/api/v1"
+	uptimerobotv1 "github.com/joelp172/uptime-robot-operator/api/v1"
 	//+kubebuilder:scaffold:imports
 )
 

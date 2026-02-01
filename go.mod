@@ -1,4 +1,4 @@
-module github.com/clevyr/uptime-robot-operator
+module github.com/joelp172/uptime-robot-operator
 
 go 1.24.1
 

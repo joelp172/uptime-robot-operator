@@ -21,7 +21,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/clevyr/uptime-robot-operator/internal/uptimerobot"
+	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -31,7 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	uptimerobotv1 "github.com/clevyr/uptime-robot-operator/api/v1"
+	uptimerobotv1 "github.com/joelp172/uptime-robot-operator/api/v1"
 )
 
 var ClusterResourceNamespace = "uptime-robot-system"
@@ -44,9 +44,9 @@ type AccountReconciler struct {
 
 var ErrKeyNotFound = errors.New("secret key not found")
 
-//+kubebuilder:rbac:groups=uptime-robot.clevyr.com,resources=accounts,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=uptime-robot.clevyr.com,resources=accounts/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=uptime-robot.clevyr.com,resources=accounts/finalizers,verbs=update
+//+kubebuilder:rbac:groups=uptimerobot.com,resources=accounts,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=uptimerobot.com,resources=accounts/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=uptimerobot.com,resources=accounts/finalizers,verbs=update
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to

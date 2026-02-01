@@ -30,8 +30,8 @@ import (
 	"strings"
 	"time"
 
-	uptimerobotv1 "github.com/clevyr/uptime-robot-operator/api/v1"
-	"github.com/clevyr/uptime-robot-operator/internal/uptimerobot/urtypes"
+	uptimerobotv1 "github.com/joelp172/uptime-robot-operator/api/v1"
+	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot/urtypes"
 )
 
 // NewClient creates a new UptimeRobot API v3 client.
