@@ -8,6 +8,13 @@
       "value": "test@example.com"
     },
     {
+      "id": "0993765",
+      "friendly_name": "John Doe",
+      "type": 2,
+      "status": 2,
+      "value": "john.doe@example.com"
+    },
+    {
       "id": "2104569",
       "friendly_name": "Slack Alerts",
       "type": 11,
@@ -18,6 +25,6 @@
   "pagination": {
     "cursor": "",
     "limit": 50,
-    "total": 2
+    "total": 3
   }
 }

@@ -18,24 +18,24 @@ package uptimerobot
 
 // CreateMonitorRequest represents the v3 API request payload for creating a monitor.
 type CreateMonitorRequest struct {
-	FriendlyName    string                 `json:"friendly_name"`
-	URL             string                 `json:"url"`
-	Type            string                 `json:"type"` // "HTTP", "Keyword", "Ping", "Port", "Heartbeat", "DNS"
-	Interval        int                    `json:"interval"`
-	Timeout         int                    `json:"timeout,omitempty"`
-	HTTPMethod      string                 `json:"http_method,omitempty"`
-	HTTPUsername    string                 `json:"http_username,omitempty"`
-	HTTPPassword    string                 `json:"http_password,omitempty"`
-	HTTPAuthType    string                 `json:"http_auth_type,omitempty"` // "basic", "digest"
-	PostType        string                 `json:"post_type,omitempty"`
-	PostContentType string                 `json:"post_content_type,omitempty"`
-	PostValue       string                 `json:"post_value,omitempty"`
-	KeywordType     string                 `json:"keyword_type,omitempty"`    // "exists", "not_exists"
-	KeywordCaseType string                 `json:"keyword_case_type,omitempty"` // "case_sensitive", "case_insensitive"
-	KeywordValue    string                 `json:"keyword_value,omitempty"`
-	SubType         string                 `json:"sub_type,omitempty"` // For port monitors
-	Port            int                    `json:"port,omitempty"`
-	AlertContacts   []AlertContactRequest  `json:"alert_contacts,omitempty"`
+	FriendlyName    string                `json:"friendly_name"`
+	URL             string                `json:"url"`
+	Type            string                `json:"type"` // "HTTP", "Keyword", "Ping", "Port", "Heartbeat", "DNS"
+	Interval        int                   `json:"interval"`
+	Timeout         int                   `json:"timeout,omitempty"`
+	HTTPMethod      string                `json:"http_method,omitempty"`
+	HTTPUsername    string                `json:"http_username,omitempty"`
+	HTTPPassword    string                `json:"http_password,omitempty"`
+	HTTPAuthType    string                `json:"http_auth_type,omitempty"` // "basic", "digest"
+	PostType        string                `json:"post_type,omitempty"`
+	PostContentType string                `json:"post_content_type,omitempty"`
+	PostValue       string                `json:"post_value,omitempty"`
+	KeywordType     string                `json:"keyword_type,omitempty"`      // "exists", "not_exists"
+	KeywordCaseType string                `json:"keyword_case_type,omitempty"` // "case_sensitive", "case_insensitive"
+	KeywordValue    string                `json:"keyword_value,omitempty"`
+	SubType         string                `json:"sub_type,omitempty"` // For port monitors
+	Port            int                   `json:"port,omitempty"`
+	AlertContacts   []AlertContactRequest `json:"alert_contacts,omitempty"`
 	// DNS monitor specific fields
 	DNSRecordType string `json:"dns_record_type,omitempty"` // "A", "AAAA", "MX", etc.
 	DNSValue      string `json:"dns_value,omitempty"`
@@ -43,26 +43,26 @@ type CreateMonitorRequest struct {
 
 // UpdateMonitorRequest represents the v3 API request payload for updating a monitor.
 type UpdateMonitorRequest struct {
-	FriendlyName    string                 `json:"friendly_name,omitempty"`
-	URL             string                 `json:"url,omitempty"`
-	Interval        int                    `json:"interval,omitempty"`
-	Timeout         int                    `json:"timeout,omitempty"`
-	Status          int                    `json:"status,omitempty"` // 0 = paused, 1 = running
-	HTTPMethod      string                 `json:"http_method,omitempty"`
-	HTTPUsername    string                 `json:"http_username,omitempty"`
-	HTTPPassword    string                 `json:"http_password,omitempty"`
-	HTTPAuthType    string                 `json:"http_auth_type,omitempty"`
-	PostType        string                 `json:"post_type,omitempty"`
-	PostContentType string                 `json:"post_content_type,omitempty"`
-	PostValue       string                 `json:"post_value,omitempty"`
-	KeywordType     string                 `json:"keyword_type,omitempty"`
-	KeywordCaseType string                 `json:"keyword_case_type,omitempty"`
-	KeywordValue    string                 `json:"keyword_value,omitempty"`
-	SubType         string                 `json:"sub_type,omitempty"`
-	Port            int                    `json:"port,omitempty"`
-	AlertContacts   []AlertContactRequest  `json:"alert_contacts,omitempty"`
-	DNSRecordType   string                 `json:"dns_record_type,omitempty"`
-	DNSValue        string                 `json:"dns_value,omitempty"`
+	FriendlyName    string                `json:"friendly_name,omitempty"`
+	URL             string                `json:"url,omitempty"`
+	Interval        int                   `json:"interval,omitempty"`
+	Timeout         int                   `json:"timeout,omitempty"`
+	Status          int                   `json:"status,omitempty"` // 0 = paused, 1 = running
+	HTTPMethod      string                `json:"http_method,omitempty"`
+	HTTPUsername    string                `json:"http_username,omitempty"`
+	HTTPPassword    string                `json:"http_password,omitempty"`
+	HTTPAuthType    string                `json:"http_auth_type,omitempty"`
+	PostType        string                `json:"post_type,omitempty"`
+	PostContentType string                `json:"post_content_type,omitempty"`
+	PostValue       string                `json:"post_value,omitempty"`
+	KeywordType     string                `json:"keyword_type,omitempty"`
+	KeywordCaseType string                `json:"keyword_case_type,omitempty"`
+	KeywordValue    string                `json:"keyword_value,omitempty"`
+	SubType         string                `json:"sub_type,omitempty"`
+	Port            int                   `json:"port,omitempty"`
+	AlertContacts   []AlertContactRequest `json:"alert_contacts,omitempty"`
+	DNSRecordType   string                `json:"dns_record_type,omitempty"`
+	DNSValue        string                `json:"dns_value,omitempty"`
 }
 
 // AlertContactRequest represents an alert contact assignment in v3 API.
@@ -127,11 +127,11 @@ type UserMeResponse struct {
 
 // UserInfo represents user account information in v3 API.
 type UserInfo struct {
-	Email         string `json:"email"`
-	MonitorLimit  int    `json:"monitor_limit"`
-	MonitorUsage  int    `json:"monitor_usage"`
-	SMSLimit      int    `json:"sms_limit"`
-	SMSUsage      int    `json:"sms_usage"`
+	Email        string `json:"email"`
+	MonitorLimit int    `json:"monitor_limit"`
+	MonitorUsage int    `json:"monitor_usage"`
+	SMSLimit     int    `json:"sms_limit"`
+	SMSUsage     int    `json:"sms_usage"`
 }
 
 // APIError represents an error response from the v3 API.
