@@ -31,7 +31,7 @@ type CreateMonitorRequest struct {
 	Type                  string                        `json:"type"` // "HTTP", "KEYWORD", "PING", "PORT", "HEARTBEAT", "DNS"
 	Interval              int                           `json:"interval"`
 	Timeout               int                           `json:"timeout,omitempty"`
-	GracePeriod           int                           `json:"gracePeriod"` // Required: seconds to wait before alerting (0-86400)
+	GracePeriod           int                           `json:"gracePeriod"`              // Required: seconds to wait before alerting (0-86400)
 	HTTPMethod            string                        `json:"httpMethodType,omitempty"` // HEAD, GET, POST, PUT, PATCH, DELETE, OPTIONS
 	HTTPUsername          string                        `json:"httpUsername,omitempty"`
 	HTTPPassword          string                        `json:"httpPassword,omitempty"`
@@ -52,11 +52,11 @@ type CreateMonitorRequest struct {
 // UpdateMonitorRequest represents the v3 API request payload for updating a monitor.
 // Note: The v3 API uses camelCase field names. Status is not supported in PATCH/update requests.
 type UpdateMonitorRequest struct {
-	FriendlyName          string                        `json:"friendlyName,omitempty"`
-	URL                   string                        `json:"url,omitempty"`
-	Interval              int                           `json:"interval,omitempty"`
-	Timeout               int                           `json:"timeout,omitempty"`
-	GracePeriod           int                           `json:"gracePeriod,omitempty"` // Seconds to wait before alerting (0-86400)
+	FriendlyName string `json:"friendlyName,omitempty"`
+	URL          string `json:"url,omitempty"`
+	Interval     int    `json:"interval,omitempty"`
+	Timeout      int    `json:"timeout,omitempty"`
+	GracePeriod  int    `json:"gracePeriod,omitempty"` // Seconds to wait before alerting (0-86400)
 	// Note: Status field is not supported in v3 API PATCH requests - use pause/resume endpoints instead
 	HTTPMethod            string                        `json:"httpMethodType,omitempty"`
 	HTTPUsername          string                        `json:"httpUsername,omitempty"`

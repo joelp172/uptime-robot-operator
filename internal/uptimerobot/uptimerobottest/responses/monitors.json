@@ -1,25 +1,21 @@
 {
-  "monitors": [
+  "data": [
     {
       "id": 777749809,
-      "friendly_name": "Google",
+      "friendlyName": "Google",
       "url": "https://www.google.com",
       "type": "HTTP",
-      "status": 1,
+      "status": "UP",
       "interval": 900
     },
     {
       "id": 777712827,
-      "friendly_name": "My Web Page",
+      "friendlyName": "My Web Page",
       "url": "https://mywebpage.com/",
       "type": "HTTP",
-      "status": 2,
+      "status": "DOWN",
       "interval": 60
     }
   ],
-  "pagination": {
-    "cursor": "",
-    "limit": 50,
-    "total": 2
-  }
+  "nextLink": null
 }

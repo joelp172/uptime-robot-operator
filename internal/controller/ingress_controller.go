@@ -171,7 +171,7 @@ func (r *IngressReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 func (r *IngressReconciler) findMonitors(ctx context.Context, ingress *networkingv1.Ingress) (*uptimerobotv1.MonitorList, error) {
 	list := &uptimerobotv1.MonitorList{}
-	err := r.Client.List(ctx, list, &client.ListOptions{
+	err := r.List(ctx, list, &client.ListOptions{
 		FieldSelector: fields.OneTermEqualSelector("spec.sourceRef", ingress.Kind+"/"+ingress.Name),
 	})
 	if err != nil {

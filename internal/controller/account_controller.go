@@ -58,7 +58,7 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	_ = log.FromContext(ctx)
 
 	account := &uptimerobotv1.Account{}
-	if err := r.Client.Get(ctx, req.NamespacedName, account); err != nil {
+	if err := r.Get(ctx, req.NamespacedName, account); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 

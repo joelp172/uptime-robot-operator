@@ -61,7 +61,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	_ = log.FromContext(ctx)
 
 	monitor := &uptimerobotv1.Monitor{}
-	if err := r.Client.Get(ctx, req.NamespacedName, monitor); err != nil {
+	if err := r.Get(ctx, req.NamespacedName, monitor); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
@@ -125,7 +125,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	if auth := monitor.Spec.Monitor.Auth; auth != nil && auth.SecretName != "" {
 		secret := &corev1.Secret{}
-		if err := r.Client.Get(ctx, client.ObjectKey{
+		if err := r.Get(ctx, client.ObjectKey{
 			Namespace: req.Namespace,
 			Name:      auth.SecretName,
 		}, secret); err != nil {

@@ -220,7 +220,7 @@ func (c Client) buildUpdateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 		Timeout:      int(monitor.Timeout.Seconds()),
 		GracePeriod:  gracePeriod,
 		// Note: Status is not supported in v3 PATCH requests - use pause/resume endpoints instead
-		HTTPMethod:   httpMethodToString(monitor.Method),
+		HTTPMethod: httpMethodToString(monitor.Method),
 	}
 
 	// Handle auth

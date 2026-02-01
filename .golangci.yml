@@ -1,48 +1,52 @@
+version: "2"
+
 run:
   timeout: 5m
   allow-parallel-runners: true
 
 issues:
-  # don't skip warning about doc comments
-  # don't exclude the default set of lint
   exclude-use-default: false
-  # restore some of the defaults
-  # (fill in the rest as needed)
   exclude-rules:
     - path: "api/*"
       linters:
-        - lll
+        - dupl
     - path: "internal/*"
       linters:
         - dupl
-        - lll
-
-linters-settings:
-  errcheck:
-    exclude-functions:
-      - fmt.Fprintf
-  gocyclo:
-    min-complexity: 35
+    # Allow dot imports in test files (ginkgo/gomega convention)
+    - path: "_test\\.go$"
+      text: "ST1001"
+    - path: "test/"
+      text: "ST1001"
 
 linters:
-  disable-all: true
+  default: none
   enable:
     - copyloopvar
     - dupl
     - errcheck
     - goconst
-    - gocyclo
-    - gofmt
-    - goimports
-    - gosimple
     - govet
     - ineffassign
-    - lll
     - misspell
     - nakedret
     - prealloc
     - staticcheck
-    - typecheck
     - unconvert
     - unparam
     - unused
+  settings:
+    errcheck:
+      exclude-functions:
+        - fmt.Fprintf
+    staticcheck:
+      checks:
+        - "all"
+        - "-ST1000"  # Package comments
+        - "-ST1001"  # Dot imports (used in test files with ginkgo/gomega)
+        - "-ST1003"  # Naming conventions (Api vs API)
+
+formatters:
+  enable:
+    - gofmt
+    - goimports

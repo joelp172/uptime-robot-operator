@@ -51,7 +51,7 @@ func (r *ContactReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	_ = log.FromContext(ctx)
 
 	contact := &uptimerobotv1.Contact{}
-	if err := r.Client.Get(ctx, req.NamespacedName, contact); err != nil {
+	if err := r.Get(ctx, req.NamespacedName, contact); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
