@@ -7,13 +7,13 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: example-keyword
 spec:
-  interval: 24h
+  syncInterval: 5m  # How often operator syncs with UptimeRobot API
   prune: true
   monitor:
     name: Example Keyword Monitor
     url: https://example.com
     type: Keyword
-    interval: 5m
+    interval: 5m  # How often UptimeRobot checks the URL
     keyword:
       type: Exists
       value: "Example Domain"

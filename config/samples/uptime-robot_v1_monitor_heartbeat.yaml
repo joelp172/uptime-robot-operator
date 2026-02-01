@@ -7,13 +7,13 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: example-heartbeat
 spec:
-  interval: 24h
+  syncInterval: 5m  # How often operator syncs with UptimeRobot API
   prune: true
   monitor:
     name: Example Heartbeat Monitor
     # The URL is the heartbeat endpoint your service should ping
     url: https://heartbeat.uptimerobot.com/xxx
     type: Heartbeat
-    interval: 5m
+    interval: 5m  # How often UptimeRobot checks the URL
     heartbeat:
-      interval: 5m
+      interval: 5m  # Expected heartbeat interval from your service

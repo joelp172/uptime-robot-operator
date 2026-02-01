@@ -7,13 +7,13 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: example-dns
 spec:
-  interval: 24h
+  syncInterval: 5m  # How often operator syncs with UptimeRobot API
   prune: true
   monitor:
     name: Example DNS Monitor
     url: example.com
     type: DNS
-    interval: 5m
+    interval: 5m  # How often UptimeRobot checks the DNS
     dns:
       recordType: A
       value: "93.184.216.34"

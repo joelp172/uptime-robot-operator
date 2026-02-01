@@ -183,7 +183,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 	}
 
-	return ctrl.Result{RequeueAfter: monitor.Spec.Interval.Duration}, nil
+	return ctrl.Result{RequeueAfter: monitor.Spec.SyncInterval.Duration}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

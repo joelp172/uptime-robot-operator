@@ -28,9 +28,11 @@ import (
 
 // MonitorSpec defines the desired state of Monitor.
 type MonitorSpec struct {
-	// Interval defines the reconcile interval.
+	// SyncInterval defines how often the operator reconciles with the UptimeRobot API.
+	// This controls drift detection frequency. Lower values mean faster detection of
+	// external changes but more API calls.
 	//+kubebuilder:default:="24h"
-	Interval *metav1.Duration `json:"interval,omitempty"`
+	SyncInterval *metav1.Duration `json:"syncInterval,omitempty"`
 
 	// Prune enables garbage collection.
 	//+kubebuilder:default:=true

@@ -96,10 +96,6 @@ spec:
                   type: object
                   x-kubernetes-map-type: atomic
                 type: array
-              interval:
-                default: 24h
-                description: Interval defines the reconcile interval.
-                type: string
               monitor:
                 description: Monitor configures the Uptime Robot monitor.
                 properties:
@@ -307,6 +303,13 @@ spec:
                 - name
                 type: object
                 x-kubernetes-map-type: atomic
+              syncInterval:
+                default: 24h
+                description: |-
+                  SyncInterval defines how often the operator reconciles with the UptimeRobot API.
+                  This controls drift detection frequency. Lower values mean faster detection of
+                  external changes but more API calls.
+                type: string
             required:
             - monitor
             type: object
