@@ -14,29 +14,26 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1
+package v1alpha1
 
 import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// ContactSpec defines the desired state of Contact.
-type ContactSpec struct {
+// AccountSpec defines the desired state of Account.
+type AccountSpec struct {
 	//+kubebuilder:default:=false
 	IsDefault bool `json:"isDefault,omitempty"`
 
-	// Account references this object's Account. If not specified, the default will be used.
-	Account corev1.LocalObjectReference `json:"account,omitempty"`
-
-	// Contact configures the Uptime Robot monitor.
-	Contact ContactValues `json:"contact"`
+	// ApiKeySecretRef references the secret that contains the Uptime Robot API key.
+	ApiKeySecretRef corev1.SecretKeySelector `json:"apiKeySecretRef"`
 }
 
-// ContactStatus defines the observed state of Contact.
-type ContactStatus struct {
+// AccountStatus defines the observed state of Account.
+type AccountStatus struct {
 	Ready bool   `json:"ready"`
-	ID    string `json:"id,omitempty"`
+	Email string `json:"email"`
 }
 
 //+kubebuilder:object:root=true
@@ -44,32 +41,27 @@ type ContactStatus struct {
 //+kubebuilder:resource:scope=Cluster
 //+kubebuilder:printcolumn:name="Ready",type="boolean",JSONPath=".status.ready"
 //+kubebuilder:printcolumn:name="Default",type="boolean",JSONPath=".spec.isDefault"
-//+kubebuilder:printcolumn:name="Friendly Name",type="string",JSONPath=".spec.contact.name"
+//+kubebuilder:printcolumn:name="Email",type="string",JSONPath=".status.email"
 //+kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
-// Contact is the Schema for the contacts API.
-type Contact struct {
+// Account is the Schema for the accounts API.
+type Account struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   ContactSpec   `json:"spec,omitempty"`
-	Status ContactStatus `json:"status,omitempty"`
+	Spec   AccountSpec   `json:"spec,omitempty"`
+	Status AccountStatus `json:"status,omitempty"`
 }
 
 //+kubebuilder:object:root=true
 
-// ContactList contains a list of Contact.
-type ContactList struct {
+// AccountList contains a list of Account.
+type AccountList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []Contact `json:"items"`
-}
-
-type ContactValues struct {
-	// Name sets the name that is shown in Uptime Robot.
-	Name string `json:"name"`
+	Items           []Account `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&Contact{}, &ContactList{})
+	SchemeBuilder.Register(&Account{}, &AccountList{})
 }

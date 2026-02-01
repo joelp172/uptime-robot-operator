@@ -2,7 +2,7 @@
 # NOTE: The contact.name must match an existing alert contact's friendlyName in your UptimeRobot account.
 # Find your contact names at: https://dashboard.uptimerobot.com/integrations
 # Use the API: curl -H "Authorization: Bearer YOUR_API_KEY" https://api.uptimerobot.com/v3/user/alert-contacts
-apiVersion: uptimerobot.com/v1
+apiVersion: uptimerobot.com/v1alpha1
 kind: Contact
 metadata:
   labels:

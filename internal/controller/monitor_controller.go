@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot"
 	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot/urtypes"
@@ -32,7 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	uptimerobotv1 "github.com/joelp172/uptime-robot-operator/api/v1"
+	uptimerobotv1 "github.com/joelp172/uptime-robot-operator/api/v1alpha1"
 )
 
 // MonitorReconciler reconciles a Monitor object
@@ -111,7 +112,9 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 
 		if contact.Status.ID == "" {
-			return ctrl.Result{}, ErrContactMissingID
+			// Contact hasn't been reconciled yet - requeue without error
+			log.FromContext(ctx).Info("Contact not ready yet, requeuing", "contact", ref.Name)
+			return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
 		}
 
 		contacts = append(contacts, uptimerobotv1.MonitorContact{

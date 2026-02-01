@@ -37,7 +37,7 @@ import (
 
 	networkingv1 "k8s.io/api/networking/v1"
 
-	uptimerobotv1 "github.com/joelp172/uptime-robot-operator/api/v1"
+	uptimerobotv1 "github.com/joelp172/uptime-robot-operator/api/v1alpha1"
 	//+kubebuilder:scaffold:imports
 )
 

@@ -1,4 +1,4 @@
-apiVersion: uptimerobot.com/v1
+apiVersion: uptimerobot.com/v1alpha1
 kind: Account
 metadata:
   labels:

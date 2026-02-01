@@ -29,7 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	uptimerobotv1 "github.com/joelp172/uptime-robot-operator/api/v1"
+	uptimerobotv1 "github.com/joelp172/uptime-robot-operator/api/v1alpha1"
 )
 
 // ContactReconciler reconciles a Contact object

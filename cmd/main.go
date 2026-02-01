@@ -37,7 +37,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	uptimerobotv1 "github.com/joelp172/uptime-robot-operator/api/v1"
+	uptimerobotv1 "github.com/joelp172/uptime-robot-operator/api/v1alpha1"
 	"github.com/joelp172/uptime-robot-operator/internal/controller"
 	//+kubebuilder:scaffold:imports
 )

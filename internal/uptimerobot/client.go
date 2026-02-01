@@ -30,7 +30,7 @@ import (
 	"strings"
 	"time"
 
-	uptimerobotv1 "github.com/joelp172/uptime-robot-operator/api/v1"
+	uptimerobotv1 "github.com/joelp172/uptime-robot-operator/api/v1alpha1"
 	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot/urtypes"
 )
 

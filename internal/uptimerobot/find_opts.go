@@ -20,7 +20,7 @@ import (
 	"net/url"
 	"strings"
 
-	uptimerobotv1 "github.com/joelp172/uptime-robot-operator/api/v1"
+	uptimerobotv1 "github.com/joelp172/uptime-robot-operator/api/v1alpha1"
 )
 
 // FindOpt is a function that modifies query parameters for monitor search.
