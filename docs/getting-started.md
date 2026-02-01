@@ -10,7 +10,7 @@ This guide walks you through installing the Uptime Robot Operator and creating y
 
 ## Step 1: Get Your API Key
 
-1. Log in to [UptimeRobot Dashboard](https://dashboard.uptimerobot.com/)
+1. Log in to [UptimeRobot](https://uptimerobot.com/?red=joelpi) (or [sign up free](https://uptimerobot.com/?red=joelpi))
 2. Navigate to **Integrations** > **API**
 3. Create or copy your **Main API Key**
 
