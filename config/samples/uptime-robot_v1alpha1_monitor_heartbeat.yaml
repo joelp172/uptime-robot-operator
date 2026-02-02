@@ -15,3 +15,6 @@ spec:
     interval: 5m  # How often UptimeRobot checks for heartbeats
     heartbeat:
       interval: 5m  # Expected heartbeat interval from your service
+    tags:
+      - test
+      - uptime-robot-operator
