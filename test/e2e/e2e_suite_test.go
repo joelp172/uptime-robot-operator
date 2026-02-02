@@ -32,7 +32,7 @@ import (
 var projectImage = "example.com/uptime-robot-operator:v0.0.1"
 
 // TestE2E runs the end-to-end (e2e) test suite for the project. These tests execute in an isolated,
-// temporary environment to validate project changes with the the purposed to be used in CI jobs.
+// temporary environment to validate project changes for use in CI jobs.
 // The default setup requires Kind and builds/loads the Manager Docker image locally.
 func TestE2E(t *testing.T) {
 	RegisterFailHandler(Fail)
