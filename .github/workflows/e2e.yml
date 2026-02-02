@@ -25,13 +25,14 @@ env:
   KIND_CLUSTER_NAME: 'e2e-test'
 
 jobs:
-  # Check if comment trigger is valid (only for issue_comment events)
-  check-comment:
-    name: Check Comment
+  # For issue_comment events, check if it's a valid /run-e2e trigger
+  check-trigger:
+    name: Check Trigger
     runs-on: ubuntu-latest
-    if: github.event_name == 'issue_comment'
     outputs:
-      triggered: ${{ steps.check.outputs.triggered }}
+      should_run: ${{ steps.check.outputs.should_run }}
+      pr_ref: ${{ steps.check.outputs.pr_ref }}
+      pr_number: ${{ steps.check.outputs.pr_number }}
     permissions:
       pull-requests: read
     steps:
@@ -40,69 +41,91 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            // For push and workflow_dispatch, always run
+            if (context.eventName !== 'issue_comment') {
+              core.setOutput('should_run', 'true');
+              core.setOutput('pr_ref', '');
+              core.setOutput('pr_number', '');
+              return;
+            }
+            
+            // For issue_comment, check conditions
             const comment = context.payload.comment.body;
             const isPR = !!context.payload.issue.pull_request;
             const isCommand = comment.trim().startsWith('/run-e2e');
             
+            if (!isPR || !isCommand) {
+              console.log(`Skipping: isPR=${isPR}, isCommand=${isCommand}`);
+              core.setOutput('should_run', 'false');
+              return;
+            }
+            
             // Check if user has write access
-            const { data: permission } = await github.rest.repos.getCollaboratorPermissionLevel({
+            try {
+              const { data: permission } = await github.rest.repos.getCollaboratorPermissionLevel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                username: context.payload.comment.user.login
+              });
+              const hasAccess = ['admin', 'write'].includes(permission.permission);
+              
+              if (!hasAccess) {
+                console.log(`User ${context.payload.comment.user.login} does not have write access`);
+                core.setOutput('should_run', 'false');
+                return;
+              }
+            } catch (e) {
+              console.log(`Error checking permissions: ${e.message}`);
+              core.setOutput('should_run', 'false');
+              return;
+            }
+            
+            // Get PR ref
+            const pr = await github.rest.pulls.get({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              username: context.payload.comment.user.login
+              pull_number: context.issue.number
             });
-            const hasAccess = ['admin', 'write'].includes(permission.permission);
             
-            const triggered = isPR && isCommand && hasAccess;
-            console.log(`isPR: ${isPR}, isCommand: ${isCommand}, hasAccess: ${hasAccess}, triggered: ${triggered}`);
-            core.setOutput('triggered', triggered);
-
-  e2e:
-    name: E2E Tests
-    runs-on: ubuntu-latest
-    needs: [check-comment]
-    # Run if:
-    # - push to main
-    # - workflow_dispatch
-    # - comment trigger passed checks (or check-comment was skipped for non-comment events)
-    if: |
-      always() &&
-      (github.event_name == 'push' ||
-       github.event_name == 'workflow_dispatch' ||
-       (needs.check-comment.result == 'success' && needs.check-comment.outputs.triggered == 'true'))
-    permissions:
-      contents: read
-      pull-requests: write
-    steps:
-      - name: React to comment
-        if: github.event_name == 'issue_comment'
-        uses: actions/github-script@v7
-        with:
-          script: |
+            // Add rocket reaction
             await github.rest.reactions.createForIssueComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               comment_id: context.payload.comment.id,
               content: 'rocket'
             });
+            
+            console.log(`Triggered! PR ref: ${pr.data.head.ref}`);
+            core.setOutput('should_run', 'true');
+            core.setOutput('pr_ref', pr.data.head.ref);
+            core.setOutput('pr_number', context.issue.number.toString());
 
-      - name: Get PR branch
+  e2e:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    needs: [check-trigger]
+    if: needs.check-trigger.outputs.should_run == 'true'
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Comment - E2E Started
         if: github.event_name == 'issue_comment'
-        id: pr
         uses: actions/github-script@v7
         with:
           script: |
-            const pr = await github.rest.pulls.get({
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              pull_number: context.issue.number
+              issue_number: ${{ needs.check-trigger.outputs.pr_number }},
+              body: `**E2E Tests Started**\n\nRunning on branch \`${{ needs.check-trigger.outputs.pr_ref }}\`\n\n[View workflow run](${runUrl})`
             });
-            core.setOutput('ref', pr.data.head.ref);
-            core.setOutput('sha', pr.data.head.sha);
 
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ steps.pr.outputs.ref || github.ref }}
+          ref: ${{ needs.check-trigger.outputs.pr_ref || github.ref }}
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -163,6 +186,32 @@ jobs:
           echo ""
           echo "=== Describe Monitors ==="
           kubectl describe monitors -A || true
+
+      - name: Comment - E2E Passed
+        if: success() && github.event_name == 'issue_comment'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ needs.check-trigger.outputs.pr_number }},
+              body: `**E2E Tests Passed**\n\nAll tests completed successfully on branch \`${{ needs.check-trigger.outputs.pr_ref }}\`\n\n[View workflow run](${runUrl})`
+            });
+
+      - name: Comment - E2E Failed
+        if: failure() && github.event_name == 'issue_comment'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ needs.check-trigger.outputs.pr_number }},
+              body: `**E2E Tests Failed**\n\nTests failed on branch \`${{ needs.check-trigger.outputs.pr_ref }}\`\n\n[View workflow run](${runUrl}) for details.`
+            });
 
       - name: Cleanup
         if: always() && github.event.inputs.skip_cleanup != 'true'
