@@ -1,0 +1,112 @@
+# Default values for uptime-robot-operator.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# Number of operator replicas to deploy
+replicaCount: 1
+
+image:
+  # Container image repository
+  repository: ghcr.io/joelp172/uptime-robot-operator
+  # Image pull policy
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: ""
+
+# Image pull secrets for private registries
+imagePullSecrets: []
+
+# Override the name of the chart
+nameOverride: ""
+# Override the full name of the chart
+fullnameOverride: ""
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Automatically mount a ServiceAccount's API credentials?
+  automount: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+# Pod annotations
+podAnnotations:
+  kubectl.kubernetes.io/default-container: manager
+
+# Pod security context
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+# Security context for the container
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+    - "ALL"
+  readOnlyRootFilesystem: true
+
+# Resource limits and requests for the operator
+resources:
+  limits:
+    cpu: "1"
+    memory: 512Mi
+  requests:
+    cpu: 10m
+    memory: 64Mi
+
+# Liveness probe configuration
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: 8081
+  initialDelaySeconds: 15
+  periodSeconds: 20
+
+# Readiness probe configuration
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: 8081
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+# Node labels for pod assignment
+nodeSelector: {}
+
+# Tolerations for pod assignment
+tolerations: []
+
+# Affinity for pod assignment
+affinity: {}
+
+# Enable leader election for controller manager
+leaderElection:
+  enabled: true
+
+# Health probe bind address
+healthProbeBindAddress: ":8081"
+
+# Metrics service configuration
+metrics:
+  # Enable metrics service
+  enabled: true
+  # Metrics service port
+  port: 8443
+  # Service type
+  type: ClusterIP
+
+# Namespace where the operator will be installed
+# If not set, defaults to "uptime-robot-system"
+namespaceOverride: ""
+
+# CRD installation configuration
+crds:
+  # Install CRDs as part of the Helm chart
+  install: true
+  # Keep CRDs when uninstalling the chart
+  keep: true
