@@ -326,6 +326,6 @@ kubectl get crd | grep uptimerobot.com
 - [GitHub Repository](https://github.com/joelp172/uptime-robot-operator)
 - [Issue Tracker](https://github.com/joelp172/uptime-robot-operator/issues)
 
-## License
+## Licence
 
-Apache License 2.0 - See [LICENSE](https://github.com/joelp172/uptime-robot-operator/blob/main/LICENSE) for details.
+Apache Licence 2.0 - See [LICENCE](https://github.com/joelp172/uptime-robot-operator/blob/main/LICENSE) for details.

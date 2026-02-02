@@ -28,3 +28,15 @@ repos:
         language: system
         types: [go]
         pass_filenames: false
+      - id: helm-lint
+        name: helm-lint
+        entry: helm lint charts/uptime-robot-operator/
+        language: system
+        files: ^charts/
+        pass_filenames: false
+      - id: helm-template
+        name: helm-template
+        entry: bash -c 'helm template test charts/uptime-robot-operator/ > /dev/null'
+        language: system
+        files: ^charts/
+        pass_filenames: false
