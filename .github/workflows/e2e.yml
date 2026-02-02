@@ -88,13 +88,18 @@ jobs:
               pull_number: context.issue.number
             });
             
-            // Add rocket reaction
-            await github.rest.reactions.createForIssueComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              comment_id: context.payload.comment.id,
-              content: 'rocket'
-            });
+            // Add rocket reaction (optional - don't fail if permissions insufficient)
+            try {
+              await github.rest.reactions.createForIssueComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: context.payload.comment.id,
+                content: 'rocket'
+              });
+              console.log('Added rocket reaction');
+            } catch (e) {
+              console.log(`Could not add reaction (permissions may be insufficient): ${e.message}`);
+            }
             
             console.log(`Triggered! PR ref: ${pr.data.head.ref}`);
             core.setOutput('should_run', 'true');
@@ -109,6 +114,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+      issues: write
     steps:
       - name: Comment - E2E Started
         if: github.event_name == 'issue_comment'
