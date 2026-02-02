@@ -2,9 +2,6 @@
 name: E2E Tests
 
 on:
-  push:
-    branches:
-      - main
   issue_comment:
     types: [created]
   workflow_dispatch:
@@ -42,8 +39,8 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            // For push and workflow_dispatch, always run
-            if (context.eventName !== 'issue_comment') {
+            // For workflow_dispatch, always run
+            if (context.eventName === 'workflow_dispatch') {
               core.setOutput('should_run', 'true');
               core.setOutput('pr_ref', '');
               core.setOutput('pr_number', '');

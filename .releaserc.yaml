@@ -5,4 +5,9 @@ branches:
 plugins:
   - "@semantic-release/commit-analyzer"
   - "@semantic-release/release-notes-generator"
-  - "@semantic-release/github"
+  - - "@semantic-release/exec"
+    - prepareCmd: make build-installer IMG=ghcr.io/joelp172/uptime-robot-operator:v${nextRelease.version}
+  - - "@semantic-release/github"
+    - assets:
+        - path: dist/install.yaml
+          label: Kubernetes Installation Manifest
