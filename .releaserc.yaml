@@ -6,8 +6,16 @@ plugins:
   - "@semantic-release/commit-analyzer"
   - "@semantic-release/release-notes-generator"
   - - "@semantic-release/exec"
-    - prepareCmd: make build-installer IMG=ghcr.io/joelp172/uptime-robot-operator:v${nextRelease.version}
+    - prepareCmd: |
+        # Build installer manifest
+        make build-installer IMG=ghcr.io/joelp172/uptime-robot-operator:v${nextRelease.version}
+        # Update and package Helm chart
+        sed -i "s/^version:.*/version: ${nextRelease.version}/" charts/uptime-robot-operator/Chart.yaml
+        sed -i "s/^appVersion:.*/appVersion: \"v${nextRelease.version}\"/" charts/uptime-robot-operator/Chart.yaml
+        helm package charts/uptime-robot-operator -d dist/
   - - "@semantic-release/github"
     - assets:
         - path: dist/install.yaml
           label: Kubernetes Installation Manifest
+        - path: dist/uptime-robot-operator-*.tgz
+          label: Helm Chart
