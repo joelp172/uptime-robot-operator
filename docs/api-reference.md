@@ -186,8 +186,17 @@ Verify DNS records resolve to expected values.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `dns.recordType` | string | Yes | A, AAAA, MX, NS, CNAME, TXT, or SOA |
-| `dns.value` | string | Yes | Expected record value |
+| `dns.a` | []string | No | Expected A record values |
+| `dns.aaaa` | []string | No | Expected AAAA record values |
+| `dns.cname` | []string | No | Expected CNAME record values |
+| `dns.mx` | []string | No | Expected MX record values |
+| `dns.ns` | []string | No | Expected NS record values |
+| `dns.txt` | []string | No | Expected TXT record values |
+| `dns.srv` | []string | No | Expected SRV record values |
+| `dns.ptr` | []string | No | Expected PTR record values |
+| `dns.soa` | []string | No | Expected SOA record values |
+| `dns.spf` | []string | No | Expected SPF record values |
+| `dns.sslExpirationPeriodDays` | []int | No | SSL expiry reminder offsets (0-365) |
 
 ```yaml
 spec:
@@ -197,8 +206,10 @@ spec:
     type: DNS
     interval: 5m
     dns:
-      recordType: A
-      value: "93.184.216.34"
+      a:
+        - "93.184.216.34"
+      sslExpirationPeriodDays:
+        - 7
 ```
 
 #### Heartbeat
