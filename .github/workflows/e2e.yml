@@ -148,7 +148,6 @@ jobs:
       - name: Run basic E2E tests
         env:
           KIND_CLUSTER: e2e-basic
-          CERT_MANAGER_INSTALL_SKIP: "true"
         run: |
           go test ./test/e2e/ -v -ginkgo.v -ginkgo.skip="CRD Reconciliation" -timeout 15m
 
