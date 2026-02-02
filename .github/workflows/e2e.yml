@@ -35,6 +35,7 @@ jobs:
       pr_number: ${{ steps.check.outputs.pr_number }}
     permissions:
       pull-requests: read
+      issues: write
     steps:
       - name: Check trigger conditions
         id: check
