@@ -38,9 +38,6 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Install semantic-release-exec
-        run: npm install @semantic-release/exec
-
       - name: Release
         id: semantic
         uses: cycjimmy/semantic-release-action@v4
@@ -170,9 +167,10 @@ jobs:
           helm push dist/uptime-robot-operator-${{ needs.release.outputs.new_release_version }}.tgz oci://ghcr.io/joelp172/charts
 
       - name: Upload Helm Chart to Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ needs.release.outputs.new_release_version }}
-          files: |
-            dist/uptime-robot-operator-${{ needs.release.outputs.new_release_version }}.tgz
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "v${{ needs.release.outputs.new_release_version }}" \
+            dist/uptime-robot-operator-${{ needs.release.outputs.new_release_version }}.tgz \
+            --clobber
 

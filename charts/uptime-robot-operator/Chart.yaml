@@ -2,7 +2,7 @@ apiVersion: v2
 name: uptime-robot-operator
 description: A Helm chart for the Uptime Robot Operator - Kubernetes operator for managing UptimeRobot monitors
 type: application
-version: 0.1.0
+version: 0.0.0-dev
 appVersion: "latest"
 icon: https://raw.githubusercontent.com/joelp172/uptime-robot-operator/main/charts/uptime-robot-operator/icon.svg
 keywords:
