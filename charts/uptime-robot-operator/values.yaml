@@ -104,6 +104,11 @@ metrics:
 # If not set, defaults to "uptime-robot-system"
 namespaceOverride: ""
 
+# Namespace creation configuration
+namespace:
+  # Create the namespace as part of the Helm chart
+  create: true
+
 # CRD installation configuration
 crds:
   # Install CRDs as part of the Helm chart

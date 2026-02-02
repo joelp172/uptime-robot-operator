@@ -1,3 +1,4 @@
+{{- if .Values.namespace.create }}
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -5,3 +6,5 @@ metadata:
   labels:
     {{- include "uptime-robot-operator.labels" . | nindent 4 }}
     control-plane: controller-manager
+{{- end }}
+

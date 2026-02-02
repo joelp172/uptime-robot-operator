@@ -25,7 +25,8 @@ helm install uptime-robot-operator ./charts/uptime-robot-operator
 To install the chart from the OCI registry (requires Helm 3.8+):
 
 ```bash
-helm install uptime-robot-operator oci://ghcr.io/joelp172/charts/uptime-robot-operator --version 1.0.0
+# Replace <VERSION> with the desired chart version (e.g., 1.0.0)
+helm install uptime-robot-operator oci://ghcr.io/joelp172/charts/uptime-robot-operator --version <VERSION>
 ```
 
 To see available versions:
@@ -54,6 +55,7 @@ The command removes all the Kubernetes components associated with the chart. Not
 |---------------------------|--------------------------------------------------|--------------------------------------------------|
 | `replicaCount`            | Number of operator replicas                      | `1`                                              |
 | `namespaceOverride`       | Override the namespace for installation          | `""`                                             |
+| `namespace.create`        | Create the namespace as part of the chart        | `true`                                           |
 
 ### Image Parameters
 
