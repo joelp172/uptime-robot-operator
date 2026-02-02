@@ -51,13 +51,8 @@ securityContext:
   readOnlyRootFilesystem: true
 
 # Resource limits and requests for the operator
-# resources:
-#   limits:
-#     cpu: "1"
-#     memory: 512Mi
-#   requests:
-#     cpu: 10m
-#     memory: 64Mi
+# Uncomment and adjust as needed for your environment
+resources: {}
 
 # Liveness probe configuration
 livenessProbe:

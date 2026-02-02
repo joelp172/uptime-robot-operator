@@ -89,10 +89,19 @@ The command removes all the Kubernetes components associated with the chart. Not
 
 | Name                              | Description                                      | Value            |
 |-----------------------------------|--------------------------------------------------|------------------|
-| `resources.limits.cpu`            | CPU resource limits                              | `1`              |
-| `resources.limits.memory`         | Memory resource limits                           | `512Mi`          |
-| `resources.requests.cpu`          | CPU resource requests                            | `10m`            |
-| `resources.requests.memory`       | Memory resource requests                         | `64Mi`           |
+| `resources`                       | Resource limits and requests                     | `{}`             |
+
+Resources are not set by default. Configure as needed for your environment:
+
+```yaml
+resources:
+  limits:
+    cpu: "1"
+    memory: 512Mi
+  requests:
+    cpu: 10m
+    memory: 64Mi
+```
 
 ### Probe Parameters
 
