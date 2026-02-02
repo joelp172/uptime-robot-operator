@@ -56,7 +56,7 @@ Create the name of the service account to use
 */}}
 {{- define "uptime-robot-operator.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create }}
-{{- default (include "uptime-robot-operator.fullname" . | printf "%s-controller-manager") .Values.serviceAccount.name }}
+{{- default (printf "%s-controller-manager" (include "uptime-robot-operator.fullname" .)) .Values.serviceAccount.name }}
 {{- else }}
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}

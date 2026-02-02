@@ -38,6 +38,11 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.0
+
       - name: Release
         id: semantic
         uses: cycjimmy/semantic-release-action@v4
@@ -165,12 +170,4 @@ jobs:
       - name: Push Helm Chart to OCI Registry
         run: |
           helm push dist/uptime-robot-operator-${{ needs.release.outputs.new_release_version }}.tgz oci://ghcr.io/joelp172/charts
-
-      - name: Upload Helm Chart to Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release upload "v${{ needs.release.outputs.new_release_version }}" \
-            dist/uptime-robot-operator-${{ needs.release.outputs.new_release_version }}.tgz \
-            --clobber
 
