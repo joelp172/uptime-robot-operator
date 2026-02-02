@@ -6,7 +6,7 @@ This Helm chart deploys the Uptime Robot Operator on a Kubernetes cluster using 
 
 - Kubernetes 1.19+
 - Helm 3.0+
-- UptimeRobot API key ([sign up free](https://uptimerobot.com) then go to Integrations > API)
+- UptimeRobot API key ([sign up free](https://uptimerobot.com/?red=joelpi) then go to Integrations > API)
 
 ## Installing the Chart
 

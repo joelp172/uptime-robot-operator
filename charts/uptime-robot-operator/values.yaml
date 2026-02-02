@@ -11,15 +11,15 @@ image:
   # Image pull policy
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
-  tag: ""
+  tag: ''
 
 # Image pull secrets for private registries
 imagePullSecrets: []
 
 # Override the name of the chart
-nameOverride: ""
+nameOverride: ''
 # Override the full name of the chart
-fullnameOverride: ""
+fullnameOverride: ''
 
 serviceAccount:
   # Specifies whether a service account should be created
@@ -30,7 +30,7 @@ serviceAccount:
   annotations: {}
   # The name of the service account to use.
   # If not set and create is true, a name is generated using the fullname template
-  name: ""
+  name: ''
 
 # Pod annotations
 podAnnotations:
@@ -47,17 +47,17 @@ securityContext:
   allowPrivilegeEscalation: false
   capabilities:
     drop:
-    - "ALL"
+      - 'ALL'
   readOnlyRootFilesystem: true
 
 # Resource limits and requests for the operator
-resources:
-  limits:
-    cpu: "1"
-    memory: 512Mi
-  requests:
-    cpu: 10m
-    memory: 64Mi
+# resources:
+#   limits:
+#     cpu: "1"
+#     memory: 512Mi
+#   requests:
+#     cpu: 10m
+#     memory: 64Mi
 
 # Liveness probe configuration
 livenessProbe:
@@ -89,7 +89,7 @@ leaderElection:
   enabled: true
 
 # Health probe bind address
-healthProbeBindAddress: ":8081"
+healthProbeBindAddress: ':8081'
 
 # Metrics service configuration
 metrics:
@@ -102,7 +102,7 @@ metrics:
 
 # Namespace where the operator will be installed
 # If not set, defaults to "uptime-robot-system"
-namespaceOverride: ""
+namespaceOverride: ''
 
 # Namespace creation configuration
 namespace:
