@@ -68,6 +68,10 @@ var _ = Describe("Monitor Controller", func() {
 						Account: corev1.LocalObjectReference{
 							Name: account.Name,
 						},
+						Monitor: uptimerobotv1.MonitorValues{
+							Name: "Test Monitor",
+							URL:  "https://example.com",
+						},
 						Contacts: []uptimerobotv1.MonitorContactRef{
 							{
 								LocalObjectReference: corev1.LocalObjectReference{

@@ -19,7 +19,7 @@ This guide walks you through installing the Uptime Robot Operator and creating y
 Install the operator and CRDs:
 
 ```bash
-kubectl apply -f https://raw.githubusercontent.com/joelp172/uptime-robot-operator/main/dist/install.yaml
+kubectl apply -f https://github.com/joelp172/uptime-robot-operator/releases/latest/download/install.yaml
 ```
 
 Verify the operator is running:
@@ -190,6 +190,34 @@ my-website   true    My Website      https://example.com   10s
 
 The monitor now appears in your [UptimeRobot Dashboard](https://dashboard.uptimerobot.com/).
 
+## Bonus: Create a Heartbeat Monitor
+
+Heartbeat monitors are useful for cron jobs and scheduled tasks. Unlike other monitors, they don't require a URL - UptimeRobot generates a webhook URL for your services to ping:
+
+```bash
+kubectl apply -f - <<EOF
+apiVersion: uptimerobot.com/v1alpha1
+kind: Monitor
+metadata:
+  name: backup-job
+spec:
+  monitor:
+    name: Daily Backup
+    type: Heartbeat
+    interval: 24h
+    heartbeat:
+      interval: 24h
+EOF
+```
+
+Retrieve the generated webhook URL:
+
+```bash
+kubectl get monitor backup-job -o jsonpath='{.status.heartbeatURL}'
+```
+
+Your backup script should call this URL on completion. If UptimeRobot doesn't receive a ping within the interval, it triggers an alert.
+
 ## Next Steps
 
 - [API Reference](api-reference.md) - Learn about all available fields
@@ -209,5 +237,5 @@ kubectl delete accounts --all
 kubectl delete contacts --all
 
 # Remove the operator
-kubectl delete -f https://raw.githubusercontent.com/joelp172/uptime-robot-operator/main/dist/install.yaml
+kubectl delete -f https://github.com/joelp172/uptime-robot-operator/releases/latest/download/install.yaml
 ```

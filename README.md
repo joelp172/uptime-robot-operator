@@ -135,8 +135,32 @@ spec:
 | Keyword | Check for specific text in page content |
 | Ping | ICMP ping monitoring |
 | Port | TCP port monitoring |
-| Heartbeat | Expects periodic pings from your services |
+| Heartbeat | Expects periodic pings from your services (URL generated automatically) |
 | DNS | DNS record verification |
+
+### Heartbeat Monitors
+
+Heartbeat monitors are ideal for cron jobs and scheduled tasks. The webhook URL is generated automatically:
+
+```yaml
+apiVersion: uptimerobot.com/v1alpha1
+kind: Monitor
+metadata:
+  name: backup-job
+spec:
+  monitor:
+    name: Daily Backup
+    type: Heartbeat
+    interval: 24h
+    heartbeat:
+      interval: 24h
+```
+
+After creation, retrieve the webhook URL from the status:
+
+```bash
+kubectl get monitor backup-job -o jsonpath='{.status.heartbeatURL}'
+```
 
 ## How It Works
 

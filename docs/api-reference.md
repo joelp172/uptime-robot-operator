@@ -127,7 +127,7 @@ Defines an UptimeRobot monitor.
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `name` | string | Yes | - | Display name in UptimeRobot |
-| `url` | string | Yes | - | URL or IP to monitor |
+| `url` | string | Conditional | - | URL or IP to monitor (not required for Heartbeat monitors) |
 | `type` | string | No | `HTTPS` | Monitor type (see Monitor Types) |
 | `interval` | duration | No | `60s` | Check interval |
 | `timeout` | duration | No | `30s` | Request timeout |
@@ -203,7 +203,7 @@ spec:
 
 #### Heartbeat
 
-Expects periodic pings from your services or cron jobs.
+Expects periodic pings from your services or cron jobs. Unlike other monitor types, Heartbeat monitors do not require a `url` field - UptimeRobot generates a unique webhook URL after creation.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -213,11 +213,19 @@ Expects periodic pings from your services or cron jobs.
 spec:
   monitor:
     name: Backup Job
-    url: https://heartbeat.uptimerobot.com/xxx
     type: Heartbeat
+    interval: 1h
     heartbeat:
       interval: 1h
 ```
+
+After the monitor is created, retrieve the webhook URL from the status:
+
+```bash
+kubectl get monitor backup-job -o jsonpath='{.status.heartbeatURL}'
+```
+
+The URL format is `https://heartbeat.uptimerobot.com/m{id}-{token}`. Your services or cron jobs should send HTTP requests to this URL at the specified interval to indicate they are alive.
 
 #### Port
 
@@ -277,6 +285,7 @@ spec:
 |-------|------|-------------|
 | `ready` | boolean | Whether the monitor exists in UptimeRobot |
 | `id` | string | UptimeRobot monitor ID |
+| `heartbeatURL` | string | Webhook URL for Heartbeat monitors (only populated for type: Heartbeat) |
 | `type` | string | Monitor type |
 | `status` | integer | Current status code |
 

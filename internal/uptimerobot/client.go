@@ -300,21 +300,36 @@ func contactsToV3Format(contacts uptimerobotv1.MonitorContacts) []AssignedAlertC
 	return result
 }
 
+// CreateMonitorResult contains the result of creating a monitor.
+type CreateMonitorResult struct {
+	ID  string
+	URL string // Contains the heartbeat URL for heartbeat monitors
+}
+
 // CreateMonitor creates a new monitor using the v3 API.
 // POST /monitors
-func (c Client) CreateMonitor(ctx context.Context, monitor uptimerobotv1.MonitorValues, contacts uptimerobotv1.MonitorContacts) (string, error) {
+func (c Client) CreateMonitor(ctx context.Context, monitor uptimerobotv1.MonitorValues, contacts uptimerobotv1.MonitorContacts) (CreateMonitorResult, error) {
 	reqBody := c.buildCreateMonitorRequest(monitor, contacts)
 
 	var resp MonitorCreateResponse
 	if err := c.doJSON(ctx, http.MethodPost, "monitors", reqBody, &resp); err != nil {
-		// If creation fails (e.g., 409 Conflict), check if monitor already exists by URL
-		if id, findErr := c.FindMonitorByURL(ctx, monitor.URL); findErr == nil {
-			return id, nil
+		// If creation fails (e.g., 409 Conflict), check if monitor already exists by name
+		if monitor.URL != "" {
+			if id, findErr := c.FindMonitorByURL(ctx, monitor.URL); findErr == nil {
+				return CreateMonitorResult{ID: id}, nil
+			}
 		}
-		return "", err
+		// For heartbeat monitors (no URL), try to find by name
+		if m, findErr := c.FindMonitorByName(ctx, monitor.Name); findErr == nil {
+			return CreateMonitorResult{ID: strconv.Itoa(m.ID), URL: m.URL}, nil
+		}
+		return CreateMonitorResult{}, err
 	}
 
-	return strconv.Itoa(resp.ID), nil
+	return CreateMonitorResult{
+		ID:  strconv.Itoa(resp.ID),
+		URL: resp.URL,
+	}, nil
 }
 
 // FindMonitorByURL searches for a monitor by its URL by fetching all monitors.
@@ -332,6 +347,23 @@ func (c Client) FindMonitorByURL(ctx context.Context, url string) (string, error
 	}
 
 	return "", ErrMonitorNotFound
+}
+
+// FindMonitorByName searches for a monitor by its friendly name.
+// This is useful for heartbeat monitors which don't have a user-defined URL.
+func (c Client) FindMonitorByName(ctx context.Context, name string) (*MonitorResponse, error) {
+	var resp MonitorsListResponse
+	if err := c.doJSON(ctx, http.MethodGet, "monitors", nil, &resp); err != nil {
+		return nil, err
+	}
+
+	for _, m := range resp.Monitors {
+		if m.FriendlyName == name {
+			return &m, nil
+		}
+	}
+
+	return nil, ErrMonitorNotFound
 }
 
 // DeleteMonitor deletes a monitor using the v3 API.
@@ -361,9 +393,15 @@ func (c Client) DeleteMonitor(ctx context.Context, id string) error {
 	return nil
 }
 
+// EditMonitorResult contains the result of editing a monitor.
+type EditMonitorResult struct {
+	ID  string
+	URL string // Contains the heartbeat URL for heartbeat monitors
+}
+
 // EditMonitor updates an existing monitor using the v3 API.
 // PATCH /monitors/{id}
-func (c Client) EditMonitor(ctx context.Context, id string, monitor uptimerobotv1.MonitorValues, contacts uptimerobotv1.MonitorContacts) (string, error) {
+func (c Client) EditMonitor(ctx context.Context, id string, monitor uptimerobotv1.MonitorValues, contacts uptimerobotv1.MonitorContacts) (EditMonitorResult, error) {
 	endpoint := "monitors/" + id
 	reqBody := c.buildUpdateMonitorRequest(monitor, contacts)
 
@@ -372,12 +410,16 @@ func (c Client) EditMonitor(ctx context.Context, id string, monitor uptimerobotv
 		// If update fails because monitor doesn't exist (404), recreate it
 		// Check using GetMonitor which uses GET /monitors/{id} directly
 		if _, getErr := c.GetMonitor(ctx, id); errors.Is(getErr, ErrMonitorNotFound) {
-			return c.CreateMonitor(ctx, monitor, contacts)
+			result, createErr := c.CreateMonitor(ctx, monitor, contacts)
+			return EditMonitorResult(result), createErr
 		}
-		return id, err
+		return EditMonitorResult{ID: id}, err
 	}
 
-	return strconv.Itoa(resp.ID), nil
+	return EditMonitorResult{
+		ID:  strconv.Itoa(resp.ID),
+		URL: resp.URL,
+	}, nil
 }
 
 // GetMonitor retrieves a single monitor by ID using the v3 API.
