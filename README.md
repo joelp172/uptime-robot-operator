@@ -112,7 +112,7 @@ When you delete a Monitor resource with `prune: true` (the default), the operato
 
 ## Contributing
 
-Contributions are welcome. Please open an issue or submit a pull request.
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, testing instructions, and PR guidelines.
 
 ## License
 
