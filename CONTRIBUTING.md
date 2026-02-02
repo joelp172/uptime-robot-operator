@@ -159,7 +159,15 @@ docs: update installation instructions
 chore: update dependencies
 ```
 
-Types: `feat`, `fix`, `docs`, `chore`, `refactor`, `test`, `ci`
+**Release Triggers** (used by semantic-release):
+
+| Type | Release | Version Bump |
+|------|---------|--------------|
+| `feat:` | Yes | Minor (1.x.0) |
+| `fix:` | Yes | Patch (1.0.x) |
+| `docs:`, `chore:`, `ci:`, `refactor:`, `test:` | No | - |
+
+To trigger a release, your PR title must start with `feat:` or `fix:`.
 
 ## Pull Request Guidelines
 

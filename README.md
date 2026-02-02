@@ -23,7 +23,7 @@ A Kubernetes operator that manages [UptimeRobot](https://uptimerobot.com/?red=jo
 ### Install
 
 ```bash
-kubectl apply -f https://raw.githubusercontent.com/joelp172/uptime-robot-operator/main/dist/install.yaml
+kubectl apply -f https://github.com/joelp172/uptime-robot-operator/releases/latest/download/install.yaml
 ```
 
 ### Configure API Key
