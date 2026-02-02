@@ -38,9 +38,6 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Install semantic-release-exec
-        run: npm install @semantic-release/exec
-
       - name: Release
         id: semantic
         uses: cycjimmy/semantic-release-action@v4

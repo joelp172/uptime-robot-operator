@@ -1,8 +1,11 @@
 # Uptime Robot Operator
 
 [![Build](https://github.com/joelp172/uptime-robot-operator/actions/workflows/build.yml/badge.svg)](https://github.com/joelp172/uptime-robot-operator/actions/workflows/build.yml)
+[![Release](https://img.shields.io/github/v/release/joelp172/uptime-robot-operator)](https://github.com/joelp172/uptime-robot-operator/releases/latest)
+[![License](https://img.shields.io/github/license/joelp172/uptime-robot-operator)](LICENSE)
+[![Go Report Card](https://goreportcard.com/badge/github.com/joelp172/uptime-robot-operator)](https://goreportcard.com/report/github.com/joelp172/uptime-robot-operator)
 
-A Kubernetes operator that manages [UptimeRobot](https://uptimerobot.com/?red=joelpi) monitors declaratively using Custom Resources. Monitors are automatically reconciled to prevent configuration drift.
+A Kubernetes operator for managing [UptimeRobot](https://uptimerobot.com/?red=joelpi) monitors declaratively. Define your uptime monitors as Kubernetes resources and let the operator handle the rest - automatic drift detection, self-healing, and GitOps-friendly workflows.
 
 ## Features
 
@@ -109,6 +112,10 @@ spec:
 The operator watches for Monitor custom resources and creates corresponding monitors in UptimeRobot via the API. It periodically reconciles the state to detect and correct drift (changes made outside Kubernetes).
 
 When you delete a Monitor resource with `prune: true` (the default), the operator automatically deletes the corresponding monitor in UptimeRobot.
+
+## Roadmap
+
+See the [project roadmap](https://github.com/users/joelp172/projects/1) for planned features and progress.
 
 ## Contributing
 
