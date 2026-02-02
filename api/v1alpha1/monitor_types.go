@@ -194,7 +194,7 @@ type MonitorPort struct {
 	// Number is the port number to monitor (0-65535).
 	//+kubebuilder:validation:Minimum=0
 	//+kubebuilder:validation:Maximum=65535
-	Number int `json:"number"`
+	Number uint16 `json:"number"`
 }
 
 type MonitorAuth struct {

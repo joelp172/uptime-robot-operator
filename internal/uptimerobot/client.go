@@ -176,7 +176,7 @@ func (c Client) buildCreateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 
 	// Handle port monitors
 	if monitor.Type == urtypes.TypePort && monitor.Port != nil {
-		req.Port = monitor.Port.Number
+		req.Port = int(monitor.Port.Number)
 	}
 
 	// Handle DNS monitors - v3 API requires a config object with dnsRecords
@@ -296,7 +296,7 @@ func (c Client) buildUpdateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 
 	// Handle port monitors
 	if monitor.Type == urtypes.TypePort && monitor.Port != nil {
-		req.Port = monitor.Port.Number
+		req.Port = int(monitor.Port.Number)
 	}
 
 	// Handle DNS monitors - v3 API requires a config object with dnsRecords
@@ -384,6 +384,25 @@ func contactsToV3Format(contacts uptimerobotv1.MonitorContacts) []AssignedAlertC
 	return result
 }
 
+func monitorMatchesExpected(existing *MonitorResponse, desired uptimerobotv1.MonitorValues) bool {
+	if existing == nil {
+		return false
+	}
+	if existing.Type != desired.Type.ToAPIString() {
+		return false
+	}
+	if desired.URL != "" && existing.URL != desired.URL {
+		return false
+	}
+	if desired.Interval != nil {
+		desiredInterval := int(desired.Interval.Seconds())
+		if desiredInterval > 0 && existing.Interval != desiredInterval {
+			return false
+		}
+	}
+	return true
+}
+
 // CreateMonitorResult contains the result of creating a monitor.
 type CreateMonitorResult struct {
 	ID  string
@@ -405,6 +424,9 @@ func (c Client) CreateMonitor(ctx context.Context, monitor uptimerobotv1.Monitor
 		}
 		// For heartbeat monitors (no URL), try to find by name
 		if m, findErr := c.FindMonitorByName(ctx, monitor.Name); findErr == nil {
+			if !monitorMatchesExpected(m, monitor) {
+				return CreateMonitorResult{}, fmt.Errorf("%w: monitor %q exists but does not match desired configuration", err, monitor.Name)
+			}
 			return CreateMonitorResult{ID: strconv.Itoa(m.ID), URL: m.URL}, nil
 		}
 		return CreateMonitorResult{}, err
