@@ -4,6 +4,7 @@ description: A Helm chart for the Uptime Robot Operator - Kubernetes operator fo
 type: application
 version: 0.1.0
 appVersion: "latest"
+icon: https://raw.githubusercontent.com/joelp172/uptime-robot-operator/main/charts/uptime-robot-operator/icon.svg
 keywords:
   - uptime-robot
   - monitoring

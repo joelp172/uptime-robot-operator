@@ -5,6 +5,5 @@ metadata:
   name: {{ include "uptime-robot-operator.namespace" . }}
   labels:
     {{- include "uptime-robot-operator.labels" . | nindent 4 }}
-    control-plane: controller-manager
 {{- end }}
 
