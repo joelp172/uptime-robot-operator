@@ -6,22 +6,14 @@
 #   ./hack/setup-dev-cluster.sh [options]
 #
 # Options:
-#   --driver <minikube|kind>   Cluster driver (default: minikube)
-#   --skip-cert-manager        Skip cert-manager installation
-#   --skip-prometheus          Skip prometheus-operator installation
+#   --driver <minikube|kind>   Cluster driver (default: kind)
 #   --delete                   Delete existing cluster first
 #   -h, --help                 Show this help message
 
 set -euo pipefail
 
-# Versions
-CERT_MANAGER_VERSION="v1.19.2"
-PROMETHEUS_OPERATOR_VERSION="v0.88.1"
-
 # Defaults
-DRIVER="minikube"
-SKIP_CERT_MANAGER=false
-SKIP_PROMETHEUS=false
+DRIVER="kind"
 DELETE_FIRST=false
 CLUSTER_NAME="uptime-robot-dev"
 
@@ -46,14 +38,6 @@ while [[ $# -gt 0 ]]; do
         --driver)
             DRIVER="$2"
             shift 2
-            ;;
-        --skip-cert-manager)
-            SKIP_CERT_MANAGER=true
-            shift
-            ;;
-        --skip-prometheus)
-            SKIP_PROMETHEUS=true
-            shift
             ;;
         --delete)
             DELETE_FIRST=true
@@ -154,54 +138,6 @@ wait_for_cluster() {
     log_info "Cluster is ready"
 }
 
-# Install cert-manager
-install_cert_manager() {
-    if [[ "$SKIP_CERT_MANAGER" == "true" ]]; then
-        log_info "Skipping cert-manager installation"
-        return 0
-    fi
-    
-    log_info "Installing cert-manager ${CERT_MANAGER_VERSION}..."
-    
-    # Check if already installed
-    if kubectl get crd certificates.cert-manager.io &>/dev/null; then
-        log_warn "cert-manager CRDs already exist, skipping installation"
-        return 0
-    fi
-    
-    kubectl apply -f "https://github.com/cert-manager/cert-manager/releases/download/${CERT_MANAGER_VERSION}/cert-manager.yaml"
-    
-    log_info "Waiting for cert-manager to be ready..."
-    kubectl wait --for=condition=Available deployment/cert-manager -n cert-manager --timeout=120s
-    kubectl wait --for=condition=Available deployment/cert-manager-webhook -n cert-manager --timeout=120s
-    kubectl wait --for=condition=Available deployment/cert-manager-cainjector -n cert-manager --timeout=120s
-    
-    log_info "cert-manager installed successfully"
-}
-
-# Install prometheus-operator
-install_prometheus_operator() {
-    if [[ "$SKIP_PROMETHEUS" == "true" ]]; then
-        log_info "Skipping prometheus-operator installation"
-        return 0
-    fi
-    
-    log_info "Installing prometheus-operator ${PROMETHEUS_OPERATOR_VERSION}..."
-    
-    # Check if already installed
-    if kubectl get crd prometheuses.monitoring.coreos.com &>/dev/null; then
-        log_warn "prometheus-operator CRDs already exist, skipping installation"
-        return 0
-    fi
-    
-    kubectl apply --server-side -f "https://github.com/prometheus-operator/prometheus-operator/releases/download/${PROMETHEUS_OPERATOR_VERSION}/bundle.yaml"
-    
-    log_info "Waiting for prometheus-operator to be ready..."
-    kubectl wait --for=condition=Available deployment/prometheus-operator -n default --timeout=120s
-    
-    log_info "prometheus-operator installed successfully"
-}
-
 # Install CRDs
 install_crds() {
     log_info "Installing uptime-robot-operator CRDs..."
@@ -265,8 +201,6 @@ main() {
     
     create_cluster
     wait_for_cluster
-    install_cert_manager
-    install_prometheus_operator
     install_crds
     print_next_steps
 }
