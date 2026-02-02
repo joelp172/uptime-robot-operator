@@ -120,6 +120,7 @@ Defines an UptimeRobot monitor.
 | `prune` | boolean | No | `true` | Delete monitor from UptimeRobot when CR is deleted |
 | `account.name` | string | No | default account | Account to use for API access |
 | `contacts` | array | No | default contact | Alert contacts to notify |
+| `sourceRef` | object | No | - | Optional source object reference (kind/name/apiGroup) |
 | `monitor` | MonitorValues | Yes | - | Monitor configuration (see below) |
 
 ### MonitorValues
@@ -140,6 +141,61 @@ Defines an UptimeRobot monitor.
 | `port` | object | No | - | Port monitor config |
 | `auth` | object | No | - | HTTP authentication config |
 | `post` | object | No | - | POST request body config |
+| `tags` | []string | No | - | Tags to assign in UptimeRobot |
+| `customHttpHeaders` | map[string]string | No | - | Custom HTTP headers |
+| `successHttpResponseCodes` | []string | No | - | Success HTTP codes (e.g. `2xx`, `200`) |
+| `checkSSLErrors` | boolean | No | - | Enable SSL/domain error checks |
+| `sslExpirationReminder` | boolean | No | - | Notify before SSL cert expiry |
+| `domainExpirationReminder` | boolean | No | - | Notify before domain expiry |
+| `followRedirections` | boolean | No | - | Follow HTTP redirects |
+| `responseTimeThreshold` | integer | No | - | Response time threshold in ms (0-60000) |
+| `region` | string | No | - | Region: `na`, `eu`, `as`, `oc` |
+| `groupId` | integer | No | - | UptimeRobot group ID (0 = none) |
+
+### Auth
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `auth.type` | string | Yes | `Basic` or `Digest` |
+| `auth.username` | string | No | Username for HTTP auth |
+| `auth.password` | string | No | Password for HTTP auth |
+| `auth.secretName` | string | No | Secret containing credentials |
+| `auth.usernameKey` | string | No | Secret key for username |
+| `auth.passwordKey` | string | No | Secret key for password |
+
+```yaml
+spec:
+  monitor:
+    name: Authenticated Endpoint
+    url: https://secure.example.com/health
+    type: HTTPS
+    auth:
+      type: Basic
+      secretName: http-auth
+      usernameKey: username
+      passwordKey: password
+```
+
+### POST
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `post.postType` | string | No | `KeyValue` or `RawData` |
+| `post.contentType` | string | No | `text/html` or `application/json` |
+| `post.value` | string | No | Request body content |
+
+```yaml
+spec:
+  monitor:
+    name: POST Endpoint
+    url: https://api.example.com/submit
+    type: HTTPS
+    method: POST
+    post:
+      postType: RawData
+      contentType: application/json
+      value: '{"status":"ok"}'
+```
 
 ### Monitor Types
 
@@ -155,6 +211,9 @@ spec:
     type: HTTPS
     interval: 5m
     method: GET
+    tags:
+      - production
+      - public-api
 ```
 
 #### Keyword
@@ -244,8 +303,7 @@ TCP port monitoring.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `port.type` | string | Yes | HTTP, FTP, SMTP, POP3, IMAP, or Custom |
-| `port.number` | integer | No | Port number (required if type is Custom) |
+| `port.number` | integer | Yes | Port number (0-65535) |
 
 ```yaml
 spec:
@@ -254,7 +312,6 @@ spec:
     url: db.example.com
     type: Port
     port:
-      type: Custom
       number: 5432
 ```
 

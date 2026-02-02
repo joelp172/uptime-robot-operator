@@ -12,3 +12,6 @@ spec:
     name: Example
     url: https://example.com
     interval: 5m  # How often UptimeRobot checks the URL
+    tags:
+      - production
+      - public-api
