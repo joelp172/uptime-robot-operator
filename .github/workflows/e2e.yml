@@ -1,0 +1,168 @@
+---
+name: E2E Tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      skip_cleanup:
+        description: 'Skip cleanup (for debugging)'
+        required: false
+        default: 'false'
+        type: boolean
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: '1.23'
+  KIND_VERSION: 'v0.25.0'
+  KIND_CLUSTER_NAME: 'e2e-test'
+
+jobs:
+  e2e:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    # Only run if API key secret is available
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Setup Kind
+        uses: helm/kind-action@v1
+        with:
+          version: ${{ env.KIND_VERSION }}
+          cluster_name: ${{ env.KIND_CLUSTER_NAME }}
+          wait: 120s
+
+      - name: Verify cluster
+        run: |
+          kubectl cluster-info
+          kubectl get nodes
+
+      - name: Install cert-manager
+        run: |
+          kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.19.2/cert-manager.yaml
+          kubectl wait --for=condition=Available deployment/cert-manager-webhook -n cert-manager --timeout=5m
+
+      - name: Build operator image
+        run: |
+          make docker-build IMG=uptime-robot-operator:e2e
+
+      - name: Load image into Kind
+        run: |
+          kind load docker-image uptime-robot-operator:e2e --name ${{ env.KIND_CLUSTER_NAME }}
+
+      - name: Install CRDs
+        run: |
+          make install
+
+      - name: Deploy operator
+        run: |
+          make deploy IMG=uptime-robot-operator:e2e
+
+      - name: Wait for operator to be ready
+        run: |
+          kubectl wait --for=condition=Available deployment/uptime-robot-controller-manager -n uptime-robot-system --timeout=2m
+
+      - name: Run E2E tests
+        env:
+          UPTIME_ROBOT_API_KEY: ${{ secrets.UPTIME_ROBOT_API_DEV }}
+          KIND_CLUSTER: ${{ env.KIND_CLUSTER_NAME }}
+        run: |
+          go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="crd-reconciliation" -timeout 20m
+
+      - name: Collect debug info on failure
+        if: failure()
+        run: |
+          echo "=== Operator Logs ==="
+          kubectl logs -n uptime-robot-system deployment/uptime-robot-controller-manager --tail=200 || true
+          echo ""
+          echo "=== Events ==="
+          kubectl get events -n uptime-robot-system --sort-by='.lastTimestamp' || true
+          echo ""
+          echo "=== All Resources ==="
+          kubectl get accounts,contacts,monitors -A -o wide || true
+          echo ""
+          echo "=== Describe Monitors ==="
+          kubectl describe monitors -A || true
+
+      - name: Cleanup
+        if: always() && github.event.inputs.skip_cleanup != 'true'
+        run: |
+          # Delete test resources
+          kubectl delete monitors --all --ignore-not-found=true || true
+          kubectl delete contacts --all --ignore-not-found=true || true
+          kubectl delete accounts --all --ignore-not-found=true || true
+          # Undeploy operator
+          make undeploy ignore-not-found=true || true
+          make uninstall ignore-not-found=true || true
+
+  # Basic e2e tests (without real API) run on every PR
+  e2e-basic:
+    name: E2E Basic
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Setup Kind
+        uses: helm/kind-action@v1
+        with:
+          version: ${{ env.KIND_VERSION }}
+          cluster_name: e2e-basic
+          wait: 120s
+
+      - name: Install cert-manager
+        run: |
+          kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.19.2/cert-manager.yaml
+          kubectl wait --for=condition=Available deployment/cert-manager-webhook -n cert-manager --timeout=5m
+
+      - name: Build operator image
+        run: |
+          make docker-build IMG=uptime-robot-operator:e2e
+
+      - name: Load image into Kind
+        run: |
+          kind load docker-image uptime-robot-operator:e2e --name e2e-basic
+
+      - name: Run basic E2E tests
+        env:
+          KIND_CLUSTER: e2e-basic
+          CERT_MANAGER_INSTALL_SKIP: "true"
+        run: |
+          go test ./test/e2e/ -v -ginkgo.v -ginkgo.skip="CRD Reconciliation" -timeout 15m
+
+      - name: Collect debug info on failure
+        if: failure()
+        run: |
+          echo "=== Operator Logs ==="
+          kubectl logs -n uptime-robot-system deployment/uptime-robot-controller-manager --tail=200 || true
+          echo ""
+          echo "=== Events ==="
+          kubectl get events -n uptime-robot-system --sort-by='.lastTimestamp' || true
+
+      - name: Cleanup
+        if: always()
+        run: |
+          make undeploy ignore-not-found=true || true
+          make uninstall ignore-not-found=true || true

@@ -75,7 +75,37 @@ test-e2e: manifests generate fmt vet ## Run the e2e tests. Expected an isolated 
 		echo "No Kind cluster is running. Please start a Kind cluster before running the e2e tests."; \
 		exit 1; \
 	}
-	go test ./test/e2e/ -v -ginkgo.v
+	go test ./test/e2e/ -v -ginkgo.v -ginkgo.skip="CRD Reconciliation"
+
+# Run e2e tests with real UptimeRobot API (requires UPTIME_ROBOT_API_KEY env var)
+.PHONY: test-e2e-real
+test-e2e-real: manifests generate fmt vet ## Run e2e tests against real UptimeRobot API. Requires UPTIME_ROBOT_API_KEY.
+	@command -v kind >/dev/null 2>&1 || { \
+		echo "Kind is not installed. Please install Kind manually."; \
+		exit 1; \
+	}
+	@kind get clusters | grep -q 'kind' || { \
+		echo "No Kind cluster is running. Please start a Kind cluster before running the e2e tests."; \
+		exit 1; \
+	}
+	@[ -n "$$UPTIME_ROBOT_API_KEY" ] || { \
+		echo "UPTIME_ROBOT_API_KEY is not set. Please set it to run real API tests."; \
+		exit 1; \
+	}
+	go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="crd-reconciliation" -timeout 20m
+
+# Run all e2e tests (basic + real API)
+.PHONY: test-e2e-all
+test-e2e-all: manifests generate fmt vet ## Run all e2e tests including real API tests.
+	@command -v kind >/dev/null 2>&1 || { \
+		echo "Kind is not installed. Please install Kind manually."; \
+		exit 1; \
+	}
+	@kind get clusters | grep -q 'kind' || { \
+		echo "No Kind cluster is running. Please start a Kind cluster before running the e2e tests."; \
+		exit 1; \
+	}
+	go test ./test/e2e/ -v -ginkgo.v -timeout 20m
 
 .PHONY: dev-cluster
 dev-cluster: ## Create a local development cluster with cert-manager and prometheus-operator.
