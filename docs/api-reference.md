@@ -241,7 +241,8 @@ spec:
 
 #### DNS
 
-Verify DNS records resolve to expected values.
+Verify DNS records resolve to expected values. For DNS monitors, set `monitor.url` to
+a hostname or IP with no scheme (e.g., `dns.google.com` or `8.8.8.8`).
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|

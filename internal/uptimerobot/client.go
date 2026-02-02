@@ -257,12 +257,16 @@ func (c Client) buildUpdateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 
 	req := UpdateMonitorRequest{
 		FriendlyName: monitor.Name,
-		URL:          monitor.URL,
 		Interval:     int(monitor.Interval.Seconds()),
 		Timeout:      int(monitor.Timeout.Seconds()),
 		GracePeriod:  gracePeriod,
 		// Note: Status is not supported in v3 PATCH requests - use pause/resume endpoints instead
 		HTTPMethod: httpMethodToString(monitor.Method),
+	}
+
+	// UptimeRobot v3 rejects URL updates for DNS monitors.
+	if monitor.Type != urtypes.TypeDNS && monitor.Type != urtypes.TypeHeartbeat {
+		req.URL = monitor.URL
 	}
 
 	// Handle auth

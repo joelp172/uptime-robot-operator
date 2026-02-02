@@ -11,12 +11,11 @@ spec:
   prune: true
   monitor:
     name: Example DNS Monitor
-    url: example.com
+    # For DNS monitors, set url to a hostname or IP (no scheme)
+    url: dns.google.com
     type: DNS
     interval: 5m  # How often UptimeRobot checks the DNS
     dns:
       a:
-        - "93.184.216.34"
-      # Optional: notify ahead of SSL expiration (0-365 days)
-      sslExpirationPeriodDays:
-        - 7
+        - "8.8.8.8"
+        - "8.8.4.4"
