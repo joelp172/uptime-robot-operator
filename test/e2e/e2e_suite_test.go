@@ -32,9 +32,8 @@ import (
 var projectImage = "example.com/uptime-robot-operator:v0.0.1"
 
 // TestE2E runs the end-to-end (e2e) test suite for the project. These tests execute in an isolated,
-// temporary environment to validate project changes with the the purposed to be used in CI jobs.
+// temporary environment to validate project changes for use in CI jobs.
 // The default setup requires Kind and builds/loads the Manager Docker image locally.
-// Note: This operator does not require cert-manager or webhooks.
 func TestE2E(t *testing.T) {
 	RegisterFailHandler(Fail)
 	_, _ = fmt.Fprintf(GinkgoWriter, "Starting uptime-robot-operator integration test suite\n")
@@ -55,5 +54,5 @@ var _ = BeforeSuite(func() {
 })
 
 var _ = AfterSuite(func() {
-	// No cleanup needed - operator does not require cert-manager
+	// No cleanup needed
 })
