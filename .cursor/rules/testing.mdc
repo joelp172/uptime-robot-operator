@@ -1,0 +1,71 @@
+---
+description: Testing standards and commands for uptime-robot-operator
+alwaysApply: true
+---
+
+# Testing Guide
+
+## Test Commands
+
+| Command | Description |
+|---------|-------------|
+| `make test` | Run unit tests with envtest |
+| `make lint` | Run golangci-lint |
+| `make test-e2e` | Run basic e2e tests (no API key required) |
+| `make test-e2e-real` | Run full e2e tests (requires `UPTIME_ROBOT_API_KEY`) |
+
+## Running Tests Locally
+
+### Unit Tests
+
+```bash
+make test
+```
+
+### E2E Tests (Basic)
+
+Requires a Kind cluster:
+
+```bash
+# Create cluster
+make dev-cluster
+
+# Build and load image
+make docker-build IMG=uptime-robot-operator:dev
+kind load docker-image uptime-robot-operator:dev --name uptime-robot-dev
+
+# Install and deploy
+make install
+make deploy IMG=uptime-robot-operator:dev
+
+# Run basic tests
+make test-e2e
+```
+
+### E2E Tests (Full with Real API)
+
+```bash
+# Same setup as above, then:
+UPTIME_ROBOT_API_KEY='your-api-key' make test-e2e-real
+```
+
+## Before Committing
+
+Always run:
+
+```bash
+make manifests generate fmt vet lint test
+```
+
+## Quick Validation Script
+
+```bash
+make manifests generate fmt vet && make lint && make test
+```
+
+## Notes
+
+- Unit tests use envtest (mock Kubernetes API)
+- E2E tests require Kind cluster
+- Full e2e tests create real monitors in UptimeRobot (use dev account)
+- Clean up with: `make dev-cluster-delete`
