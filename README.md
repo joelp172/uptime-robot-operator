@@ -48,15 +48,13 @@ helm install uptime-robot-operator ./charts/uptime-robot-operator
 **From OCI registry (after first release):**
 
 ```bash
-# Replace with the actual version after the first release
-helm install uptime-robot-operator oci://ghcr.io/joelp172/charts/uptime-robot-operator --version <VERSION>
+helm install uptime-robot-operator oci://ghcr.io/joelp172/charts/uptime-robot-operator --version v1.2.1
 ```
 
 Or install with custom values:
 
 ```bash
 helm install uptime-robot-operator ./charts/uptime-robot-operator \
-  --set image.tag=v1.0.0 \
   --set resources.limits.memory=1Gi
 ```
 
