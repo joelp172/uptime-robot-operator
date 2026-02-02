@@ -104,9 +104,6 @@ namespace:
   # Create the namespace as part of the Helm chart
   create: true
 
-# CRD installation configuration
-crds:
-  # Install CRDs as part of the Helm chart
-  install: true
-  # Keep CRDs when uninstalling the chart
-  keep: true
+# Note: CRDs are managed by Helm's crds/ directory mechanism.
+# They are automatically installed on first install and preserved on uninstall.
+# This behavior is fixed by Helm and cannot be configured.

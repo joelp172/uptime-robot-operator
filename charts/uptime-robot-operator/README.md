@@ -131,12 +131,25 @@ resources:
 | `metrics.port`                    | Metrics service port                             | `8443`           |
 | `metrics.type`                    | Metrics service type                             | `ClusterIP`      |
 
-### CRD Parameters
+### CRDs
 
-| Name                              | Description                                      | Value            |
-|-----------------------------------|--------------------------------------------------|------------------|
-| `crds.install`                    | Install CRDs as part of the Helm chart           | `true`           |
-| `crds.keep`                       | Keep CRDs when uninstalling the chart            | `true`           |
+CRDs are managed using Helm's `crds/` directory mechanism. This means:
+
+- CRDs are automatically installed on first `helm install`
+- CRDs are **never** deleted on `helm uninstall` (to prevent data loss)
+- CRDs are **not** upgraded on `helm upgrade` (Helm limitation)
+
+To upgrade CRDs manually:
+
+```bash
+kubectl apply -f https://github.com/joelp172/uptime-robot-operator/releases/latest/download/install.yaml
+```
+
+Or extract from the chart:
+
+```bash
+kubectl apply -f charts/uptime-robot-operator/crds/
+```
 
 ### Pod Assignment Parameters
 
