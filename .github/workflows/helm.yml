@@ -15,6 +15,7 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -32,6 +33,7 @@ jobs:
   template:
     name: Template
     runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -54,6 +56,7 @@ jobs:
   install-test:
     name: Install Test
     runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     steps:
       - name: Checkout
         uses: actions/checkout@v4

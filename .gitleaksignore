@@ -5,3 +5,4 @@ config/crd/bases/uptimerobot.com_contacts.yaml:curl-auth-header:76
 config/samples/uptime-robot_v1alpha1_contact.yaml:curl-auth-header:4
 api/v1alpha1/contact_types.go:curl-auth-header:70
 docs/configure-alerts.md:curl-auth-header:35
+echo b99fd3d99f9bbb5aa56d8ec130c6b2f12e5e4276:charts/uptime-robot-operator/crds/uptimerobot.com_contacts.yaml:curl-auth-header:76 >> .gitleaksignore
