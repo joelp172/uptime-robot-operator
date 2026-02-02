@@ -65,7 +65,7 @@ See the [Helm Chart README](charts/uptime-robot-operator/README.md) for all conf
 Create a Secret in the `uptime-robot-system` namespace (where the operator runs):
 
 ```bash
-kubectl create secret generic uptimerobot-api-key \
+kubectl create secret generic uptime-robot-api-key \
   --namespace uptime-robot-system \
   --from-literal=apiKey=YOUR_API_KEY
 ```

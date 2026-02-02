@@ -15,5 +15,8 @@ spec:
     type: DNS
     interval: 5m  # How often UptimeRobot checks the DNS
     dns:
-      recordType: A
-      value: "93.184.216.34"
+      a:
+        - "93.184.216.34"
+      # Optional: notify ahead of SSL expiration (0-365 days)
+      sslExpirationPeriodDays:
+        - 7

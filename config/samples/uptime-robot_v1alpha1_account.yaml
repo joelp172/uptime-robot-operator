@@ -8,5 +8,5 @@ metadata:
 spec:
   isDefault: true
   apiKeySecretRef:
-    name: uptime-robot-example
+    name: uptime-robot-api-key
     key: apiKey
