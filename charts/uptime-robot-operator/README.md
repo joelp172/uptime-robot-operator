@@ -25,7 +25,7 @@ helm install uptime-robot-operator ./charts/uptime-robot-operator
 To install the chart from the OCI registry (requires Helm 3.8+):
 
 ```bash
-# Replace <VERSION> with the desired chart version (e.g., 1.0.0)
+# Replace <VERSION> with the desired chart version (e.g., v1.0.0)
 helm install uptime-robot-operator oci://ghcr.io/joelp172/charts/uptime-robot-operator --version <VERSION>
 ```
 
@@ -313,12 +313,6 @@ kubectl delete crd monitors.uptimerobot.com
 
 ## Troubleshooting
 
-### Check Operator Logs
-
-```bash
-kubectl logs -n uptime-robot-system -l control-plane=controller-manager
-```
-
 ### Verify Installation
 
 ```bash
@@ -326,18 +320,12 @@ kubectl get pods -n uptime-robot-system
 kubectl get crd | grep uptimerobot.com
 ```
 
-### Common Issues
-
-1. **Pods not starting**: Check resource limits and node capacity
-2. **API connection issues**: Verify API key secret is created in the correct namespace
-3. **CRD conflicts**: If upgrading from a non-Helm installation, CRDs might already exist
-
 ## More Information
 
 - [Project Documentation](https://github.com/joelp172/uptime-robot-operator/tree/main/docs)
 - [GitHub Repository](https://github.com/joelp172/uptime-robot-operator)
 - [Issue Tracker](https://github.com/joelp172/uptime-robot-operator/issues)
 
-## License
+## Licence
 
-Apache License 2.0 - See [LICENSE](https://github.com/joelp172/uptime-robot-operator/blob/main/LICENSE) for details.
+Apache Licence 2.0 - See [LICENCE](https://github.com/joelp172/uptime-robot-operator/blob/main/LICENSE) for details.
