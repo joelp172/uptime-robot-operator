@@ -5,4 +5,4 @@ resources:
 images:
 - name: controller
   newName: example.com/uptime-robot-operator
-  newTag: v0.The Number field changed from uint16 to int, which could potentially allow negative values despite the kubebuilder validation constraint (Minimum=0). Consider using a uint16 or ensuring runtime validation prevents negative values, as port numbers are inherently non-negative and limited to 0-65535.0.1
+  newTag: v0.0.1
