@@ -29,8 +29,13 @@ jobs:
   e2e:
     name: E2E Tests
     runs-on: ubuntu-latest
-    # Only run if API key secret is available
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    # Only run if API key secret is available and PR is not draft
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'push' ||
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       github.event.pull_request.draft == false)
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -106,10 +111,15 @@ jobs:
           make undeploy ignore-not-found=true || true
           make uninstall ignore-not-found=true || true
 
-  # Basic e2e tests (without real API) run on every PR
+  # Basic e2e tests (without real API) only run on fork PRs where secrets aren't available
   e2e-basic:
     name: E2E Basic
     runs-on: ubuntu-latest
+    # Only run on fork PRs (where e2e job is skipped due to missing secrets) and not draft
+    if: |
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name != github.repository &&
+      github.event.pull_request.draft == false
     steps:
       - name: Checkout
         uses: actions/checkout@v4
