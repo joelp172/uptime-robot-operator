@@ -18,22 +18,101 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
+      packages: write
+    outputs:
+      new_release_published: ${{ steps.semantic.outputs.new_release_published }}
+      new_release_version: ${{ steps.semantic.outputs.new_release_version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      - name: Install dependencies
-        run: npm install -g semantic-release
-
       - name: Release
+        id: semantic
+        uses: cycjimmy/semantic-release-action@v4
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx semantic-release
+
+  build:
+    name: Build and Push
+    needs: release
+    if: needs.release.outputs.new_release_published == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: v${{ needs.release.outputs.new_release_version }}
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/joelp172/uptime-robot-operator
+          tags: |
+            type=raw,value=latest
+            type=raw,value=v${{ needs.release.outputs.new_release_version }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Build and Push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm/v7,linux/arm64/v8
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  release-manifests:
+    name: Release Manifests
+    needs: [release, build]
+    if: needs.release.outputs.new_release_published == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Setup Flux CLI
+        uses: fluxcd/flux2/action@v2.5.1
+
+      - name: Generate Installer
+        run: make build-installer IMG=ghcr.io/joelp172/uptime-robot-operator:v${{ needs.release.outputs.new_release_version }}
+
+      - name: Publish
+        run: |
+          flux push artifact \
+            oci://ghcr.io/joelp172/uptime-robot-operator-manifests:v${{ needs.release.outputs.new_release_version }} \
+            --path=dist --source=${{ github.repositoryUrl }} --revision="v${{ needs.release.outputs.new_release_version }}@sha1:${{ github.sha }}"
