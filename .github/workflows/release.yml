@@ -92,7 +92,7 @@ jobs:
     if: needs.release.outputs.new_release_published == 'true'
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       packages: write
     steps:
       - name: Checkout
@@ -111,7 +111,13 @@ jobs:
       - name: Generate Installer
         run: make build-installer IMG=ghcr.io/joelp172/uptime-robot-operator:v${{ needs.release.outputs.new_release_version }}
 
-      - name: Publish
+      - name: Upload install.yaml to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.release.outputs.new_release_version }}
+          files: dist/install.yaml
+
+      - name: Publish OCI Artifact
         run: |
           flux push artifact \
             oci://ghcr.io/joelp172/uptime-robot-operator-manifests:v${{ needs.release.outputs.new_release_version }} \
