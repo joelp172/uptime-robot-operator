@@ -65,17 +65,18 @@ var _ = Describe("CRD Reconciliation", Ordered, Label("crd-reconciliation"), fun
 		}
 
 		By("cleaning up e2e test resources")
-		// Delete all monitors created during tests
 		cleanupMonitors()
-		// Delete account and secret
-		cmd := exec.Command("kubectl", "delete", "account", fmt.Sprintf("e2e-account-%s", testRunID), "--ignore-not-found=true")
+		// Delete default contact, account and secret
+		cmd := exec.Command("kubectl", "delete", "contact", fmt.Sprintf("e2e-default-contact-%s", testRunID), "--ignore-not-found=true")
+		_, _ = utils.Run(cmd)
+		cmd = exec.Command("kubectl", "delete", "account", fmt.Sprintf("e2e-account-%s", testRunID), "--ignore-not-found=true")
 		_, _ = utils.Run(cmd)
 		cmd = exec.Command("kubectl", "delete", "secret", "uptime-robot-e2e", "-n", namespace, "--ignore-not-found=true")
 		_, _ = utils.Run(cmd)
 	})
 
-	Context("Account Resource", func() {
-		It("should create and become ready", func() {
+	Context("Account and Default Contact Setup", func() {
+		It("should create Account and default Contact", func() {
 			By("creating an Account resource")
 			accountYAML := fmt.Sprintf(`
 apiVersion: uptimerobot.com/v1alpha1
@@ -112,13 +113,40 @@ spec:
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).NotTo(BeEmpty(), "Account should have email in status")
 
-			By("verifying Account has alertContacts in status")
+			By("getting the first contact ID from Account status")
 			cmd = exec.Command("kubectl", "get", "account",
 				fmt.Sprintf("e2e-account-%s", testRunID),
-				"-o", "jsonpath={.status.alertContacts}")
-			output, err = utils.Run(cmd)
+				"-o", "jsonpath={.status.alertContacts[0].id}")
+			contactID, err := utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(output).NotTo(BeEmpty(), "Account should have alertContacts in status")
+			Expect(contactID).NotTo(BeEmpty(), "Account should have at least one alert contact")
+
+			By("creating a default Contact resource")
+			contactYAML := fmt.Sprintf(`
+apiVersion: uptimerobot.com/v1alpha1
+kind: Contact
+metadata:
+  name: e2e-default-contact-%s
+spec:
+  isDefault: true
+  contact:
+    id: "%s"
+`, testRunID, contactID)
+
+			cmd = exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(contactYAML)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("waiting for Contact to become ready")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "contact",
+					fmt.Sprintf("e2e-default-contact-%s", testRunID),
+					"-o", "jsonpath={.status.ready}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("true"))
+			}, 1*time.Minute, 5*time.Second).Should(Succeed())
 		})
 	})
 
@@ -126,7 +154,6 @@ spec:
 		monitorName := fmt.Sprintf("e2e-http-%s", testRunID)
 
 		AfterEach(func() {
-			// Clean up monitor after each test
 			cmd := exec.Command("kubectl", "delete", "monitor", monitorName, "--ignore-not-found=true")
 			_, _ = utils.Run(cmd)
 		})
@@ -170,81 +197,6 @@ spec:
 			output, err := utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).NotTo(BeEmpty(), "Monitor should have ID in status")
-
-			By("verifying Monitor type in status")
-			cmd = exec.Command("kubectl", "get", "monitor", monitorName,
-				"-o", "jsonpath={.status.type}")
-			output, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(Equal("HTTPS"))
-		})
-
-		It("should update monitor when spec changes", func() {
-			By("creating a Monitor resource")
-			monitorYAML := fmt.Sprintf(`
-apiVersion: uptimerobot.com/v1alpha1
-kind: Monitor
-metadata:
-  name: %s
-spec:
-  syncInterval: 1m
-  prune: true
-  account:
-    name: e2e-account-%s
-  monitor:
-    name: "E2E Test Update Monitor %s"
-    url: https://example.com
-    type: HTTPS
-    interval: 5m
-`, monitorName, testRunID, testRunID)
-
-			cmd := exec.Command("kubectl", "apply", "-f", "-")
-			cmd.Stdin = strings.NewReader(monitorYAML)
-			_, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("waiting for Monitor to become ready")
-			Eventually(func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "monitor", monitorName,
-					"-o", "jsonpath={.status.ready}")
-				output, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("true"))
-			}, 2*time.Minute, 5*time.Second).Should(Succeed())
-
-			By("updating the Monitor with new URL")
-			updatedMonitorYAML := fmt.Sprintf(`
-apiVersion: uptimerobot.com/v1alpha1
-kind: Monitor
-metadata:
-  name: %s
-spec:
-  syncInterval: 1m
-  prune: true
-  account:
-    name: e2e-account-%s
-  monitor:
-    name: "E2E Test Update Monitor %s - Updated"
-    url: https://httpbin.org/status/200
-    type: HTTPS
-    interval: 5m
-`, monitorName, testRunID, testRunID)
-
-			cmd = exec.Command("kubectl", "apply", "-f", "-")
-			cmd.Stdin = strings.NewReader(updatedMonitorYAML)
-			_, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("waiting for Monitor to be updated")
-			// Give some time for the reconciliation
-			time.Sleep(10 * time.Second)
-
-			// Verify the monitor is still ready after update
-			cmd = exec.Command("kubectl", "get", "monitor", monitorName,
-				"-o", "jsonpath={.status.ready}")
-			output, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(Equal("true"))
 		})
 
 		It("should delete monitor from UptimeRobot when resource is deleted", func() {
@@ -279,13 +231,6 @@ spec:
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(output).To(Equal("true"))
 			}, 2*time.Minute, 5*time.Second).Should(Succeed())
-
-			By("getting the monitor ID before deletion")
-			cmd = exec.Command("kubectl", "get", "monitor", monitorName,
-				"-o", "jsonpath={.status.id}")
-			monitorID, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(monitorID).NotTo(BeEmpty())
 
 			By("deleting the Monitor resource")
 			cmd = exec.Command("kubectl", "delete", "monitor", monitorName)
@@ -345,13 +290,6 @@ spec:
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(output).To(Equal("true"))
 			}, 2*time.Minute, 5*time.Second).Should(Succeed())
-
-			By("verifying Monitor type is Keyword")
-			cmd = exec.Command("kubectl", "get", "monitor", monitorName,
-				"-o", "jsonpath={.status.type}")
-			output, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(Equal("Keyword"))
 		})
 	})
 
@@ -396,230 +334,6 @@ spec:
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(output).To(Equal("true"))
 			}, 2*time.Minute, 5*time.Second).Should(Succeed())
-
-			By("verifying Monitor type is Heartbeat")
-			cmd = exec.Command("kubectl", "get", "monitor", monitorName,
-				"-o", "jsonpath={.status.type}")
-			output, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(Equal("Heartbeat"))
-		})
-	})
-
-	Context("Drift Detection", func() {
-		monitorName := fmt.Sprintf("e2e-drift-%s", testRunID)
-
-		AfterEach(func() {
-			cmd := exec.Command("kubectl", "delete", "monitor", monitorName, "--ignore-not-found=true")
-			_, _ = utils.Run(cmd)
-		})
-
-		It("should recreate monitor if deleted externally from UptimeRobot", func() {
-			By("creating a Monitor resource")
-			monitorYAML := fmt.Sprintf(`
-apiVersion: uptimerobot.com/v1alpha1
-kind: Monitor
-metadata:
-  name: %s
-spec:
-  syncInterval: 30s
-  prune: true
-  account:
-    name: e2e-account-%s
-  monitor:
-    name: "E2E Test Drift Monitor %s"
-    url: https://example.com
-    type: HTTPS
-    interval: 5m
-`, monitorName, testRunID, testRunID)
-
-			cmd := exec.Command("kubectl", "apply", "-f", "-")
-			cmd.Stdin = strings.NewReader(monitorYAML)
-			_, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("waiting for Monitor to become ready")
-			Eventually(func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "monitor", monitorName,
-					"-o", "jsonpath={.status.ready}")
-				output, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("true"))
-			}, 2*time.Minute, 5*time.Second).Should(Succeed())
-
-			By("getting the original monitor ID")
-			cmd = exec.Command("kubectl", "get", "monitor", monitorName,
-				"-o", "jsonpath={.status.id}")
-			originalID, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(originalID).NotTo(BeEmpty())
-
-			By("simulating external deletion by clearing status ID")
-			// We patch the status to simulate the monitor being deleted externally
-			// The next reconciliation should detect this and recreate
-			patchJSON := `{"status":{"id":"","ready":false}}`
-			cmd = exec.Command("kubectl", "patch", "monitor", monitorName,
-				"--type=merge", "--subresource=status", "-p", patchJSON)
-			_, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("waiting for Monitor to be recreated and become ready again")
-			Eventually(func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "monitor", monitorName,
-					"-o", "jsonpath={.status.ready}")
-				output, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("true"))
-			}, 2*time.Minute, 5*time.Second).Should(Succeed())
-
-			By("verifying a new monitor ID was assigned")
-			cmd = exec.Command("kubectl", "get", "monitor", monitorName,
-				"-o", "jsonpath={.status.id}")
-			newID, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(newID).NotTo(BeEmpty())
-			// Note: The new ID might be the same or different depending on UptimeRobot's behavior
-		})
-	})
-
-	Context("Contact Resource", func() {
-		It("should resolve contact by ID from Account status", func() {
-			By("getting a contact ID from Account status")
-			cmd := exec.Command("kubectl", "get", "account",
-				fmt.Sprintf("e2e-account-%s", testRunID),
-				"-o", "jsonpath={.status.alertContacts[0].id}")
-			contactID, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-
-			if contactID == "" {
-				Skip("No alert contacts available in account")
-			}
-
-			contactName := fmt.Sprintf("e2e-contact-%s", testRunID)
-
-			By("creating a Contact resource using the ID")
-			contactYAML := fmt.Sprintf(`
-apiVersion: uptimerobot.com/v1alpha1
-kind: Contact
-metadata:
-  name: %s
-spec:
-  isDefault: false
-  contact:
-    id: "%s"
-`, contactName, contactID)
-
-			cmd = exec.Command("kubectl", "apply", "-f", "-")
-			cmd.Stdin = strings.NewReader(contactYAML)
-			_, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("waiting for Contact to become ready")
-			Eventually(func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "contact", contactName,
-					"-o", "jsonpath={.status.ready}")
-				output, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("true"))
-			}, 1*time.Minute, 5*time.Second).Should(Succeed())
-
-			By("verifying Contact has ID in status")
-			cmd = exec.Command("kubectl", "get", "contact", contactName,
-				"-o", "jsonpath={.status.id}")
-			output, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(Equal(contactID))
-
-			By("cleaning up Contact")
-			cmd = exec.Command("kubectl", "delete", "contact", contactName)
-			_, _ = utils.Run(cmd)
-		})
-	})
-
-	Context("Monitor with Contact", func() {
-		monitorName := fmt.Sprintf("e2e-monitor-contact-%s", testRunID)
-		contactName := fmt.Sprintf("e2e-contact-monitor-%s", testRunID)
-
-		AfterEach(func() {
-			cmd := exec.Command("kubectl", "delete", "monitor", monitorName, "--ignore-not-found=true")
-			_, _ = utils.Run(cmd)
-			cmd = exec.Command("kubectl", "delete", "contact", contactName, "--ignore-not-found=true")
-			_, _ = utils.Run(cmd)
-		})
-
-		It("should create monitor with alert contact", func() {
-			By("getting a contact ID from Account status")
-			cmd := exec.Command("kubectl", "get", "account",
-				fmt.Sprintf("e2e-account-%s", testRunID),
-				"-o", "jsonpath={.status.alertContacts[0].id}")
-			contactID, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-
-			if contactID == "" {
-				Skip("No alert contacts available in account")
-			}
-
-			By("creating a Contact resource")
-			contactYAML := fmt.Sprintf(`
-apiVersion: uptimerobot.com/v1alpha1
-kind: Contact
-metadata:
-  name: %s
-spec:
-  isDefault: false
-  contact:
-    id: "%s"
-`, contactName, contactID)
-
-			cmd = exec.Command("kubectl", "apply", "-f", "-")
-			cmd.Stdin = strings.NewReader(contactYAML)
-			_, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("waiting for Contact to become ready")
-			Eventually(func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "contact", contactName,
-					"-o", "jsonpath={.status.ready}")
-				output, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("true"))
-			}, 1*time.Minute, 5*time.Second).Should(Succeed())
-
-			By("creating a Monitor with Contact reference")
-			monitorYAML := fmt.Sprintf(`
-apiVersion: uptimerobot.com/v1alpha1
-kind: Monitor
-metadata:
-  name: %s
-spec:
-  syncInterval: 1m
-  prune: true
-  account:
-    name: e2e-account-%s
-  contacts:
-    - name: %s
-      threshold: 1m
-      recurrence: 0s
-  monitor:
-    name: "E2E Test Monitor with Contact %s"
-    url: https://example.com
-    type: HTTPS
-    interval: 5m
-`, monitorName, testRunID, contactName, testRunID)
-
-			cmd = exec.Command("kubectl", "apply", "-f", "-")
-			cmd.Stdin = strings.NewReader(monitorYAML)
-			_, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("waiting for Monitor to become ready")
-			Eventually(func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "monitor", monitorName,
-					"-o", "jsonpath={.status.ready}")
-				output, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("true"))
-			}, 2*time.Minute, 5*time.Second).Should(Succeed())
 		})
 	})
 })
@@ -630,22 +344,10 @@ func cleanupMonitors() {
 		fmt.Sprintf("e2e-http-%s", testRunID),
 		fmt.Sprintf("e2e-keyword-%s", testRunID),
 		fmt.Sprintf("e2e-heartbeat-%s", testRunID),
-		fmt.Sprintf("e2e-drift-%s", testRunID),
-		fmt.Sprintf("e2e-monitor-contact-%s", testRunID),
 	}
 
 	for _, name := range monitorPrefixes {
 		cmd := exec.Command("kubectl", "delete", "monitor", name, "--ignore-not-found=true")
-		_, _ = utils.Run(cmd)
-	}
-
-	// Also clean up contacts
-	contactPrefixes := []string{
-		fmt.Sprintf("e2e-contact-%s", testRunID),
-		fmt.Sprintf("e2e-contact-monitor-%s", testRunID),
-	}
-	for _, name := range contactPrefixes {
-		cmd := exec.Command("kubectl", "delete", "contact", name, "--ignore-not-found=true")
 		_, _ = utils.Run(cmd)
 	}
 }

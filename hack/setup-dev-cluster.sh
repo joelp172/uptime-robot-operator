@@ -7,8 +7,8 @@
 #
 # Options:
 #   --driver <minikube|kind>   Cluster driver (default: minikube)
-#   --skip-cert-manager        Skip cert-manager installation
-#   --skip-prometheus          Skip prometheus-operator installation
+#   --with-cert-manager        Install cert-manager (not required by operator)
+#   --with-prometheus          Install prometheus-operator (not required by operator)
 #   --delete                   Delete existing cluster first
 #   -h, --help                 Show this help message
 
@@ -19,9 +19,11 @@ CERT_MANAGER_VERSION="v1.19.2"
 PROMETHEUS_OPERATOR_VERSION="v0.88.1"
 
 # Defaults
+# Note: cert-manager and prometheus are NOT required by this operator
+# They are optional and only needed if you want to use webhooks or metrics
 DRIVER="minikube"
-SKIP_CERT_MANAGER=false
-SKIP_PROMETHEUS=false
+SKIP_CERT_MANAGER=true
+SKIP_PROMETHEUS=true
 DELETE_FIRST=false
 CLUSTER_NAME="uptime-robot-dev"
 
@@ -47,12 +49,12 @@ while [[ $# -gt 0 ]]; do
             DRIVER="$2"
             shift 2
             ;;
-        --skip-cert-manager)
-            SKIP_CERT_MANAGER=true
+        --with-cert-manager)
+            SKIP_CERT_MANAGER=false
             shift
             ;;
-        --skip-prometheus)
-            SKIP_PROMETHEUS=true
+        --with-prometheus)
+            SKIP_PROMETHEUS=false
             shift
             ;;
         --delete)

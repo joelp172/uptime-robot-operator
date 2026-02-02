@@ -31,7 +31,7 @@ import (
 )
 
 // namespace where the project is deployed in
-const namespace = "uptime-robot-operator-system"
+const namespace = "uptime-robot-system"
 
 // serviceAccountName created for the project
 const serviceAccountName = "uptime-robot-operator-controller-manager"
