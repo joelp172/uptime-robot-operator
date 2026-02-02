@@ -114,10 +114,10 @@ jobs:
         run: make build-installer IMG=ghcr.io/joelp172/uptime-robot-operator:v${{ needs.release.outputs.new_release_version }}
 
       - name: Upload install.yaml to Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ needs.release.outputs.new_release_version }}
-          files: dist/install.yaml
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "v${{ needs.release.outputs.new_release_version }}" dist/install.yaml --clobber
 
       - name: Publish OCI Artifact
         run: |
