@@ -1,0 +1,18 @@
+{{- if .Values.metrics.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "uptime-robot-operator.fullname" . }}-metrics-service
+  namespace: {{ include "uptime-robot-operator.namespace" . }}
+  labels:
+    {{- include "uptime-robot-operator.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.metrics.type }}
+  ports:
+  - name: https
+    port: {{ .Values.metrics.port }}
+    protocol: TCP
+    targetPort: 8443
+  selector:
+    {{- include "uptime-robot-operator.selectorLabels" . | nindent 4 }}
+{{- end }}

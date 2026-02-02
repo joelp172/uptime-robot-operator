@@ -19,12 +19,45 @@ A Kubernetes operator that manages [UptimeRobot](https://uptimerobot.com/?red=jo
 - Kubernetes cluster v1.19+
 - kubectl configured to access your cluster
 - UptimeRobot API key ([sign up free](https://uptimerobot.com/?red=joelpi) then go to Integrations > API)
+- (Optional) Helm 3.0+ for Helm-based installation
 
 ### Install
+
+#### Option 1: Using kubectl (Static Manifests)
 
 ```bash
 kubectl apply -f https://github.com/joelp172/uptime-robot-operator/releases/latest/download/install.yaml
 ```
+
+#### Option 2: Using Helm
+
+**From source:**
+
+```bash
+# Clone the repository
+git clone https://github.com/joelp172/uptime-robot-operator.git
+cd uptime-robot-operator
+
+# Install the chart
+helm install uptime-robot-operator ./charts/uptime-robot-operator
+```
+
+**From OCI registry (after first release):**
+
+```bash
+# Replace with the actual version after the first release
+helm install uptime-robot-operator oci://ghcr.io/joelp172/charts/uptime-robot-operator --version <VERSION>
+```
+
+Or install with custom values:
+
+```bash
+helm install uptime-robot-operator ./charts/uptime-robot-operator \
+  --set image.tag=v1.0.0 \
+  --set resources.limits.memory=1Gi
+```
+
+See the [Helm Chart README](charts/uptime-robot-operator/README.md) for all configuration options.
 
 ### Configure API Key
 

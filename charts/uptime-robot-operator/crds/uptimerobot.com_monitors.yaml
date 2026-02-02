@@ -1,0 +1,344 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.2
+  name: monitors.uptimerobot.com
+spec:
+  group: uptimerobot.com
+  names:
+    kind: Monitor
+    listKind: MonitorList
+    plural: monitors
+    singular: monitor
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.ready
+      name: Ready
+      type: boolean
+    - jsonPath: .spec.monitor.name
+      name: Friendly Name
+      type: string
+    - jsonPath: .spec.monitor.url
+      name: URL
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: Monitor is the Schema for the monitors API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: MonitorSpec defines the desired state of Monitor.
+            properties:
+              account:
+                description: Account references this object's Account. If not specified,
+                  the default will be used.
+                properties:
+                  name:
+                    default: ""
+                    description: |-
+                      Name of the referent.
+                      This field is effectively required, but due to backwards compatibility is
+                      allowed to be empty. Instances of this type with an empty value here are
+                      almost certainly wrong.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
+              contacts:
+                default:
+                - {}
+                items:
+                  description: MonitorContactRef attaches alert contacts. If blank,
+                    the default will be used.
+                  properties:
+                    name:
+                      default: ""
+                      description: |-
+                        Name of the referent.
+                        This field is effectively required, but due to backwards compatibility is
+                        allowed to be empty. Instances of this type with an empty value here are
+                        almost certainly wrong.
+                        More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                      type: string
+                    recurrence:
+                      description: |-
+                        Recurrence defines the number of minutes between a repeat notification.
+                        A value of 0, disables repeat notifications.
+                      type: string
+                    threshold:
+                      default: 1m
+                      description: Threshold defines the number of minutes to wait
+                        to notify.
+                      type: string
+                  type: object
+                  x-kubernetes-map-type: atomic
+                type: array
+              monitor:
+                description: Monitor configures the Uptime Robot monitor.
+                properties:
+                  auth:
+                    description: Auth enables monitor auth.
+                    properties:
+                      password:
+                        type: string
+                      passwordKey:
+                        type: string
+                      secretName:
+                        type: string
+                      type:
+                        default: Basic
+                        enum:
+                        - Basic
+                        - Digest
+                        type: string
+                      username:
+                        type: string
+                      usernameKey:
+                        type: string
+                    required:
+                    - type
+                    type: object
+                  dns:
+                    description: DNS provides configuration for the DNS monitor type.
+                    properties:
+                      recordType:
+                        description: RecordType is the DNS record type to check.
+                        enum:
+                        - A
+                        - AAAA
+                        - MX
+                        - NS
+                        - CNAME
+                        - TXT
+                        - SOA
+                        type: string
+                      value:
+                        description: Value is the expected DNS record value.
+                        type: string
+                    required:
+                    - recordType
+                    - value
+                    type: object
+                  gracePeriod:
+                    default: 60s
+                    description: |-
+                      GracePeriod is the time to wait before sending an alert after the monitor goes down.
+                      Maximum value is 24 hours (86400 seconds).
+                    type: string
+                  heartbeat:
+                    description: Heartbeat provides configuration for the Heartbeat
+                      monitor type.
+                    properties:
+                      interval:
+                        default: 60s
+                        description: |-
+                          Interval is the expected interval between heartbeats.
+                          If no heartbeat is received within this interval, an alert is triggered.
+                        type: string
+                    type: object
+                  interval:
+                    default: 60s
+                    description: Interval is the monitoring interval.
+                    type: string
+                  keyword:
+                    description: Keyword provides configuration for the Keyword monitor
+                      type.
+                    properties:
+                      caseSensitive:
+                        default: false
+                        type: boolean
+                      type:
+                        enum:
+                        - Exists
+                        - NotExists
+                        type: string
+                      value:
+                        type: string
+                    required:
+                    - type
+                    - value
+                    type: object
+                  method:
+                    default: HEAD
+                    description: Method defines the HTTP verb to use.
+                    enum:
+                    - HEAD
+                    - GET
+                    - POST
+                    - PUT
+                    - PATCH
+                    - DELETE
+                    - OPTIONS
+                    type: string
+                  name:
+                    description: Name sets the name that is shown in Uptime Robot.
+                    type: string
+                  port:
+                    description: Port provides configuration for the Port monitor
+                      type.
+                    properties:
+                      number:
+                        type: integer
+                      type:
+                        enum:
+                        - HTTP
+                        - FTP
+                        - SMTP
+                        - POP3
+                        - IMAP
+                        - Custom
+                        type: string
+                    required:
+                    - type
+                    type: object
+                    x-kubernetes-validations:
+                    - message: Number is required if type is Custom
+                      rule: self.type != 'Custom' || has(self.number)
+                    - message: Type must be Custom if Number is set
+                      rule: self.type == 'Custom' || !has(self.number)
+                  post:
+                    description: POST configures POST, PUT, PATCH, DELETE, and OPTIONS
+                      requests.
+                    properties:
+                      contentType:
+                        default: text/html
+                        description: ContentType sets the Content-Type header for
+                          POST, PUT, PATCH, DELETE, and OPTIONS requests.
+                        enum:
+                        - text/html
+                        - application/json
+                        type: string
+                      postType:
+                        default: KeyValue
+                        description: Type defines the format of data to be sent with
+                          POST, PUT, PATCH, DELETE, and OPTIONS requests.
+                        enum:
+                        - KeyValue
+                        - RawData
+                        type: string
+                      value:
+                        description: Value is the JSON form of data to be sent with
+                          POST, PUT, PATCH, DELETE, and OPTIONS requests.
+                        type: string
+                    type: object
+                  status:
+                    default: 1
+                    description: Status toggles pause status for the monitor. 0 is
+                      paused, 1 is running.
+                    type: integer
+                  timeout:
+                    default: 30s
+                    description: Timeout is the monitor timeout.
+                    type: string
+                  type:
+                    default: HTTPS
+                    description: Type chooses the monitor type.
+                    enum:
+                    - HTTPS
+                    - Keyword
+                    - Ping
+                    - Port
+                    - Heartbeat
+                    - DNS
+                    type: string
+                  url:
+                    description: URL is the URL or IP to monitor, including the scheme.
+                    type: string
+                required:
+                - name
+                - url
+                type: object
+                x-kubernetes-validations:
+                - message: Keyword config is required if type is Keyword
+                  rule: self.type != 'Keyword' || has(self.keyword)
+                - message: Port config is required if type is Port
+                  rule: self.type != 'Port' || has(self.port)
+                - message: DNS config is required if type is DNS
+                  rule: self.type != 'DNS' || has(self.dns)
+              prune:
+                default: true
+                description: Prune enables garbage collection.
+                type: boolean
+              sourceRef:
+                description: SourceRef optionally references the object that created
+                  this Monitor.
+                properties:
+                  apiGroup:
+                    description: |-
+                      APIGroup is the group for the resource being referenced.
+                      If APIGroup is not specified, the specified Kind must be in the core API group.
+                      For any other third-party types, APIGroup is required.
+                    type: string
+                  kind:
+                    description: Kind is the type of resource being referenced
+                    type: string
+                  name:
+                    description: Name is the name of resource being referenced
+                    type: string
+                required:
+                - kind
+                - name
+                type: object
+                x-kubernetes-map-type: atomic
+              syncInterval:
+                default: 24h
+                description: |-
+                  SyncInterval defines how often the operator reconciles with the UptimeRobot API.
+                  This controls drift detection frequency. Lower values mean faster detection of
+                  external changes but more API calls.
+                type: string
+            required:
+            - monitor
+            type: object
+          status:
+            description: MonitorStatus defines the observed state of Monitor.
+            properties:
+              id:
+                type: string
+              ready:
+                type: boolean
+              status:
+                type: integer
+              type:
+                enum:
+                - HTTPS
+                - Keyword
+                - Ping
+                - Port
+                - Heartbeat
+                - DNS
+                type: string
+            required:
+            - ready
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      scale:
+        specReplicasPath: .spec.monitor.status
+        statusReplicasPath: .status.status
+      status: {}
