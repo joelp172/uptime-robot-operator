@@ -1,0 +1,265 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "POST /monitors",
+  "description": "Create a new monitor in UptimeRobot API v3",
+  "type": "object",
+  "required": ["friendlyName", "type", "interval"],
+  "properties": {
+    "friendlyName": {
+      "type": "string",
+      "description": "Friendly name of the monitor",
+      "maxLength": 250
+    },
+    "url": {
+      "type": "string",
+      "description": "URL of the monitor. For DNS monitors: DNS server IP or hostname. Not required for Heartbeat monitor",
+      "maxLength": 10000
+    },
+    "type": {
+      "type": "string",
+      "description": "Type of the monitor",
+      "enum": ["HTTP", "KEYWORD", "PING", "PORT", "HEARTBEAT", "DNS"]
+    },
+    "port": {
+      "type": "number",
+      "description": "Required for Port monitor",
+      "minimum": 0,
+      "maximum": 65535
+    },
+    "keywordType": {
+      "type": "string",
+      "description": "Required for Keyword monitor",
+      "enum": ["ALERT_EXISTS", "ALERT_NOT_EXISTS"]
+    },
+    "keywordCaseType": {
+      "type": "number",
+      "description": "Required for Keyword monitor. 0 = case insensitive, 1 = case sensitive",
+      "enum": [0, 1]
+    },
+    "keywordValue": {
+      "type": ["string", "null"],
+      "description": "Required for Keyword monitor",
+      "maxLength": 500
+    },
+    "interval": {
+      "type": "number",
+      "description": "Interval of check in seconds",
+      "minimum": 30
+    },
+    "timeout": {
+      "type": "number",
+      "description": "Timeout of check in seconds. Only for HTTP, Keyword and Port monitors",
+      "minimum": 0,
+      "maximum": 60
+    },
+    "gracePeriod": {
+      "type": "number",
+      "description": "Grace period of check in seconds. Only for Heartbeat monitor",
+      "minimum": 0,
+      "maximum": 86400
+    },
+    "httpUsername": {
+      "type": "string",
+      "description": "Username for HTTP Basic authentication",
+      "maxLength": 255
+    },
+    "httpPassword": {
+      "type": "string",
+      "description": "Password for HTTP Basic authentication",
+      "maxLength": 255
+    },
+    "httpMethodType": {
+      "type": ["string", "null"],
+      "description": "Required for HTTP and Keyword monitors. Specifies which HTTP method to use for the request",
+      "enum": ["HEAD", "GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", null]
+    },
+    "authType": {
+      "type": "string",
+      "description": "Authentication method to use for the request. Only applicable for HTTP and Keyword monitors",
+      "enum": ["NONE", "HTTP_BASIC", "DIGEST"]
+    },
+    "postValueData": {
+      "type": ["object", "string"],
+      "description": "Data to be sent in the request. Not applicable for HTTP method type = HEAD. Can be JSON object or string"
+    },
+    "postValueType": {
+      "type": "string",
+      "description": "Type of data payload to be sent in the request. Affects what data is accepted by postValueData field",
+      "enum": ["KEY_VALUE", "RAW_JSON"]
+    },
+    "assignedAlertContacts": {
+      "type": "array",
+      "description": "Alert contacts to be assigned to the monitor. Threshold and recurrence are only available in paid plans (always 0 in Free Plan)",
+      "items": {
+        "type": "object",
+        "required": ["alertContactId", "threshold", "recurrence"],
+        "properties": {
+          "alertContactId": {
+            "type": "number",
+            "description": "ID of the alert contact to notify"
+          },
+          "threshold": {
+            "type": "number",
+            "description": "Delay of notification in minutes, after the monitor is down"
+          },
+          "recurrence": {
+            "type": "number",
+            "description": "Repeat notifications every X minutes"
+          }
+        }
+      }
+    },
+    "customHttpHeaders": {
+      "type": "object",
+      "description": "Custom HTTP headers to be sent in the request. Must be sent as JSON object with key-value pairs",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "successHttpResponseCodes": {
+      "type": "array",
+      "description": "Success HTTP response codes. Can contain specific codes or ranges like 2xx. Default is [\"2xx\", \"3xx\"]",
+      "items": {
+        "type": "string"
+      }
+    },
+    "checkSSLErrors": {
+      "type": "boolean",
+      "description": "Whether to check for SSL and domain expiration errors"
+    },
+    "tagNames": {
+      "type": "array",
+      "description": "Tags to be assigned to the monitor",
+      "items": {
+        "type": "string"
+      }
+    },
+    "maintenanceWindowsIds": {
+      "type": "array",
+      "description": "Maintenance windows to be assigned to the monitor",
+      "items": {
+        "type": "number"
+      }
+    },
+    "domainExpirationReminder": {
+      "type": "boolean",
+      "description": "Whether to send a notification when the domain is about to expire"
+    },
+    "sslExpirationReminder": {
+      "type": "boolean",
+      "description": "Whether to send a notification when the SSL certificate is about to expire"
+    },
+    "followRedirections": {
+      "type": "boolean",
+      "description": "Whether to follow redirections"
+    },
+    "responseTimeThreshold": {
+      "type": "number",
+      "description": "Response time threshold in milliseconds. Response time over this threshold will trigger an incident",
+      "minimum": 0,
+      "maximum": 60000
+    },
+    "regionalData": {
+      "type": "string",
+      "description": "Region for monitoring: na (North America), eu (Europe), as (Asia), oc (Oceania)",
+      "enum": ["na", "eu", "as", "oc"]
+    },
+    "config": {
+      "type": "object",
+      "description": "DNS monitor configuration data",
+      "properties": {
+        "dnsRecords": {
+          "type": "object",
+          "description": "DNS records configuration - specify expected values for each record type",
+          "properties": {
+            "CNAME": {
+              "type": "array",
+              "description": "Expected CNAME DNS records",
+              "items": { "type": "string" }
+            },
+            "MX": {
+              "type": "array",
+              "description": "Expected MX DNS records",
+              "items": { "type": "string" }
+            },
+            "NS": {
+              "type": "array",
+              "description": "Expected NS DNS records",
+              "items": { "type": "string" }
+            },
+            "A": {
+              "type": "array",
+              "description": "Expected A DNS records",
+              "items": { "type": "string" }
+            },
+            "AAAA": {
+              "type": "array",
+              "description": "Expected AAAA DNS records",
+              "items": { "type": "string" }
+            },
+            "TXT": {
+              "type": "array",
+              "description": "Expected TXT DNS records",
+              "items": { "type": "string" }
+            },
+            "SRV": {
+              "type": "array",
+              "description": "Expected SRV DNS records",
+              "items": { "type": "string" }
+            },
+            "PTR": {
+              "type": "array",
+              "description": "Expected PTR DNS records",
+              "items": { "type": "string" }
+            },
+            "SOA": {
+              "type": "array",
+              "description": "Expected SOA DNS records",
+              "items": { "type": "string" }
+            },
+            "SPF": {
+              "type": "array",
+              "description": "Expected SPF DNS records",
+              "items": { "type": "string" }
+            },
+            "DNSKEY": {
+              "type": "array",
+              "description": "Expected DNSKEY DNS records",
+              "items": { "type": "string" }
+            },
+            "DS": {
+              "type": "array",
+              "description": "Expected DS DNS records",
+              "items": { "type": "string" }
+            },
+            "NSEC": {
+              "type": "array",
+              "description": "Expected NSEC DNS records",
+              "items": { "type": "string" }
+            },
+            "NSEC3": {
+              "type": "array",
+              "description": "Expected NSEC3 DNS records",
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "sslExpirationPeriodDays": {
+          "type": "array",
+          "description": "SSL expiration period in days - get notified X days before expiration",
+          "maxItems": 10,
+          "items": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 365
+          }
+        }
+      }
+    },
+    "groupId": {
+      "type": "number",
+      "description": "Monitor group ID to assign the monitor to. Default is 0 (no group)",
+      "minimum": 0
+    }
+  }
+}

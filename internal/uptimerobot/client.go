@@ -159,7 +159,6 @@ func (c Client) buildCreateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 	default:
 		if monitor.POST != nil {
 			req.PostType = postTypeToString(monitor.POST.Type)
-			req.PostContentType = postContentTypeToString(monitor.POST.ContentType)
 			req.PostValue = monitor.POST.Value
 		}
 	}
@@ -177,24 +176,67 @@ func (c Client) buildCreateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 
 	// Handle port monitors
 	if monitor.Type == urtypes.TypePort && monitor.Port != nil {
-		req.SubType = portTypeToString(monitor.Port.Type)
-		if monitor.Port.Type == urtypes.PortCustom {
-			req.Port = int(monitor.Port.Number)
+		req.Port = monitor.Port.Number
+	}
+
+	// Handle DNS monitors - v3 API requires a config object with dnsRecords
+	if monitor.Type == urtypes.TypeDNS && monitor.DNS != nil {
+		req.Config = &MonitorConfig{
+			DNSRecords: &DNSRecordsConfig{
+				A:     monitor.DNS.A,
+				AAAA:  monitor.DNS.AAAA,
+				CNAME: monitor.DNS.CNAME,
+				MX:    monitor.DNS.MX,
+				NS:    monitor.DNS.NS,
+				TXT:   monitor.DNS.TXT,
+				SRV:   monitor.DNS.SRV,
+				PTR:   monitor.DNS.PTR,
+				SOA:   monitor.DNS.SOA,
+				SPF:   monitor.DNS.SPF,
+			},
+			SSLExpirationPeriodDays: monitor.DNS.SSLExpirationPeriodDays,
 		}
 	}
 
-	// Handle DNS monitors - v3 API requires a config object
-	if monitor.Type == urtypes.TypeDNS {
-		req.Config = &MonitorConfig{}
-	}
-
-	// Handle Heartbeat monitors - v3 API requires a config object
+	// Handle Heartbeat monitors - v3 API may require a config object
 	if monitor.Type == urtypes.TypeHeartbeat {
 		req.Config = &MonitorConfig{}
 	}
 
 	// Convert contacts to v3 format
 	req.AssignedAlertContacts = contactsToV3Format(contacts)
+
+	// New v3 API fields
+	if len(monitor.Tags) > 0 {
+		req.TagNames = monitor.Tags
+	}
+	if len(monitor.CustomHTTPHeaders) > 0 {
+		req.CustomHTTPHeaders = monitor.CustomHTTPHeaders
+	}
+	if len(monitor.SuccessHTTPResponseCodes) > 0 {
+		req.SuccessHTTPResponseCodes = monitor.SuccessHTTPResponseCodes
+	}
+	if monitor.CheckSSLErrors != nil {
+		req.CheckSSLErrors = monitor.CheckSSLErrors
+	}
+	if monitor.SSLExpirationReminder != nil {
+		req.SSLExpirationReminder = monitor.SSLExpirationReminder
+	}
+	if monitor.DomainExpirationReminder != nil {
+		req.DomainExpirationReminder = monitor.DomainExpirationReminder
+	}
+	if monitor.FollowRedirections != nil {
+		req.FollowRedirections = monitor.FollowRedirections
+	}
+	if monitor.ResponseTimeThreshold != nil {
+		req.ResponseTimeThreshold = monitor.ResponseTimeThreshold
+	}
+	if monitor.Region != "" {
+		req.RegionalData = monitor.Region
+	}
+	if monitor.GroupID != nil {
+		req.GroupID = monitor.GroupID
+	}
 
 	return req
 }
@@ -237,7 +279,6 @@ func (c Client) buildUpdateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 	default:
 		if monitor.POST != nil {
 			req.PostType = postTypeToString(monitor.POST.Type)
-			req.PostContentType = postContentTypeToString(monitor.POST.ContentType)
 			req.PostValue = monitor.POST.Value
 		}
 	}
@@ -255,24 +296,67 @@ func (c Client) buildUpdateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 
 	// Handle port monitors
 	if monitor.Type == urtypes.TypePort && monitor.Port != nil {
-		req.SubType = portTypeToString(monitor.Port.Type)
-		if monitor.Port.Type == urtypes.PortCustom {
-			req.Port = int(monitor.Port.Number)
+		req.Port = monitor.Port.Number
+	}
+
+	// Handle DNS monitors - v3 API requires a config object with dnsRecords
+	if monitor.Type == urtypes.TypeDNS && monitor.DNS != nil {
+		req.Config = &MonitorConfig{
+			DNSRecords: &DNSRecordsConfig{
+				A:     monitor.DNS.A,
+				AAAA:  monitor.DNS.AAAA,
+				CNAME: monitor.DNS.CNAME,
+				MX:    monitor.DNS.MX,
+				NS:    monitor.DNS.NS,
+				TXT:   monitor.DNS.TXT,
+				SRV:   monitor.DNS.SRV,
+				PTR:   monitor.DNS.PTR,
+				SOA:   monitor.DNS.SOA,
+				SPF:   monitor.DNS.SPF,
+			},
+			SSLExpirationPeriodDays: monitor.DNS.SSLExpirationPeriodDays,
 		}
 	}
 
-	// Handle DNS monitors - v3 API requires a config object
-	if monitor.Type == urtypes.TypeDNS {
-		req.Config = &MonitorConfig{}
-	}
-
-	// Handle Heartbeat monitors - v3 API requires a config object
+	// Handle Heartbeat monitors - v3 API may require a config object
 	if monitor.Type == urtypes.TypeHeartbeat {
 		req.Config = &MonitorConfig{}
 	}
 
 	// Convert contacts to v3 format
 	req.AssignedAlertContacts = contactsToV3Format(contacts)
+
+	// New v3 API fields
+	if len(monitor.Tags) > 0 {
+		req.TagNames = monitor.Tags
+	}
+	if len(monitor.CustomHTTPHeaders) > 0 {
+		req.CustomHTTPHeaders = monitor.CustomHTTPHeaders
+	}
+	if len(monitor.SuccessHTTPResponseCodes) > 0 {
+		req.SuccessHTTPResponseCodes = monitor.SuccessHTTPResponseCodes
+	}
+	if monitor.CheckSSLErrors != nil {
+		req.CheckSSLErrors = monitor.CheckSSLErrors
+	}
+	if monitor.SSLExpirationReminder != nil {
+		req.SSLExpirationReminder = monitor.SSLExpirationReminder
+	}
+	if monitor.DomainExpirationReminder != nil {
+		req.DomainExpirationReminder = monitor.DomainExpirationReminder
+	}
+	if monitor.FollowRedirections != nil {
+		req.FollowRedirections = monitor.FollowRedirections
+	}
+	if monitor.ResponseTimeThreshold != nil {
+		req.ResponseTimeThreshold = monitor.ResponseTimeThreshold
+	}
+	if monitor.Region != "" {
+		req.RegionalData = monitor.Region
+	}
+	if monitor.GroupID != nil {
+		req.GroupID = monitor.GroupID
+	}
 
 	return req
 }
@@ -531,33 +615,22 @@ func httpMethodToString(m urtypes.HTTPMethod) string {
 func authTypeToString(t urtypes.MonitorAuthType) string {
 	switch t {
 	case urtypes.AuthBasic:
-		return "basic"
+		return "HTTP_BASIC"
 	case urtypes.AuthDigest:
-		return "digest"
+		return "DIGEST"
 	default:
-		return "basic"
+		return "NONE"
 	}
 }
 
 func postTypeToString(t urtypes.POSTType) string {
 	switch t {
 	case urtypes.TypeKeyValue:
-		return "key_value"
+		return "KEY_VALUE"
 	case urtypes.TypeRawData:
-		return "raw_data"
+		return "RAW_JSON"
 	default:
-		return "key_value"
-	}
-}
-
-func postContentTypeToString(t urtypes.POSTContentType) string {
-	switch t {
-	case urtypes.ContentTypeHTML:
-		return "text/html"
-	case urtypes.ContentTypeJSON:
-		return "application/json"
-	default:
-		return "text/html"
+		return "KEY_VALUE"
 	}
 }
 
@@ -569,24 +642,5 @@ func keywordTypeToString(t urtypes.KeywordType) string {
 		return "ALERT_NOT_EXISTS"
 	default:
 		return "ALERT_EXISTS"
-	}
-}
-
-func portTypeToString(t urtypes.PortType) string {
-	switch t {
-	case urtypes.PortHTTP:
-		return "HTTP"
-	case urtypes.PortFTP:
-		return "FTP"
-	case urtypes.PortSMTP:
-		return "SMTP"
-	case urtypes.PortPOP3:
-		return "POP3"
-	case urtypes.PortIMAP:
-		return "IMAP"
-	case urtypes.PortCustom:
-		return "Custom"
-	default:
-		return "HTTP"
 	}
 }

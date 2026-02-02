@@ -5,13 +5,13 @@ const (
 	MonitorRunning
 )
 
-// API string constants for monitor types.
+// API string constants for monitor types (v3 API uses uppercase).
 const (
 	APITypeHTTP      = "HTTP"
-	APITypeKeyword   = "Keyword"
-	APITypePing      = "Ping"
-	APITypePort      = "Port"
-	APITypeHeartbeat = "Heartbeat"
+	APITypeKeyword   = "KEYWORD"
+	APITypePing      = "PING"
+	APITypePort      = "PORT"
+	APITypeHeartbeat = "HEARTBEAT"
 	APITypeDNS       = "DNS"
 )
 

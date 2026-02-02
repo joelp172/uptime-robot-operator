@@ -95,6 +95,7 @@ type MonitorValues struct {
 
 	// URL is the URL or IP to monitor, including the scheme.
 	// Not required for Heartbeat monitors - UptimeRobot generates the webhook URL.
+	// For DNS monitors: DNS server IP or hostname (e.g., 8.8.8.8).
 	URL string `json:"url,omitempty"`
 
 	// Type chooses the monitor type.
@@ -109,7 +110,7 @@ type MonitorValues struct {
 	//+kubebuilder:default:=1
 	Status uint8 `json:"status,omitempty"`
 
-	// Timeout is the monitor timeout.
+	// Timeout is the monitor timeout. Only for HTTP, Keyword and Port monitors.
 	//+kubebuilder:default:="30s"
 	Timeout *metav1.Duration `json:"timeout,omitempty"`
 
@@ -139,6 +140,40 @@ type MonitorValues struct {
 
 	// Heartbeat provides configuration for the Heartbeat monitor type.
 	Heartbeat *MonitorHeartbeat `json:"heartbeat,omitempty"`
+
+	// Tags to be assigned to the monitor for organisation.
+	Tags []string `json:"tags,omitempty"`
+
+	// CustomHTTPHeaders are custom HTTP headers to be sent in the request.
+	CustomHTTPHeaders map[string]string `json:"customHttpHeaders,omitempty"`
+
+	// SuccessHTTPResponseCodes defines success HTTP response codes.
+	// Can contain specific codes or ranges like "2xx". Default is ["2xx", "3xx"].
+	SuccessHTTPResponseCodes []string `json:"successHttpResponseCodes,omitempty"`
+
+	// CheckSSLErrors enables checking for SSL and domain expiration errors.
+	CheckSSLErrors *bool `json:"checkSSLErrors,omitempty"`
+
+	// SSLExpirationReminder enables notification when the SSL certificate is about to expire.
+	SSLExpirationReminder *bool `json:"sslExpirationReminder,omitempty"`
+
+	// DomainExpirationReminder enables notification when the domain is about to expire.
+	DomainExpirationReminder *bool `json:"domainExpirationReminder,omitempty"`
+
+	// FollowRedirections enables following HTTP redirections.
+	FollowRedirections *bool `json:"followRedirections,omitempty"`
+
+	// ResponseTimeThreshold in milliseconds. Response time over this threshold triggers an incident.
+	//+kubebuilder:validation:Minimum=0
+	//+kubebuilder:validation:Maximum=60000
+	ResponseTimeThreshold *int `json:"responseTimeThreshold,omitempty"`
+
+	// Region for monitoring.
+	//+kubebuilder:validation:Enum=na;eu;as;oc
+	Region string `json:"region,omitempty"`
+
+	// GroupID is the monitor group ID to assign the monitor to. 0 means no group.
+	GroupID *int `json:"groupId,omitempty"`
 }
 
 //+kubebuilder:object:generate=true
@@ -152,13 +187,14 @@ type MonitorKeyword struct {
 	Value string `json:"value"`
 }
 
-//+kubebuilder:validation:XValidation:rule="self.type != 'Custom' || has(self.number)", message="Number is required if type is Custom"
-//+kubebuilder:validation:XValidation:rule="self.type == 'Custom' || !has(self.number)", message="Type must be Custom if Number is set"
+//+kubebuilder:object:generate=true
 
+// MonitorPort provides configuration for Port monitor type.
 type MonitorPort struct {
-	Type urtypes.PortType `json:"type"`
-
-	Number uint16 `json:"number,omitempty"`
+	// Number is the port number to monitor (0-65535).
+	//+kubebuilder:validation:Minimum=0
+	//+kubebuilder:validation:Maximum=65535
+	Number int `json:"number"`
 }
 
 type MonitorAuth struct {
@@ -189,13 +225,43 @@ type MonitorPOST struct {
 //+kubebuilder:object:generate=true
 
 // MonitorDNS provides configuration for DNS monitor type.
+// The URL field in MonitorValues specifies the DNS server to query (e.g., 8.8.8.8).
+// Specify expected DNS record values for each record type you want to verify.
 type MonitorDNS struct {
-	// RecordType is the DNS record type to check.
-	//+kubebuilder:validation:Enum:=A;AAAA;MX;NS;CNAME;TXT;SOA
-	RecordType string `json:"recordType"`
+	// A records - expected IPv4 addresses.
+	A []string `json:"a,omitempty"`
 
-	// Value is the expected DNS record value.
-	Value string `json:"value"`
+	// AAAA records - expected IPv6 addresses.
+	AAAA []string `json:"aaaa,omitempty"`
+
+	// CNAME records - expected canonical names.
+	CNAME []string `json:"cname,omitempty"`
+
+	// MX records - expected mail exchange records.
+	MX []string `json:"mx,omitempty"`
+
+	// NS records - expected nameserver records.
+	NS []string `json:"ns,omitempty"`
+
+	// TXT records - expected text records.
+	TXT []string `json:"txt,omitempty"`
+
+	// SRV records - expected service records.
+	SRV []string `json:"srv,omitempty"`
+
+	// PTR records - expected pointer records.
+	PTR []string `json:"ptr,omitempty"`
+
+	// SOA records - expected start of authority records.
+	SOA []string `json:"soa,omitempty"`
+
+	// SPF records - expected sender policy framework records.
+	SPF []string `json:"spf,omitempty"`
+
+	// SSLExpirationPeriodDays - get notified X days before SSL expiration.
+	// Maximum 10 items, each 0-365.
+	//+kubebuilder:validation:MaxItems=10
+	SSLExpirationPeriodDays []int `json:"sslExpirationPeriodDays,omitempty"`
 }
 
 //+kubebuilder:object:generate=true

@@ -43,9 +43,34 @@ var _ = Describe("CRD Reconciliation", Ordered, Label("crd-reconciliation"), fun
 			Skip("Skipping CRD reconciliation tests: UPTIME_ROBOT_API_KEY not set")
 		}
 
+		By("ensuring manager namespace exists")
+		cmd := exec.Command("kubectl", "get", "ns", namespace)
+		_, err := utils.Run(cmd)
+		if err != nil {
+			cmd = exec.Command("kubectl", "create", "ns", namespace)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create namespace")
+		}
+
+		By("labeling the namespace to enforce the restricted security policy")
+		cmd = exec.Command("kubectl", "label", "--overwrite", "ns", namespace,
+			"pod-security.kubernetes.io/enforce=restricted")
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to label namespace with restricted policy")
+
+		By("installing CRDs")
+		cmd = exec.Command("make", "install")
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to install CRDs")
+
+		By("deploying the controller-manager")
+		cmd = exec.Command("make", "deploy", fmt.Sprintf("IMG=%s", projectImage))
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager")
+
 		By("creating the API key secret")
 		apiKey := os.Getenv("UPTIME_ROBOT_API_KEY")
-		cmd := exec.Command("kubectl", "create", "secret", "generic",
+		cmd = exec.Command("kubectl", "create", "secret", "generic",
 			"uptime-robot-e2e",
 			"--namespace", namespace,
 			fmt.Sprintf("--from-literal=apiKey=%s", apiKey),
@@ -72,6 +97,18 @@ var _ = Describe("CRD Reconciliation", Ordered, Label("crd-reconciliation"), fun
 		cmd = exec.Command("kubectl", "delete", "account", fmt.Sprintf("e2e-account-%s", testRunID), "--ignore-not-found=true")
 		_, _ = utils.Run(cmd)
 		cmd = exec.Command("kubectl", "delete", "secret", "uptime-robot-e2e", "-n", namespace, "--ignore-not-found=true")
+		_, _ = utils.Run(cmd)
+
+		By("undeploying the controller-manager")
+		cmd = exec.Command("make", "undeploy")
+		_, _ = utils.Run(cmd)
+
+		By("uninstalling CRDs")
+		cmd = exec.Command("make", "uninstall")
+		_, _ = utils.Run(cmd)
+
+		By("removing manager namespace")
+		cmd = exec.Command("kubectl", "delete", "ns", namespace, "--ignore-not-found=true")
 		_, _ = utils.Run(cmd)
 	})
 
