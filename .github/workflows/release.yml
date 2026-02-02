@@ -129,3 +129,50 @@ jobs:
           flux push artifact \
             oci://ghcr.io/joelp172/uptime-robot-operator-manifests:v${{ needs.release.outputs.new_release_version }} \
             --path=dist --source=${{ github.repositoryUrl }} --revision="v${{ needs.release.outputs.new_release_version }}@sha1:${{ github.sha }}"
+
+  release-helm-chart:
+    name: Release Helm Chart
+    needs: [release, build]
+    if: needs.release.outputs.new_release_published == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: v${{ needs.release.outputs.new_release_version }}
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.20.0
+
+      - name: Update Chart Version
+        run: |
+          sed -i "s/^version:.*/version: ${{ needs.release.outputs.new_release_version }}/" charts/uptime-robot-operator/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"v${{ needs.release.outputs.new_release_version }}\"/" charts/uptime-robot-operator/Chart.yaml
+
+      - name: Package Helm Chart
+        run: |
+          helm package charts/uptime-robot-operator -d dist/
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Push Helm Chart to OCI Registry
+        run: |
+          helm push dist/uptime-robot-operator-${{ needs.release.outputs.new_release_version }}.tgz oci://ghcr.io/joelp172/charts
+
+      - name: Upload Helm Chart to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.release.outputs.new_release_version }}
+          files: |
+            dist/uptime-robot-operator-${{ needs.release.outputs.new_release_version }}.tgz
+

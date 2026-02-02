@@ -10,10 +10,28 @@ This Helm chart deploys the Uptime Robot Operator on a Kubernetes cluster using 
 
 ## Installing the Chart
 
-To install the chart with the release name `uptime-robot-operator`:
+### From source
+
+To install the chart with the release name `uptime-robot-operator` from the source repository:
 
 ```bash
+git clone https://github.com/joelp172/uptime-robot-operator.git
+cd uptime-robot-operator
 helm install uptime-robot-operator ./charts/uptime-robot-operator
+```
+
+### From OCI registry
+
+To install the chart from the OCI registry (requires Helm 3.8+):
+
+```bash
+helm install uptime-robot-operator oci://ghcr.io/joelp172/charts/uptime-robot-operator --version 1.0.0
+```
+
+To see available versions:
+
+```bash
+helm show chart oci://ghcr.io/joelp172/charts/uptime-robot-operator
 ```
 
 The command deploys the Uptime Robot Operator on the Kubernetes cluster with default configuration. The [Parameters](#parameters) section lists the parameters that can be configured during installation.
