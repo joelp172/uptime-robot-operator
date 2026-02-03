@@ -151,6 +151,7 @@ Defines an UptimeRobot monitor.
 | `responseTimeThreshold` | integer | No | - | Response time threshold in ms (0-60000) |
 | `region` | string | No | - | Region: `na`, `eu`, `as`, `oc` |
 | `groupId` | integer | No | - | UptimeRobot group ID (0 = none) |
+| `maintenanceWindowIds` | []integer | No | - | Maintenance window IDs to assign |
 
 ### Auth
 
@@ -348,6 +349,25 @@ spec:
     url: https://example.com
 ```
 
+### Maintenance Windows
+
+Assign maintenance windows to monitors to prevent alerts during scheduled maintenance periods. Maintenance windows must be created in your UptimeRobot account first.
+
+To find maintenance window IDs:
+1. Log in to [UptimeRobot](https://uptimerobot.com)
+2. Navigate to **Maintenance Windows**
+3. The ID is visible in the URL or window details
+
+```yaml
+spec:
+  monitor:
+    name: Production API
+    url: https://api.example.com
+    maintenanceWindowIds:
+      - 12345  # Weekly maintenance window
+      - 67890  # Emergency maintenance window
+```
+
 ### Status
 
 | Field | Type | Description |
@@ -380,6 +400,11 @@ spec:
     timeout: 10s
     gracePeriod: 2m
     method: GET
+    tags:
+      - production
+      - api
+    maintenanceWindowIds:
+      - 12345
 ```
 
 ---
