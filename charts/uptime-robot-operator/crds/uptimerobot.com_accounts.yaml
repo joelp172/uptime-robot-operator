@@ -53,12 +53,10 @@ spec:
             description: AccountSpec defines the desired state of Account.
             properties:
               apiKeySecretRef:
-                description: ApiKeySecretRef references the secret that contains the
-                  Uptime Robot API key.
+                description: ApiKeySecretRef references the secret that contains the Uptime Robot API key.
                 properties:
                   key:
-                    description: The key of the secret to select from.  Must be a
-                      valid secret key.
+                    description: The key of the secret to select from.  Must be a valid secret key.
                     type: string
                   name:
                     default: ""
@@ -90,24 +88,19 @@ spec:
                   AlertContacts lists all available alert contacts for this account.
                   Use the ID field when creating Contact resources.
                 items:
-                  description: AlertContactInfo represents an alert contact available
-                    in UptimeRobot.
+                  description: AlertContactInfo represents an alert contact available in UptimeRobot.
                   properties:
                     friendlyName:
-                      description: FriendlyName is the display name (may be empty
-                        for some contacts like email).
+                      description: FriendlyName is the display name (may be empty for some contacts like email).
                       type: string
                     id:
-                      description: ID is the unique identifier for this contact. Use
-                        this in Contact resources.
+                      description: ID is the unique identifier for this contact. Use this in Contact resources.
                       type: string
                     type:
-                      description: Type is the contact type (e.g., "EMAIL", "SMS",
-                        "PUSHOVER").
+                      description: Type is the contact type (e.g., "EMAIL", "SMS", "PUSHOVER").
                       type: string
                     value:
-                      description: Value is the contact value (e.g., email address,
-                        phone number).
+                      description: Value is the contact value (e.g., email address, phone number).
                       type: string
                   required:
                   - id

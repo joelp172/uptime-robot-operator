@@ -53,8 +53,7 @@ spec:
             description: ContactSpec defines the desired state of Contact.
             properties:
               account:
-                description: Account references this object's Account. If not specified,
-                  the default will be used.
+                description: Account references this object's Account. If not specified, the default will be used.
                 properties:
                   name:
                     default: ""
