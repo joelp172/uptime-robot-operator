@@ -10,6 +10,7 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     branches:
       - main
+  workflow_dispatch: {}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -33,6 +34,22 @@ jobs:
         with:
           version: v2.0.2
 
+  verify-crds:
+    name: Verify CRDs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Verify CRDs are up to date
+        run: |
+          make manifests
+          git diff --exit-code config/crd/bases
+          git diff --exit-code charts/uptime-robot-operator/crds
+
   test:
     name: Test
     runs-on: ubuntu-latest
@@ -50,7 +67,7 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
-    needs: [lint, test]
+    needs: [lint, verify-crds, test]
     if: github.event_name == 'push'
     permissions:
       contents: write
