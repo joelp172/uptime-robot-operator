@@ -237,6 +237,9 @@ func (c Client) buildCreateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 	if monitor.GroupID != nil {
 		req.GroupID = monitor.GroupID
 	}
+	if len(monitor.MaintenanceWindowIDs) > 0 {
+		req.MaintenanceWindowsIds = monitor.MaintenanceWindowIDs
+	}
 
 	return req
 }
@@ -360,6 +363,9 @@ func (c Client) buildUpdateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 	}
 	if monitor.GroupID != nil {
 		req.GroupID = monitor.GroupID
+	}
+	if len(monitor.MaintenanceWindowIDs) > 0 {
+		req.MaintenanceWindowsIds = monitor.MaintenanceWindowIDs
 	}
 
 	return req

@@ -13,6 +13,7 @@ A Kubernetes operator for managing [UptimeRobot](https://uptimerobot.com/?red=jo
 - Automatic drift detection and correction
 - Support for all UptimeRobot monitor types: HTTPS, Keyword, Ping, Port, Heartbeat, DNS
 - Alert contact configuration
+- Maintenance window assignment
 - Garbage collection of deleted monitors
 
 ## Quick Start
