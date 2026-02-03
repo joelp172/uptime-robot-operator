@@ -194,3 +194,46 @@ type APIError struct {
 	Error   string `json:"error"`
 	Message string `json:"message"`
 }
+
+// CreateMaintenanceWindowRequest represents the v3 API request payload for creating a maintenance window.
+type CreateMaintenanceWindowRequest struct {
+	Name            string `json:"name"`
+	AutoAddMonitors bool   `json:"autoAddMonitors,omitempty"`
+	Interval        string `json:"interval"` // "once", "daily", "weekly", "monthly"
+	Date            string `json:"date"`     // YYYY-MM-DD format
+	Time            string `json:"time"`     // HH:mm:ss format
+	Duration        int    `json:"duration"` // Duration in minutes
+	Days            []int  `json:"days,omitempty"`
+	MonitorIDs      []int  `json:"monitorIds,omitempty"`
+}
+
+// UpdateMaintenanceWindowRequest represents the v3 API request payload for updating a maintenance window.
+type UpdateMaintenanceWindowRequest struct {
+	Name            string `json:"name,omitempty"`
+	AutoAddMonitors *bool  `json:"autoAddMonitors,omitempty"`
+	Interval        string `json:"interval,omitempty"`
+	Date            string `json:"date,omitempty"`
+	Time            string `json:"time,omitempty"`
+	Duration        int    `json:"duration,omitempty"`
+	Days            []int  `json:"days,omitempty"`
+	MonitorIDs      []int  `json:"monitorIds,omitempty"`
+}
+
+// MaintenanceWindowResponse represents a maintenance window in v3 API responses.
+type MaintenanceWindowResponse struct {
+	ID              int    `json:"id"`
+	Name            string `json:"name"`
+	AutoAddMonitors bool   `json:"autoAddMonitors"`
+	Interval        string `json:"interval"`
+	Date            string `json:"date"`
+	Time            string `json:"time"`
+	Duration        int    `json:"duration"`
+	Days            []int  `json:"days,omitempty"`
+	MonitorIDs      []int  `json:"monitorIds,omitempty"`
+}
+
+// MaintenanceWindowsListResponse represents the v3 API response for listing maintenance windows.
+type MaintenanceWindowsListResponse struct {
+	MaintenanceWindows []MaintenanceWindowResponse `json:"data"`
+	NextLink           *string                     `json:"nextLink"`
+}
