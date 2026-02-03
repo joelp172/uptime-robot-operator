@@ -24,29 +24,34 @@ make test
 
 ### E2E Tests (Basic)
 
-Requires a Kind cluster:
+Requires a Kind cluster. Default cluster name is `kind`; for a named cluster set `KIND_CLUSTER`. **Set kubectl context** to the Kind cluster so tests can run `kubectl` and `make deploy` against it (Kind usually sets this when you create the cluster):
 
 ```bash
-# Create cluster
-make dev-cluster
+# Create cluster (default name: kind)
+kind create cluster
 
-# Build and load image
-make docker-build IMG=uptime-robot-operator:dev
-kind load docker-image uptime-robot-operator:dev --name uptime-robot-dev
+# Or named cluster (then use KIND_CLUSTER when running tests)
+kind create cluster --name e2e-test
 
-# Install and deploy
-make install
-make deploy IMG=uptime-robot-operator:dev
+# Ensure context is set (if Kind didn't switch it)
+kubectl config use-context kind-kind       # default cluster
+kubectl config use-context kind-e2e-test   # named cluster e2e-test
 
-# Run basic tests
+# Run basic tests (suite builds/loads image automatically)
 make test-e2e
+
+# Named cluster:
+KIND_CLUSTER=e2e-test make test-e2e
 ```
 
 ### E2E Tests (Full with Real API)
 
 ```bash
-# Same setup as above, then:
+# Default cluster name "kind"
 UPTIME_ROBOT_API_KEY='your-api-key' make test-e2e-real
+
+# Named cluster (e.g. e2e-test)
+KIND_CLUSTER=e2e-test UPTIME_ROBOT_API_KEY='your-api-key' make test-e2e-real
 ```
 
 ## Before Committing
@@ -66,6 +71,8 @@ make manifests generate fmt vet && make lint && make test
 ## Notes
 
 - Unit tests use envtest (mock Kubernetes API)
-- E2E tests require Kind cluster
+- E2E tests require Kind cluster; default cluster name is `kind`
+- **Set kubectl context** to the Kind cluster before running e2e (e.g. `kubectl config use-context kind-e2e-test`); otherwise deploy and tests will target the wrong cluster or fail
+- Use `KIND_CLUSTER=<name>` when running e2e targets against a named cluster (e.g. `KIND_CLUSTER=e2e-test make test-e2e-real`)
 - Full e2e tests create real monitors in UptimeRobot (use dev account)
-- Clean up with: `make dev-cluster-delete`
+- Clean up with: `make dev-cluster-delete` or `kind delete cluster --name <name>`

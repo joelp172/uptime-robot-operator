@@ -25,6 +25,7 @@ import (
 	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot"
 	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot/urtypes"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -157,11 +158,11 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		monitor.Status.ID = result.ID
 		monitor.Status.Type = monitor.Spec.Monitor.Type
 		monitor.Status.Status = monitor.Spec.Monitor.Status
-		// Set HeartbeatURL for heartbeat monitors
+		// Set HeartbeatURL for heartbeat monitors (API returns token, we need full URL)
 		if monitor.Spec.Monitor.Type == urtypes.TypeHeartbeat && result.URL != "" {
-			monitor.Status.HeartbeatURL = result.URL
+			monitor.Status.HeartbeatURL = fmt.Sprintf("https://heartbeat.uptimerobot.com/%s", result.URL)
 		}
-		if err := r.Status().Update(ctx, monitor); err != nil {
+		if err := r.updateMonitorStatus(ctx, monitor); err != nil {
 			return ctrl.Result{}, err
 		}
 
@@ -178,11 +179,11 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 		monitor.Status.ID = result.ID
 		monitor.Status.Status = monitor.Spec.Monitor.Status
-		// Update HeartbeatURL for heartbeat monitors (in case it was missing)
+		// Update HeartbeatURL for heartbeat monitors (API returns token, we need full URL)
 		if monitor.Spec.Monitor.Type == urtypes.TypeHeartbeat && result.URL != "" {
-			monitor.Status.HeartbeatURL = result.URL
+			monitor.Status.HeartbeatURL = fmt.Sprintf("https://heartbeat.uptimerobot.com/%s", result.URL)
 		}
-		if err := r.Status().Update(ctx, monitor); err != nil {
+		if err := r.updateMonitorStatus(ctx, monitor); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
@@ -195,6 +196,29 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	return ctrl.Result{RequeueAfter: monitor.Spec.SyncInterval.Duration}, nil
+}
+
+// updateMonitorStatus writes status, retrying on conflict so a successful create is not
+// followed by a second create (409) when the initial status update fails.
+func (r *MonitorReconciler) updateMonitorStatus(ctx context.Context, monitor *uptimerobotv1.Monitor) error {
+	err := r.Status().Update(ctx, monitor)
+	if err == nil {
+		return nil
+	}
+	if !apierrors.IsConflict(err) {
+		return err
+	}
+	// Conflict: re-get latest version and reapply status update so we don't trigger another create.
+	latest := &uptimerobotv1.Monitor{}
+	if getErr := r.Get(ctx, client.ObjectKeyFromObject(monitor), latest); getErr != nil {
+		return getErr
+	}
+	latest.Status.Ready = monitor.Status.Ready
+	latest.Status.ID = monitor.Status.ID
+	latest.Status.Type = monitor.Status.Type
+	latest.Status.Status = monitor.Status.Status
+	latest.Status.HeartbeatURL = monitor.Status.HeartbeatURL
+	return r.Status().Update(ctx, latest)
 }
 
 // SetupWithManager sets up the controller with the Manager.

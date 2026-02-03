@@ -16,6 +16,8 @@ limitations under the License.
 
 package uptimerobot
 
+import "encoding/json"
+
 // MonitorConfig represents the config object for certain monitor types (DNS, Heartbeat, etc.)
 // The v3 API uses a config object for type-specific settings.
 type MonitorConfig struct {
@@ -60,7 +62,7 @@ type CreateMonitorRequest struct {
 	PostType              string                        `json:"postValueType,omitempty"`
 	PostValue             string                        `json:"postValueData,omitempty"`
 	KeywordType           string                        `json:"keywordType,omitempty"`     // "ALERT_EXISTS", "ALERT_NOT_EXISTS"
-	KeywordCaseType       string                        `json:"keywordCaseType,omitempty"` // "CaseInsensitive", "CaseSensitive"
+	KeywordCaseType       *int                          `json:"keywordCaseType,omitempty"` // 0=CaseInsensitive, 1=CaseSensitive
 	KeywordValue          string                        `json:"keywordValue,omitempty"`
 	Port                  int                           `json:"port,omitempty"`
 	AssignedAlertContacts []AssignedAlertContactRequest `json:"assignedAlertContacts,omitempty"`
@@ -97,7 +99,7 @@ type UpdateMonitorRequest struct {
 	PostType              string                        `json:"postValueType,omitempty"`
 	PostValue             string                        `json:"postValueData,omitempty"`
 	KeywordType           string                        `json:"keywordType,omitempty"`
-	KeywordCaseType       string                        `json:"keywordCaseType,omitempty"`
+	KeywordCaseType       *int                          `json:"keywordCaseType,omitempty"` // 0=CaseInsensitive, 1=CaseSensitive
 	KeywordValue          string                        `json:"keywordValue,omitempty"`
 	Port                  int                           `json:"port,omitempty"`
 	AssignedAlertContacts []AssignedAlertContactRequest `json:"assignedAlertContacts,omitempty"`
@@ -130,22 +132,100 @@ type AssignedAlertContactRequest struct {
 // Kept for backwards compatibility.
 type AlertContactRequest = AssignedAlertContactRequest
 
+// TagResponse represents a tag in v3 API responses.
+type TagResponse struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+}
+
+// AssignedAlertContactResp represents an assigned alert contact in v3 API responses.
+// Note: API returns alertContactId as number in list responses, but we send as string in requests.
+type AssignedAlertContactResp struct {
+	AlertContactID interface{} `json:"alertContactId"` // Can be int or string depending on endpoint
+	Threshold      int         `json:"threshold"`
+	Recurrence     int         `json:"recurrence"`
+}
+
+// RegionalDataResponse represents regional monitoring config in v3 API responses.
+type RegionalDataResponse struct {
+	Region         []string `json:"REGION"`
+	ManualSelected bool     `json:"MANUAL_SELECTED"`
+	Infrastructure string   `json:"INFRASTRUCTURE"`
+}
+
+// MonitorConfigResponse represents the config object in v3 API monitor responses.
+type MonitorConfigResponse struct {
+	DNSRecords              *DNSRecordsConfig `json:"dnsRecords,omitempty"`
+	SSLExpirationPeriodDays []int             `json:"sslExpirationPeriodDays,omitempty"`
+}
+
 // MonitorResponse represents a single monitor in v3 API responses.
 // Note: The v3 API uses camelCase field names and status as string.
+// Expanded to include all fields from monitor-response.json schema for e2e validation.
 type MonitorResponse struct {
-	ID           int    `json:"id"`
-	FriendlyName string `json:"friendlyName"`
-	URL          string `json:"url"`
-	Type         string `json:"type"`
-	Status       string `json:"status"` // e.g., "UP", "DOWN", "STARTED", "PAUSED"
-	Interval     int    `json:"interval"`
+	ID                       int                        `json:"id"`
+	FriendlyName             string                     `json:"friendlyName"`
+	URL                      string                     `json:"url"`
+	Type                     string                     `json:"type"`
+	Status                   string                     `json:"status"` // e.g., "UP", "DOWN", "STARTED", "PAUSED"
+	Interval                 int                        `json:"interval"`
+	Timeout                  *int                       `json:"timeout,omitempty"`
+	GracePeriod              *int                       `json:"gracePeriod,omitempty"`
+	HTTPMethodType           string                     `json:"httpMethodType,omitempty"`
+	HTTPUsername             string                     `json:"httpUsername,omitempty"`
+	AuthType                 string                     `json:"authType,omitempty"`
+	KeywordType              string                     `json:"keywordType,omitempty"`
+	KeywordCaseType          *int                       `json:"keywordCaseType,omitempty"` // 0=CaseInsensitive, 1=CaseSensitive
+	KeywordValue             string                     `json:"keywordValue,omitempty"`
+	Port                     *int                       `json:"port,omitempty"`
+	PostValueType            string                     `json:"postValueType,omitempty"`
+	PostValueData            interface{}                `json:"postValueData,omitempty"` // Can be string or object
+	CustomHTTPHeaders        map[string]string          `json:"customHttpHeaders,omitempty"`
+	SuccessHTTPResponseCodes []string                   `json:"successHttpResponseCodes,omitempty"`
+	CheckSSLErrors           *bool                      `json:"checkSSLErrors,omitempty"`
+	SSLExpirationReminder    *bool                      `json:"sslExpirationReminder,omitempty"`
+	DomainExpirationReminder *bool                      `json:"domainExpirationReminder,omitempty"`
+	FollowRedirections       *bool                      `json:"followRedirections,omitempty"`
+	ResponseTimeThreshold    *int                       `json:"responseTimeThreshold,omitempty"`
+	Config                   *MonitorConfigResponse     `json:"config,omitempty"`
+	Tags                     []TagResponse              `json:"tags,omitempty"`
+	AssignedAlertContacts    []AssignedAlertContactResp `json:"assignedAlertContacts,omitempty"`
+	RegionalData             *RegionalDataResponse      `json:"regionalData,omitempty"`
+	GroupID                  *int                       `json:"groupId,omitempty"`
 }
 
 // MonitorsListResponse represents the v3 API response for listing monitors.
-// Note: v3 API returns monitors in the "data" field, not "monitors"
+// Accepts either "data" or "monitors" as the array key (API docs vary by version).
 type MonitorsListResponse struct {
-	Monitors []MonitorResponse `json:"data"`
+	Monitors []MonitorResponse `json:"-"`
 	NextLink *string           `json:"nextLink"`
+}
+
+// UnmarshalJSON supports both "data" and "monitors" keys so list works with either API shape.
+func (r *MonitorsListResponse) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		Data     []MonitorResponse `json:"data"`
+		Monitors []MonitorResponse `json:"monitors"`
+		NextLink *string           `json:"nextLink"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if len(raw.Data) > 0 {
+		r.Monitors = raw.Data
+	} else {
+		r.Monitors = raw.Monitors
+	}
+	r.NextLink = raw.NextLink
+	return nil
+}
+
+// MarshalJSON writes Monitors under "data" for compatibility.
+func (r *MonitorsListResponse) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Data     []MonitorResponse `json:"data"`
+		NextLink *string           `json:"nextLink"`
+	}{r.Monitors, r.NextLink})
 }
 
 // MonitorCreateResponse is an alias for MonitorResponse since v3 API

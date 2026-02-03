@@ -4,5 +4,5 @@ resources:
 - manager.yaml
 images:
 - name: controller
-  newName: uptime-robot-operator
-  newTag: dev
+  newName: example.com/uptime-robot-operator
+  newTag: v0.0.1

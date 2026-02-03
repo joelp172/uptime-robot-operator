@@ -62,14 +62,39 @@ make lint-fix
 
 E2E tests require a Kubernetes cluster. You can use Kind or minikube.
 
+**Kind cluster name**: The Makefile defaults to cluster name `kind`. If you create a named cluster (e.g. `kind create cluster --name e2e-test`), set `KIND_CLUSTER` when running e2e targets so the image is loaded into the correct cluster.
+
+**kubectl context**: E2E tests run `kubectl` and `make deploy` against your current context. After creating a Kind cluster, ensure your context points at it (Kind usually sets this automatically). If not:
+
+```bash
+kubectl config use-context kind-kind          # default cluster name
+kubectl config use-context kind-e2e-test       # named cluster e2e-test
+```
+
+Then run the tests:
+
+```bash
+make test-e2e       # or KIND_CLUSTER=e2e-test make test-e2e for a named cluster
+KIND_CLUSTER=e2e-test make test-e2e-real  # full e2e with real API
+```
+
 #### Option 1: Quick Setup with Kind
 
 ```bash
-# Create a Kind cluster
-kind create cluster --name e2e-test
+# Create a Kind cluster (default name is "kind")
+kind create cluster
+# Kind sets kubectl context to kind-kind
 
-# Build and load the operator image
+# Or use a named cluster (then set KIND_CLUSTER when running tests)
+kind create cluster --name e2e-test
+# Kind sets kubectl context to kind-e2e-test; if not, run:
+# kubectl config use-context kind-e2e-test
+
+# The e2e suite builds and loads the image automatically when you run make test-e2e
+# or make test-e2e-real. For manual runs:
 make docker-build IMG=uptime-robot-operator:dev
+kind load docker-image uptime-robot-operator:dev --name kind
+# Or for a named cluster:
 kind load docker-image uptime-robot-operator:dev --name e2e-test
 
 # Install CRDs and deploy the operator
@@ -93,11 +118,14 @@ make dev-cluster-kind
 
 #### Running Basic E2E Tests
 
-Basic tests verify the operator starts and serves metrics (no UptimeRobot API key needed):
+Basic tests verify the operator starts and serves metrics (no UptimeRobot API key needed). They build the image, load it into Kind, and run the suite:
 
 ```bash
-# Run basic e2e tests
+# Default cluster name "kind"
 make test-e2e
+
+# Named cluster (e.g. e2e-test)
+KIND_CLUSTER=e2e-test make test-e2e
 ```
 
 #### Running Full E2E Tests with Real API
@@ -108,8 +136,11 @@ Full e2e tests create actual monitors in UptimeRobot. You'll need an API key fro
 # Set your test API key
 export UPTIME_ROBOT_API_KEY=your-test-api-key
 
-# Run full e2e tests
+# Run full e2e tests (default cluster name "kind")
 make test-e2e-real
+
+# Named cluster
+KIND_CLUSTER=e2e-test make test-e2e-real
 ```
 
 **Warning**: Full e2e tests create and delete real monitors in UptimeRobot. Use a dedicated test account.
@@ -124,7 +155,9 @@ kubectl delete monitors,contacts,accounts --all
 make undeploy
 make uninstall
 
-# Delete the Kind cluster
+# Delete the Kind cluster (use the name you created, e.g. kind or e2e-test)
+kind delete cluster --name kind
+# Or:
 kind delete cluster --name e2e-test
 ```
 
