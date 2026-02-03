@@ -85,6 +85,7 @@ spec:
                   Required for weekly and monthly intervals.
                 items:
                   type: integer
+                maxItems: 31
                 type: array
               duration:
                 description: |-
@@ -153,6 +154,18 @@ spec:
             - startDate
             - startTime
             type: object
+            x-kubernetes-validations:
+            - message: days field is required when interval is weekly or monthly
+              rule: self.interval == 'once' || self.interval == 'daily' || has(self.days)
+            - message: days field is only valid for weekly or monthly intervals
+              rule: '!has(self.days) || self.interval == ''weekly'' || self.interval
+                == ''monthly'''
+            - message: days must be 0-6 for weekly interval (0=Sunday)
+              rule: '!has(self.days) || self.interval != ''weekly'' || self.days.all(d,
+                d >= 0 && d <= 6)'
+            - message: days must be 1-31 or -1 (last day) for monthly interval
+              rule: '!has(self.days) || self.interval != ''monthly'' || self.days.all(d,
+                (d >= 1 && d <= 31) || d == -1)'
           status:
             description: MaintenanceWindowStatus defines the observed state of MaintenanceWindow.
             properties:
@@ -171,18 +184,6 @@ spec:
             - ready
             type: object
         type: object
-        x-kubernetes-validations:
-        - message: days field is required when interval is weekly or monthly
-          rule: self.interval == 'once' || self.interval == 'daily' || has(self.days)
-        - message: days field is only valid for weekly or monthly intervals
-          rule: '!has(self.days) || self.interval == ''weekly'' || self.interval ==
-            ''monthly'''
-        - message: days must be 0-6 for weekly interval (0=Sunday)
-          rule: '!has(self.days) || self.interval != ''weekly'' || self.days.all(d,
-            d >= 0 && d <= 6)'
-        - message: days must be 1-31 or -1 (last day) for monthly interval
-          rule: '!has(self.days) || self.interval != ''monthly'' || self.days.all(d,
-            (d >= 1 && d <= 31) || d == -1)'
     served: true
     storage: true
     subresources:

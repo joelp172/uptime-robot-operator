@@ -21,6 +21,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+//+kubebuilder:object:generate=true
+//+kubebuilder:validation:XValidation:rule="self.interval == 'once' || self.interval == 'daily' || has(self.days)", message="days field is required when interval is weekly or monthly"
+//+kubebuilder:validation:XValidation:rule="!has(self.days) || self.interval == 'weekly' || self.interval == 'monthly'", message="days field is only valid for weekly or monthly intervals"
+//+kubebuilder:validation:XValidation:rule="!has(self.days) || self.interval != 'weekly' || self.days.all(d, d >= 0 && d <= 6)", message="days must be 0-6 for weekly interval (0=Sunday)"
+//+kubebuilder:validation:XValidation:rule="!has(self.days) || self.interval != 'monthly' || self.days.all(d, (d >= 1 && d <= 31) || d == -1)", message="days must be 1-31 or -1 (last day) for monthly interval"
+
 // MaintenanceWindowSpec defines the desired state of MaintenanceWindow.
 type MaintenanceWindowSpec struct {
 	// SyncInterval defines how often the operator reconciles with the UptimeRobot API.
@@ -60,6 +66,7 @@ type MaintenanceWindowSpec struct {
 	// For monthly: day of month (1-31, -1 for last day of month).
 	// Required for weekly and monthly intervals.
 	//+optional
+	//+kubebuilder:validation:MaxItems=31
 	Days []int `json:"days,omitempty"`
 
 	// AutoAddMonitors, when true, automatically adds all monitors to this maintenance window.
@@ -92,10 +99,6 @@ type MaintenanceWindowStatus struct {
 //+kubebuilder:printcolumn:name="Duration",type="string",JSONPath=".spec.duration"
 //+kubebuilder:printcolumn:name="Monitor Count",type="integer",JSONPath=".status.monitorCount"
 //+kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
-//+kubebuilder:validation:XValidation:rule="self.interval == 'once' || self.interval == 'daily' || has(self.days)", message="days field is required when interval is weekly or monthly"
-//+kubebuilder:validation:XValidation:rule="!has(self.days) || self.interval == 'weekly' || self.interval == 'monthly'", message="days field is only valid for weekly or monthly intervals"
-//+kubebuilder:validation:XValidation:rule="!has(self.days) || self.interval != 'weekly' || self.days.all(d, d >= 0 && d <= 6)", message="days must be 0-6 for weekly interval (0=Sunday)"
-//+kubebuilder:validation:XValidation:rule="!has(self.days) || self.interval != 'monthly' || self.days.all(d, (d >= 1 && d <= 31) || d == -1)", message="days must be 1-31 or -1 (last day) for monthly interval"
 
 // MaintenanceWindow is the Schema for the maintenancewindows API.
 type MaintenanceWindow struct {
