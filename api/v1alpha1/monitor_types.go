@@ -174,6 +174,9 @@ type MonitorValues struct {
 
 	// GroupID is the monitor group ID to assign the monitor to. 0 means no group.
 	GroupID *int `json:"groupId,omitempty"`
+
+	// MaintenanceWindowIDs are the maintenance window IDs to be assigned to the monitor.
+	MaintenanceWindowIDs []int `json:"maintenanceWindowIds,omitempty"`
 }
 
 //+kubebuilder:object:generate=true

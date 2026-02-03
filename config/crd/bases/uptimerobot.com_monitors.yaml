@@ -252,6 +252,12 @@ spec:
                     - type
                     - value
                     type: object
+                  maintenanceWindowIds:
+                    description: MaintenanceWindowIDs are the maintenance window IDs
+                      to be assigned to the monitor.
+                    items:
+                      type: integer
+                    type: array
                   method:
                     default: HEAD
                     description: Method defines the HTTP verb to use.

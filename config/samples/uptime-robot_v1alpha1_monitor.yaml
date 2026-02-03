@@ -15,3 +15,5 @@ spec:
     tags:
       - test
       - uptime-robot-operator
+    # maintenanceWindowIds:
+    #   - 12345  # Optional: maintenance window IDs to assign to this monitor
