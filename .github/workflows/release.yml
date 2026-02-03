@@ -42,6 +42,7 @@ jobs:
         run: |
           make manifests
           git diff --exit-code config/crd/bases
+          git diff --exit-code charts/uptime-robot-operator/crds
 
       - name: Setup Helm
         uses: azure/setup-helm@v4
