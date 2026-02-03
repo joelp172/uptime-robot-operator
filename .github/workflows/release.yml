@@ -38,6 +38,11 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Verify CRDs are up to date
+        run: |
+          make manifests
+          git diff --exit-code config/crd/bases
+
       - name: Setup Helm
         uses: azure/setup-helm@v4
         with:
