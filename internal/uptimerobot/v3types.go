@@ -19,15 +19,36 @@ package uptimerobot
 // MonitorConfig represents the config object for certain monitor types (DNS, Heartbeat, etc.)
 // The v3 API uses a config object for type-specific settings.
 type MonitorConfig struct {
-	// Empty struct - the v3 API requires a config object but specific DNS/Heartbeat
-	// fields are not yet documented. The API accepts an empty config object.
+	// DNSRecords contains expected DNS record values keyed by record type.
+	DNSRecords *DNSRecordsConfig `json:"dnsRecords,omitempty"`
+
+	// SSLExpirationPeriodDays - days before SSL expiration to notify.
+	SSLExpirationPeriodDays []int `json:"sslExpirationPeriodDays,omitempty"`
+}
+
+// DNSRecordsConfig specifies expected DNS record values for each record type.
+type DNSRecordsConfig struct {
+	A      []string `json:"A,omitempty"`
+	AAAA   []string `json:"AAAA,omitempty"`
+	CNAME  []string `json:"CNAME,omitempty"`
+	MX     []string `json:"MX,omitempty"`
+	NS     []string `json:"NS,omitempty"`
+	TXT    []string `json:"TXT,omitempty"`
+	SRV    []string `json:"SRV,omitempty"`
+	PTR    []string `json:"PTR,omitempty"`
+	SOA    []string `json:"SOA,omitempty"`
+	SPF    []string `json:"SPF,omitempty"`
+	DNSKEY []string `json:"DNSKEY,omitempty"`
+	DS     []string `json:"DS,omitempty"`
+	NSEC   []string `json:"NSEC,omitempty"`
+	NSEC3  []string `json:"NSEC3,omitempty"`
 }
 
 // CreateMonitorRequest represents the v3 API request payload for creating a monitor.
 // Note: The v3 API uses camelCase field names.
 type CreateMonitorRequest struct {
 	FriendlyName          string                        `json:"friendlyName"`
-	URL                   string                        `json:"url"`
+	URL                   string                        `json:"url,omitempty"`
 	Type                  string                        `json:"type"` // "HTTP", "KEYWORD", "PING", "PORT", "HEARTBEAT", "DNS"
 	Interval              int                           `json:"interval"`
 	Timeout               int                           `json:"timeout,omitempty"`
@@ -35,18 +56,29 @@ type CreateMonitorRequest struct {
 	HTTPMethod            string                        `json:"httpMethodType,omitempty"` // HEAD, GET, POST, PUT, PATCH, DELETE, OPTIONS
 	HTTPUsername          string                        `json:"httpUsername,omitempty"`
 	HTTPPassword          string                        `json:"httpPassword,omitempty"`
-	HTTPAuthType          string                        `json:"httpAuthType,omitempty"` // "basic", "digest"
-	PostType              string                        `json:"postType,omitempty"`
-	PostContentType       string                        `json:"postContentType,omitempty"`
-	PostValue             string                        `json:"postValue,omitempty"`
-	KeywordType           string                        `json:"keywordType,omitempty"`     // "exists", "not_exists"
-	KeywordCaseType       string                        `json:"keywordCaseType,omitempty"` // "case_sensitive", "case_insensitive"
+	HTTPAuthType          string                        `json:"authType,omitempty"` // "NONE", "HTTP_BASIC", "DIGEST"
+	PostType              string                        `json:"postValueType,omitempty"`
+	PostValue             string                        `json:"postValueData,omitempty"`
+	KeywordType           string                        `json:"keywordType,omitempty"`     // "ALERT_EXISTS", "ALERT_NOT_EXISTS"
+	KeywordCaseType       string                        `json:"keywordCaseType,omitempty"` // "CaseInsensitive", "CaseSensitive"
 	KeywordValue          string                        `json:"keywordValue,omitempty"`
-	SubType               string                        `json:"subType,omitempty"` // For port monitors
 	Port                  int                           `json:"port,omitempty"`
 	AssignedAlertContacts []AssignedAlertContactRequest `json:"assignedAlertContacts,omitempty"`
-	// Config object required for DNS, Heartbeat monitors
+	// Config object for DNS monitors
 	Config *MonitorConfig `json:"config,omitempty"`
+
+	// New v3 API fields
+	CustomHTTPHeaders        map[string]string `json:"customHttpHeaders,omitempty"`
+	SuccessHTTPResponseCodes []string          `json:"successHttpResponseCodes,omitempty"`
+	CheckSSLErrors           *bool             `json:"checkSSLErrors,omitempty"`
+	TagNames                 []string          `json:"tagNames,omitempty"`
+	MaintenanceWindowsIds    []int             `json:"maintenanceWindowsIds,omitempty"`
+	DomainExpirationReminder *bool             `json:"domainExpirationReminder,omitempty"`
+	SSLExpirationReminder    *bool             `json:"sslExpirationReminder,omitempty"`
+	FollowRedirections       *bool             `json:"followRedirections,omitempty"`
+	ResponseTimeThreshold    *int              `json:"responseTimeThreshold,omitempty"`
+	RegionalData             string            `json:"regionalData,omitempty"`
+	GroupID                  *int              `json:"groupId,omitempty"`
 }
 
 // UpdateMonitorRequest represents the v3 API request payload for updating a monitor.
@@ -61,18 +93,29 @@ type UpdateMonitorRequest struct {
 	HTTPMethod            string                        `json:"httpMethodType,omitempty"`
 	HTTPUsername          string                        `json:"httpUsername,omitempty"`
 	HTTPPassword          string                        `json:"httpPassword,omitempty"`
-	HTTPAuthType          string                        `json:"httpAuthType,omitempty"`
-	PostType              string                        `json:"postType,omitempty"`
-	PostContentType       string                        `json:"postContentType,omitempty"`
-	PostValue             string                        `json:"postValue,omitempty"`
+	HTTPAuthType          string                        `json:"authType,omitempty"`
+	PostType              string                        `json:"postValueType,omitempty"`
+	PostValue             string                        `json:"postValueData,omitempty"`
 	KeywordType           string                        `json:"keywordType,omitempty"`
 	KeywordCaseType       string                        `json:"keywordCaseType,omitempty"`
 	KeywordValue          string                        `json:"keywordValue,omitempty"`
-	SubType               string                        `json:"subType,omitempty"`
 	Port                  int                           `json:"port,omitempty"`
 	AssignedAlertContacts []AssignedAlertContactRequest `json:"assignedAlertContacts,omitempty"`
-	// Config object required for DNS, Heartbeat monitors
+	// Config object for DNS monitors
 	Config *MonitorConfig `json:"config,omitempty"`
+
+	// New v3 API fields
+	CustomHTTPHeaders        map[string]string `json:"customHttpHeaders,omitempty"`
+	SuccessHTTPResponseCodes []string          `json:"successHttpResponseCodes,omitempty"`
+	CheckSSLErrors           *bool             `json:"checkSSLErrors,omitempty"`
+	TagNames                 []string          `json:"tagNames,omitempty"`
+	MaintenanceWindowsIds    []int             `json:"maintenanceWindowsIds,omitempty"`
+	DomainExpirationReminder *bool             `json:"domainExpirationReminder,omitempty"`
+	SSLExpirationReminder    *bool             `json:"sslExpirationReminder,omitempty"`
+	FollowRedirections       *bool             `json:"followRedirections,omitempty"`
+	ResponseTimeThreshold    *int              `json:"responseTimeThreshold,omitempty"`
+	RegionalData             string            `json:"regionalData,omitempty"`
+	GroupID                  *int              `json:"groupId,omitempty"`
 }
 
 // AssignedAlertContactRequest represents an alert contact assignment in v3 API.

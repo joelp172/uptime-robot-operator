@@ -11,9 +11,14 @@ spec:
   prune: true
   monitor:
     name: Example DNS Monitor
-    url: example.com
+    # For DNS monitors, set url to a hostname or IP (no scheme)
+    url: dns.google.com
     type: DNS
     interval: 5m  # How often UptimeRobot checks the DNS
     dns:
-      recordType: A
-      value: "93.184.216.34"
+      a:
+        - "8.8.8.8"
+        - "8.8.4.4"
+    tags:
+      - test
+      - uptime-robot-operator

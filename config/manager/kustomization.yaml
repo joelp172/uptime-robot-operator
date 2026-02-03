@@ -5,4 +5,4 @@ resources:
 images:
 - name: controller
   newName: uptime-robot-operator
-  newTag: e2e
+  newTag: dev

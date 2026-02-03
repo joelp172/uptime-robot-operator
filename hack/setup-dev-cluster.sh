@@ -113,8 +113,8 @@ create_cluster() {
             fi
             minikube start \
                 --profile "$CLUSTER_NAME" \
-                --cpus 4 \
-                --memory 8192 \
+                --cpus 2 \
+                --memory 6144 \
                 --kubernetes-version stable \
                 --driver docker
             ;;

@@ -11,9 +11,10 @@ spec:
   prune: true
   monitor:
     name: Example Heartbeat Monitor
-    # The URL is the heartbeat endpoint your service should ping
-    url: https://heartbeat.uptimerobot.com/xxx
     type: Heartbeat
-    interval: 5m  # How often UptimeRobot checks the URL
+    interval: 5m  # How often UptimeRobot checks for heartbeats
     heartbeat:
       interval: 5m  # Expected heartbeat interval from your service
+    tags:
+      - test
+      - uptime-robot-operator

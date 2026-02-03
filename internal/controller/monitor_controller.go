@@ -148,32 +148,40 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	if !monitor.Status.Ready {
-		id, err := urclient.CreateMonitor(ctx, monitor.Spec.Monitor, contacts)
+		result, err := urclient.CreateMonitor(ctx, monitor.Spec.Monitor, contacts)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
 
 		monitor.Status.Ready = true
-		monitor.Status.ID = id
+		monitor.Status.ID = result.ID
 		monitor.Status.Type = monitor.Spec.Monitor.Type
 		monitor.Status.Status = monitor.Spec.Monitor.Status
+		// Set HeartbeatURL for heartbeat monitors
+		if monitor.Spec.Monitor.Type == urtypes.TypeHeartbeat && result.URL != "" {
+			monitor.Status.HeartbeatURL = result.URL
+		}
 		if err := r.Status().Update(ctx, monitor); err != nil {
 			return ctrl.Result{}, err
 		}
 
 		if monitor.Spec.Monitor.Status == urtypes.MonitorPaused {
-			if _, err := urclient.EditMonitor(ctx, id, monitor.Spec.Monitor, contacts); err != nil {
+			if _, err := urclient.EditMonitor(ctx, result.ID, monitor.Spec.Monitor, contacts); err != nil {
 				return ctrl.Result{}, err
 			}
 		}
 	} else {
-		id, err := urclient.EditMonitor(ctx, monitor.Status.ID, monitor.Spec.Monitor, contacts)
+		result, err := urclient.EditMonitor(ctx, monitor.Status.ID, monitor.Spec.Monitor, contacts)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
 
-		monitor.Status.ID = id
+		monitor.Status.ID = result.ID
 		monitor.Status.Status = monitor.Spec.Monitor.Status
+		// Update HeartbeatURL for heartbeat monitors (in case it was missing)
+		if monitor.Spec.Monitor.Type == urtypes.TypeHeartbeat && result.URL != "" {
+			monitor.Status.HeartbeatURL = result.URL
+		}
 		if err := r.Status().Update(ctx, monitor); err != nil {
 			return ctrl.Result{}, err
 		}

@@ -120,6 +120,7 @@ Defines an UptimeRobot monitor.
 | `prune` | boolean | No | `true` | Delete monitor from UptimeRobot when CR is deleted |
 | `account.name` | string | No | default account | Account to use for API access |
 | `contacts` | array | No | default contact | Alert contacts to notify |
+| `sourceRef` | object | No | - | Optional source object reference (kind/name/apiGroup) |
 | `monitor` | MonitorValues | Yes | - | Monitor configuration (see below) |
 
 ### MonitorValues
@@ -127,7 +128,7 @@ Defines an UptimeRobot monitor.
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `name` | string | Yes | - | Display name in UptimeRobot |
-| `url` | string | Yes | - | URL or IP to monitor |
+| `url` | string | Conditional | - | URL or IP to monitor (not required for Heartbeat monitors) |
 | `type` | string | No | `HTTPS` | Monitor type (see Monitor Types) |
 | `interval` | duration | No | `60s` | Check interval |
 | `timeout` | duration | No | `30s` | Request timeout |
@@ -140,6 +141,61 @@ Defines an UptimeRobot monitor.
 | `port` | object | No | - | Port monitor config |
 | `auth` | object | No | - | HTTP authentication config |
 | `post` | object | No | - | POST request body config |
+| `tags` | []string | No | - | Tags to assign in UptimeRobot |
+| `customHttpHeaders` | map[string]string | No | - | Custom HTTP headers |
+| `successHttpResponseCodes` | []string | No | - | Success HTTP codes (e.g. `2xx`, `200`) |
+| `checkSSLErrors` | boolean | No | - | Enable SSL/domain error checks |
+| `sslExpirationReminder` | boolean | No | - | Notify before SSL cert expiry |
+| `domainExpirationReminder` | boolean | No | - | Notify before domain expiry |
+| `followRedirections` | boolean | No | - | Follow HTTP redirects |
+| `responseTimeThreshold` | integer | No | - | Response time threshold in ms (0-60000) |
+| `region` | string | No | - | Region: `na`, `eu`, `as`, `oc` |
+| `groupId` | integer | No | - | UptimeRobot group ID (0 = none) |
+
+### Auth
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `auth.type` | string | Yes | `Basic` or `Digest` |
+| `auth.username` | string | No | Username for HTTP auth |
+| `auth.password` | string | No | Password for HTTP auth |
+| `auth.secretName` | string | No | Secret containing credentials |
+| `auth.usernameKey` | string | No | Secret key for username |
+| `auth.passwordKey` | string | No | Secret key for password |
+
+```yaml
+spec:
+  monitor:
+    name: Authenticated Endpoint
+    url: https://secure.example.com/health
+    type: HTTPS
+    auth:
+      type: Basic
+      secretName: http-auth
+      usernameKey: username
+      passwordKey: password
+```
+
+### POST
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `post.postType` | string | No | `KeyValue` or `RawData` |
+| `post.contentType` | string | No | `text/html` or `application/json` |
+| `post.value` | string | No | Request body content |
+
+```yaml
+spec:
+  monitor:
+    name: POST Endpoint
+    url: https://api.example.com/submit
+    type: HTTPS
+    method: POST
+    post:
+      postType: RawData
+      contentType: application/json
+      value: '{"status":"ok"}'
+```
 
 ### Monitor Types
 
@@ -155,6 +211,9 @@ spec:
     type: HTTPS
     interval: 5m
     method: GET
+    tags:
+      - production
+      - public-api
 ```
 
 #### Keyword
@@ -182,12 +241,22 @@ spec:
 
 #### DNS
 
-Verify DNS records resolve to expected values.
+Verify DNS records resolve to expected values. For DNS monitors, set `monitor.url` to
+a hostname or IP with no scheme (e.g., `dns.google.com` or `8.8.8.8`).
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `dns.recordType` | string | Yes | A, AAAA, MX, NS, CNAME, TXT, or SOA |
-| `dns.value` | string | Yes | Expected record value |
+| `dns.a` | []string | No | Expected A record values |
+| `dns.aaaa` | []string | No | Expected AAAA record values |
+| `dns.cname` | []string | No | Expected CNAME record values |
+| `dns.mx` | []string | No | Expected MX record values |
+| `dns.ns` | []string | No | Expected NS record values |
+| `dns.txt` | []string | No | Expected TXT record values |
+| `dns.srv` | []string | No | Expected SRV record values |
+| `dns.ptr` | []string | No | Expected PTR record values |
+| `dns.soa` | []string | No | Expected SOA record values |
+| `dns.spf` | []string | No | Expected SPF record values |
+| `dns.sslExpirationPeriodDays` | []int | No | SSL expiry reminder offsets (0-365) |
 
 ```yaml
 spec:
@@ -197,13 +266,15 @@ spec:
     type: DNS
     interval: 5m
     dns:
-      recordType: A
-      value: "93.184.216.34"
+      a:
+        - "93.184.216.34"
+      sslExpirationPeriodDays:
+        - 7
 ```
 
 #### Heartbeat
 
-Expects periodic pings from your services or cron jobs.
+Expects periodic pings from your services or cron jobs. Unlike other monitor types, Heartbeat monitors do not require a `url` field - UptimeRobot generates a unique webhook URL after creation.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -213,11 +284,19 @@ Expects periodic pings from your services or cron jobs.
 spec:
   monitor:
     name: Backup Job
-    url: https://heartbeat.uptimerobot.com/xxx
     type: Heartbeat
+    interval: 1h
     heartbeat:
       interval: 1h
 ```
+
+After the monitor is created, retrieve the webhook URL from the status:
+
+```bash
+kubectl get monitor backup-job -o jsonpath='{.status.heartbeatURL}'
+```
+
+The URL format is `https://heartbeat.uptimerobot.com/m{id}-{token}`. Your services or cron jobs should send HTTP requests to this URL at the specified interval to indicate they are alive.
 
 #### Port
 
@@ -225,8 +304,7 @@ TCP port monitoring.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `port.type` | string | Yes | HTTP, FTP, SMTP, POP3, IMAP, or Custom |
-| `port.number` | integer | No | Port number (required if type is Custom) |
+| `port.number` | integer | Yes | Port number (0-65535) |
 
 ```yaml
 spec:
@@ -235,7 +313,6 @@ spec:
     url: db.example.com
     type: Port
     port:
-      type: Custom
       number: 5432
 ```
 
@@ -277,6 +354,7 @@ spec:
 |-------|------|-------------|
 | `ready` | boolean | Whether the monitor exists in UptimeRobot |
 | `id` | string | UptimeRobot monitor ID |
+| `heartbeatURL` | string | Webhook URL for Heartbeat monitors (only populated for type: Heartbeat) |
 | `type` | string | Monitor type |
 | `status` | integer | Current status code |
 
