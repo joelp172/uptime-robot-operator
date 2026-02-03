@@ -61,7 +61,8 @@ spec:
             description: MonitorSpec defines the desired state of Monitor.
             properties:
               account:
-                description: Account references this object's Account. If not specified, the default will be used.
+                description: Account references this object's Account. If not specified,
+                  the default will be used.
                 properties:
                   name:
                     default: ""
@@ -78,7 +79,8 @@ spec:
                 default:
                 - {}
                 items:
-                  description: MonitorContactRef attaches alert contacts. If blank, the default will be used.
+                  description: MonitorContactRef attaches alert contacts. If blank,
+                    the default will be used.
                   properties:
                     name:
                       default: ""
@@ -96,7 +98,8 @@ spec:
                       type: string
                     threshold:
                       default: 1m
-                      description: Threshold defines the number of minutes to wait to notify.
+                      description: Threshold defines the number of minutes to wait
+                        to notify.
                       type: string
                   type: object
                   x-kubernetes-map-type: atomic
@@ -127,12 +130,14 @@ spec:
                     - type
                     type: object
                   checkSSLErrors:
-                    description: CheckSSLErrors enables checking for SSL and domain expiration errors.
+                    description: CheckSSLErrors enables checking for SSL and domain
+                      expiration errors.
                     type: boolean
                   customHttpHeaders:
                     additionalProperties:
                       type: string
-                    description: CustomHTTPHeaders are custom HTTP headers to be sent in the request.
+                    description: CustomHTTPHeaders are custom HTTP headers to be sent
+                      in the request.
                     type: object
                   dns:
                     description: DNS provides configuration for the DNS monitor type.
@@ -173,7 +178,8 @@ spec:
                           type: string
                         type: array
                       spf:
-                        description: SPF records - expected sender policy framework records.
+                        description: SPF records - expected sender policy framework
+                          records.
                         items:
                           type: string
                         type: array
@@ -197,7 +203,8 @@ spec:
                         type: array
                     type: object
                   domainExpirationReminder:
-                    description: DomainExpirationReminder enables notification when the domain is about to expire.
+                    description: DomainExpirationReminder enables notification when
+                      the domain is about to expire.
                     type: boolean
                   followRedirections:
                     description: FollowRedirections enables following HTTP redirections.
@@ -209,10 +216,12 @@ spec:
                       Maximum value is 24 hours (86400 seconds).
                     type: string
                   groupId:
-                    description: GroupID is the monitor group ID to assign the monitor to. 0 means no group.
+                    description: GroupID is the monitor group ID to assign the monitor
+                      to. 0 means no group.
                     type: integer
                   heartbeat:
-                    description: Heartbeat provides configuration for the Heartbeat monitor type.
+                    description: Heartbeat provides configuration for the Heartbeat
+                      monitor type.
                     properties:
                       interval:
                         default: 60s
@@ -226,7 +235,8 @@ spec:
                     description: Interval is the monitoring interval.
                     type: string
                   keyword:
-                    description: Keyword provides configuration for the Keyword monitor type.
+                    description: Keyword provides configuration for the Keyword monitor
+                      type.
                     properties:
                       caseSensitive:
                         default: false
@@ -258,7 +268,8 @@ spec:
                     description: Name sets the name that is shown in Uptime Robot.
                     type: string
                   port:
-                    description: Port provides configuration for the Port monitor type.
+                    description: Port provides configuration for the Port monitor
+                      type.
                     properties:
                       number:
                         description: Number is the port number to monitor (0-65535).
@@ -269,24 +280,28 @@ spec:
                     - number
                     type: object
                   post:
-                    description: POST configures POST, PUT, PATCH, DELETE, and OPTIONS requests.
+                    description: POST configures POST, PUT, PATCH, DELETE, and OPTIONS
+                      requests.
                     properties:
                       contentType:
                         default: text/html
-                        description: ContentType sets the Content-Type header for POST, PUT, PATCH, DELETE, and OPTIONS requests.
+                        description: ContentType sets the Content-Type header for
+                          POST, PUT, PATCH, DELETE, and OPTIONS requests.
                         enum:
                         - text/html
                         - application/json
                         type: string
                       postType:
                         default: KeyValue
-                        description: Type defines the format of data to be sent with POST, PUT, PATCH, DELETE, and OPTIONS requests.
+                        description: Type defines the format of data to be sent with
+                          POST, PUT, PATCH, DELETE, and OPTIONS requests.
                         enum:
                         - KeyValue
                         - RawData
                         type: string
                       value:
-                        description: Value is the JSON form of data to be sent with POST, PUT, PATCH, DELETE, and OPTIONS requests.
+                        description: Value is the JSON form of data to be sent with
+                          POST, PUT, PATCH, DELETE, and OPTIONS requests.
                         type: string
                     type: object
                   region:
@@ -298,16 +313,19 @@ spec:
                     - oc
                     type: string
                   responseTimeThreshold:
-                    description: ResponseTimeThreshold in milliseconds. Response time over this threshold triggers an incident.
+                    description: ResponseTimeThreshold in milliseconds. Response time
+                      over this threshold triggers an incident.
                     maximum: 60000
                     minimum: 0
                     type: integer
                   sslExpirationReminder:
-                    description: SSLExpirationReminder enables notification when the SSL certificate is about to expire.
+                    description: SSLExpirationReminder enables notification when the
+                      SSL certificate is about to expire.
                     type: boolean
                   status:
                     default: 1
-                    description: Status toggles pause status for the monitor. 0 is paused, 1 is running.
+                    description: Status toggles pause status for the monitor. 0 is
+                      paused, 1 is running.
                     type: integer
                   successHttpResponseCodes:
                     description: |-
@@ -323,7 +341,8 @@ spec:
                     type: array
                   timeout:
                     default: 30s
-                    description: Timeout is the monitor timeout. Only for HTTP, Keyword and Port monitors.
+                    description: Timeout is the monitor timeout. Only for HTTP, Keyword
+                      and Port monitors.
                     type: string
                   type:
                     default: HTTPS
@@ -353,13 +372,15 @@ spec:
                 - message: DNS config is required if type is DNS
                   rule: self.type != 'DNS' || has(self.dns)
                 - message: URL is required for non-Heartbeat monitor types
-                  rule: self.type == 'Heartbeat' || (has(self.url) && self.url != '')
+                  rule: self.type == 'Heartbeat' || (has(self.url) && self.url !=
+                    '')
               prune:
                 default: true
                 description: Prune enables garbage collection.
                 type: boolean
               sourceRef:
-                description: SourceRef optionally references the object that created this Monitor.
+                description: SourceRef optionally references the object that created
+                  this Monitor.
                 properties:
                   apiGroup:
                     description: |-
