@@ -10,6 +10,18 @@ Thank you for your interest in contributing. This guide covers how to set up a d
 - [Kind](https://kind.sigs.k8s.io/) or [minikube](https://minikube.sigs.k8s.io/)
 - make
 
+## Adding New Fields
+
+When adding new fields to CRDs, follow the comprehensive checklist in `.cursor/rules/new-field-checklist.mdc` to ensure:
+
+1. API types are properly annotated
+2. CRDs are regenerated (`make manifests`)
+3. Controller logic handles the new field
+4. Unit AND e2e tests validate the field
+5. Documentation is updated
+
+**Key principle**: Every field must have an e2e test that validates it against the real UptimeRobot API.
+
 ## Development Setup
 
 1. Clone the repository:
