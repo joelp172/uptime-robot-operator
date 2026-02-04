@@ -218,18 +218,44 @@ kubectl get monitor backup-job -o jsonpath='{.status.heartbeatURL}'
 
 Your backup script should call this URL on completion. If UptimeRobot doesn't receive a ping within the interval, it triggers an alert.
 
+## Bonus: Schedule a Maintenance Window
+
+Prevent false alerts during planned maintenance by creating a MaintenanceWindow:
+
+```bash
+kubectl apply -f - <<EOF
+apiVersion: uptimerobot.com/v1alpha1
+kind: MaintenanceWindow
+metadata:
+  name: weekly-deployment
+spec:
+  name: "Weekly Deployment Window"
+  interval: weekly
+  startDate: "2026-02-10"
+  startTime: "02:00:00"
+  duration: 1h
+  days: [2, 4]  # Tuesday and Thursday
+  monitorRefs:
+    - name: my-website
+EOF
+```
+
+This creates a recurring maintenance window every Tuesday and Thursday at 2 AM for 1 hour, during which the specified monitors won't trigger alerts.
+
 ## Next Steps
 
-- [API Reference](api-reference.md) - Learn about all available fields
+- [API Reference](api-reference.md) - Learn about all available fields including MaintenanceWindow
 - [Configure Alerts](configure-alerts.md) - Set up alert notifications
 - Explore other monitor types: Keyword, DNS, Heartbeat, Port, Ping
+- Create maintenance windows for scheduled downtime
 
 ## Uninstall
 
 Remove all monitors and the operator:
 
 ```bash
-# Delete all monitors (this also deletes them from UptimeRobot if prune: true)
+# Delete all resources (this also deletes them from UptimeRobot if prune: true)
+kubectl delete maintenancewindows --all
 kubectl delete monitors --all
 
 # Delete accounts and contacts
