@@ -139,11 +139,14 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			Name:            mw.Spec.Name,
 			AutoAddMonitors: mw.Spec.AutoAddMonitors,
 			Interval:        mw.Spec.Interval,
-			Date:            mw.Spec.StartDate,
 			Time:            mw.Spec.StartTime,
 			Duration:        durationMinutes,
 			Days:            mw.Spec.Days,
 			MonitorIDs:      monitorIDs,
+		}
+		// Only include date for "once" interval
+		if mw.Spec.Interval == "once" {
+			createReq.Date = mw.Spec.StartDate
 		}
 
 		result, err := urclient.CreateMaintenanceWindow(ctx, createReq)
@@ -179,11 +182,14 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 					Name:            mw.Spec.Name,
 					AutoAddMonitors: mw.Spec.AutoAddMonitors,
 					Interval:        mw.Spec.Interval,
-					Date:            mw.Spec.StartDate,
 					Time:            mw.Spec.StartTime,
 					Duration:        durationMinutes,
 					Days:            mw.Spec.Days,
 					MonitorIDs:      monitorIDs,
+				}
+				// Only include date for "once" interval
+				if mw.Spec.Interval == "once" {
+					createReq.Date = mw.Spec.StartDate
 				}
 
 				result, err := urclient.CreateMaintenanceWindow(ctx, createReq)
