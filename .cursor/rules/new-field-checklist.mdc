@@ -23,6 +23,7 @@ When adding a new field to the operator, ensure ALL of the following are complet
 - [ ] Add status updates if applicable
 - [ ] Handle field in UptimeRobot API client (`internal/uptimerobot/client.go`)
 - [ ] Update API request/response structs in `internal/uptimerobot/v3types.go`
+- [ ] **Consistency check**: Ensure all code paths return complete data structures (e.g., both ID and URL for monitors)
 
 ## 4. Testing (REQUIRED)
 

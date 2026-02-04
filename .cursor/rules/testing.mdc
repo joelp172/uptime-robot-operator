@@ -46,6 +46,8 @@ KIND_CLUSTER=e2e-test make test-e2e
 
 ### E2E Tests (Full with Real API)
 
+**Note**: Tests default to `https://api.uptimerobot.com/v3`. To use a different API endpoint (e.g., mock server), export `UPTIME_ROBOT_API` before running.
+
 ```bash
 # Default cluster name "kind"
 UPTIME_ROBOT_API_KEY='your-api-key' make test-e2e-real

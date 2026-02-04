@@ -83,6 +83,8 @@ kubectl config use-context kind-kind          # default cluster name
 kubectl config use-context kind-e2e-test       # named cluster e2e-test
 ```
 
+**UptimeRobot API endpoint**: E2E tests default to `https://api.uptimerobot.com/v3`. To test against a different endpoint (e.g., mock server), set the `UPTIME_ROBOT_API` environment variable before running tests.
+
 Then run the tests:
 
 ```bash

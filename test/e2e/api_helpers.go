@@ -32,8 +32,13 @@ import (
 // getMonitorFromAPI fetches a monitor directly from the UptimeRobot API by ID.
 // Used in e2e tests to verify that the operator has correctly reconciled the CR to the API.
 func getMonitorFromAPI(apiKey, monitorID string) (*uptimerobot.MonitorResponse, error) {
-	// Set API URL before creating client (NewClient reads UPTIME_ROBOT_API env var)
-	os.Setenv("UPTIME_ROBOT_API", "https://api.uptimerobot.com/v3")
+	// Set API URL before creating client (NewClient reads UPTIME_ROBOT_API env var).
+	// Default to production API v3 unless already overridden in environment.
+	if os.Getenv("UPTIME_ROBOT_API") == "" {
+		if err := os.Setenv("UPTIME_ROBOT_API", "https://api.uptimerobot.com/v3"); err != nil {
+			return nil, fmt.Errorf("failed to set UPTIME_ROBOT_API env var: %w", err)
+		}
+	}
 
 	client := uptimerobot.NewClient(apiKey)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

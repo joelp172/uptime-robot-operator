@@ -483,11 +483,16 @@ func (c Client) CreateMonitor(ctx context.Context, monitor uptimerobotv1.Monitor
 			}
 			return CreateMonitorResult{ID: id}, nil
 		}
-		
+
 		// Try by URL first (most reliable for HTTP/HTTPS duplicates), then by name. Retry once on rate limit.
 		tryFind := func() (CreateMonitorResult, bool) {
 			if monitor.URL != "" {
 				if id, findErr := c.FindMonitorByURL(ctx, monitor.URL); findErr == nil {
+					// Fetch full monitor details to get URL (especially important for heartbeat monitors)
+					if m, getErr := c.GetMonitor(ctx, id); getErr == nil {
+						return CreateMonitorResult{ID: id, URL: m.URL}, true
+					}
+					// Fallback: return just ID if GetMonitor fails
 					return CreateMonitorResult{ID: id}, true
 				}
 			}
@@ -496,18 +501,18 @@ func (c Client) CreateMonitor(ctx context.Context, monitor uptimerobotv1.Monitor
 			}
 			return CreateMonitorResult{}, false
 		}
-		
+
 		if result, ok := tryFind(); ok {
 			return result, nil
 		}
-		
+
 		// Retry once after a short delay (e.g. list may have hit 429 rate limit).
 		select {
 		case <-ctx.Done():
 			return CreateMonitorResult{}, ctx.Err()
 		case <-time.After(2 * time.Second):
 		}
-		
+
 		if result, ok := tryFind(); ok {
 			return result, nil
 		}
