@@ -1,0 +1,120 @@
+# New Field Checklist
+
+When adding a new field to the operator, ensure ALL of the following are completed:
+
+## 1. API Definition (Go Types)
+
+- [ ] Add field to CRD struct in `api/v1alpha1/*_types.go`
+- [ ] Add kubebuilder markers for validation (e.g., `+kubebuilder:validation:Optional`)
+- [ ] Add JSON/YAML tags
+- [ ] Add godoc comments explaining the field
+
+## 2. Code Generation (Automated by Pre-commit)
+
+- [ ] Run `make manifests` - Generates CRD YAML
+- [ ] Run `make generate` - Generates deepcopy methods
+- [ ] Verify `config/crd/bases/*.yaml` updated
+- [ ] Verify `charts/uptime-robot-operator/crds/*.yaml` synced
+
+## 3. Controller Logic
+
+- [ ] Add reconciliation logic in `internal/controller/*_controller.go`
+- [ ] Handle field in Create/Update operations
+- [ ] Add status updates if applicable
+- [ ] Handle field in UptimeRobot API client (`internal/uptimerobot/client.go`)
+- [ ] Update API request/response structs in `internal/uptimerobot/v3types.go`
+- [ ] **Consistency check**: Ensure all code paths return complete data structures (e.g., both ID and URL for monitors)
+
+## 4. Testing (REQUIRED)
+
+- [ ] **Unit Tests**: Add test cases in `internal/controller/*_controller_test.go`
+- [ ] **E2E Tests**: Update `test/e2e/crd_reconciliation_test.go`
+  - Add test case for new field in relevant monitor type context
+  - Add validation in `test/e2e/api_helpers.go` (e.g., `ValidateXXXFields`)
+  - Ensure field is verified against UptimeRobot API response
+- [ ] **Test Plan**: Update `test/comprehensive_e2e_testing_plan.md`
+- [ ] Run `make test` - All unit tests pass
+- [ ] Run `make test-e2e-real` - All e2e tests pass with real API
+
+## 5. Documentation
+
+- [ ] **API Reference**: Update field documentation in Go type comments (auto-generated)
+- [ ] **User Guide**: Add example in `README.md` or `docs/` if user-facing
+- [ ] **Helm Chart**: Update `charts/uptime-robot-operator/values.yaml` if needed
+- [ ] **Changelog**: Add entry to CHANGELOG.md or release notes
+- [ ] **Examples**: Add sample YAML in `config/samples/`
+
+## 6. Validation & CI
+
+Pre-commit hooks (automatic):
+```bash
+# These run automatically when you commit
+pre-commit install
+# Or run manually:
+pre-commit run --all-files
+```
+
+Manual validation before PR:
+```bash
+make manifests generate fmt vet lint test
+make test-e2e-real  # Requires UPTIME_ROBOT_API_KEY
+```
+
+CI checks (automatic on PR):
+- Linting
+- CRD verification
+- Unit tests
+- E2E tests (if configured)
+
+## Example: Adding `retryInterval` Field
+
+```go
+// 1. Add to API type (api/v1alpha1/monitor_types.go)
+type MonitorSpec struct {
+    // ... existing fields
+    
+    // RetryInterval defines how long to wait before retrying a failed check (in seconds).
+    // +kubebuilder:validation:Optional
+    // +kubebuilder:validation:Minimum=60
+    // +kubebuilder:validation:Maximum=3600
+    RetryInterval *int `json:"retryInterval,omitempty"`
+}
+
+// 2. Update controller (internal/controller/monitor_controller.go)
+req := &uptimerobot.UpdateMonitorRequest{
+    // ... existing fields
+    RetryInterval: spec.RetryInterval,
+}
+
+// 3. Update API types (internal/uptimerobot/v3types.go)
+type UpdateMonitorRequest struct {
+    // ... existing fields
+    RetryInterval *int `json:"retryInterval,omitempty"`
+}
+
+// 4. Add E2E test (test/e2e/crd_reconciliation_test.go)
+It("should respect custom retryInterval", func() {
+    monitor := newTestMonitor("http")
+    monitor.Spec.RetryInterval = ptr.To(120)
+    // ... create and validate
+})
+
+// 5. Add validation (test/e2e/api_helpers.go)
+if expected.RetryInterval != nil && apiMonitor.RetryInterval != *expected.RetryInterval {
+    errs = append(errs, fmt.Sprintf("retryInterval: got %d want %d", 
+        apiMonitor.RetryInterval, *expected.RetryInterval))
+}
+
+// 6. Update docs (README.md)
+# Add example showing retryInterval usage
+```
+
+## Enforcement
+
+**Required for PR approval**:
+- [ ] All CI checks pass
+- [ ] E2E tests include new field
+- [ ] Documentation updated
+- [ ] No linter warnings
+
+**Use AI to help**: Tag the AI with this checklist when adding fields.

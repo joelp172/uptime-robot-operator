@@ -121,6 +121,54 @@ func (c Client) doJSON(ctx context.Context, method, endpoint string, body any, r
 	return nil
 }
 
+// doGetJSON executes a GET request to a full URL and decodes the JSON response.
+// Used for following nextLink in paginated list responses.
+func (c Client) doGetJSON(ctx context.Context, fullURL string, result any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Cache-Control", "no-cache")
+
+	res, err := c.do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = res.Body.Close() }()
+
+	if result != nil {
+		if err := json.NewDecoder(res.Body).Decode(result); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// listAllMonitors fetches all monitors by following nextLink pagination.
+// Used when adopting on 409 so the duplicate monitor is found even if on a later page.
+func (c Client) listAllMonitors(ctx context.Context) ([]MonitorResponse, error) {
+	var all []MonitorResponse
+	var resp MonitorsListResponse
+	if err := c.doJSON(ctx, http.MethodGet, "monitors", nil, &resp); err != nil {
+		return nil, err
+	}
+	all = append(all, resp.Monitors...)
+	for resp.NextLink != nil && *resp.NextLink != "" {
+		nextURL := *resp.NextLink
+		if !strings.HasPrefix(nextURL, "http") {
+			nextURL = strings.TrimSuffix(c.url, "/") + "/" + strings.TrimPrefix(nextURL, "/")
+		}
+		resp = MonitorsListResponse{}
+		if err := c.doGetJSON(ctx, nextURL, &resp); err != nil {
+			return nil, err
+		}
+		all = append(all, resp.Monitors...)
+	}
+	return all, nil
+}
+
 // buildCreateMonitorRequest converts internal types to v3 API request format.
 func (c Client) buildCreateMonitorRequest(monitor uptimerobotv1.MonitorValues, contacts uptimerobotv1.MonitorContacts) CreateMonitorRequest {
 	// Calculate grace period (default 60s, max 86400s)
@@ -166,11 +214,11 @@ func (c Client) buildCreateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 	// Handle keyword monitors
 	if monitor.Type == urtypes.TypeKeyword && monitor.Keyword != nil {
 		req.KeywordType = keywordTypeToString(monitor.Keyword.Type)
+		caseType := 0 // 0 = CaseInsensitive (default)
 		if monitor.Keyword.CaseSensitive != nil && *monitor.Keyword.CaseSensitive {
-			req.KeywordCaseType = "CaseSensitive"
-		} else {
-			req.KeywordCaseType = "CaseInsensitive"
+			caseType = 1 // 1 = CaseSensitive
 		}
+		req.KeywordCaseType = &caseType
 		req.KeywordValue = monitor.Keyword.Value
 	}
 
@@ -293,11 +341,11 @@ func (c Client) buildUpdateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 	// Handle keyword monitors
 	if monitor.Type == urtypes.TypeKeyword && monitor.Keyword != nil {
 		req.KeywordType = keywordTypeToString(monitor.Keyword.Type)
+		caseType := 0 // 0 = CaseInsensitive (default)
 		if monitor.Keyword.CaseSensitive != nil && *monitor.Keyword.CaseSensitive {
-			req.KeywordCaseType = "CaseSensitive"
-		} else {
-			req.KeywordCaseType = "CaseInsensitive"
+			caseType = 1 // 1 = CaseSensitive
 		}
+		req.KeywordCaseType = &caseType
 		req.KeywordValue = monitor.Keyword.Value
 	}
 
@@ -394,25 +442,6 @@ func contactsToV3Format(contacts uptimerobotv1.MonitorContacts) []AssignedAlertC
 	return result
 }
 
-func monitorMatchesExpected(existing *MonitorResponse, desired uptimerobotv1.MonitorValues) bool {
-	if existing == nil {
-		return false
-	}
-	if existing.Type != desired.Type.ToAPIString() {
-		return false
-	}
-	if desired.URL != "" && existing.URL != desired.URL {
-		return false
-	}
-	if desired.Interval != nil {
-		desiredInterval := int(desired.Interval.Seconds())
-		if desiredInterval > 0 && existing.Interval != desiredInterval {
-			return false
-		}
-	}
-	return true
-}
-
 // CreateMonitorResult contains the result of creating a monitor.
 type CreateMonitorResult struct {
 	ID  string
@@ -423,62 +452,134 @@ type CreateMonitorResult struct {
 // POST /monitors
 func (c Client) CreateMonitor(ctx context.Context, monitor uptimerobotv1.MonitorValues, contacts uptimerobotv1.MonitorContacts) (CreateMonitorResult, error) {
 	reqBody := c.buildCreateMonitorRequest(monitor, contacts)
-
-	var resp MonitorCreateResponse
-	if err := c.doJSON(ctx, http.MethodPost, "monitors", reqBody, &resp); err != nil {
-		// If creation fails (e.g., 409 Conflict), check if monitor already exists by name
-		if monitor.URL != "" {
-			if id, findErr := c.FindMonitorByURL(ctx, monitor.URL); findErr == nil {
-				return CreateMonitorResult{ID: id}, nil
-			}
-		}
-		// For heartbeat monitors (no URL), try to find by name
-		if m, findErr := c.FindMonitorByName(ctx, monitor.Name); findErr == nil {
-			if !monitorMatchesExpected(m, monitor) {
-				return CreateMonitorResult{}, fmt.Errorf("%w: monitor %q exists but does not match desired configuration", err, monitor.Name)
-			}
-			return CreateMonitorResult{ID: strconv.Itoa(m.ID), URL: m.URL}, nil
-		}
+	req, err := c.newRequest(ctx, http.MethodPost, "monitors", reqBody)
+	if err != nil {
 		return CreateMonitorResult{}, err
 	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return CreateMonitorResult{}, err
+	}
+	body, _ := io.ReadAll(res.Body)
+	_ = res.Body.Close()
 
-	return CreateMonitorResult{
-		ID:  strconv.Itoa(resp.ID),
-		URL: resp.URL,
-	}, nil
-}
-
-// FindMonitorByURL searches for a monitor by its URL by fetching all monitors.
-// This is used as a fallback when the v3 API doesn't support URL filtering via query params.
-func (c Client) FindMonitorByURL(ctx context.Context, url string) (string, error) {
-	var resp MonitorsListResponse
-	if err := c.doJSON(ctx, http.MethodGet, "monitors", nil, &resp); err != nil {
-		return "", err
+	if res.StatusCode == http.StatusCreated || res.StatusCode == http.StatusOK {
+		var resp MonitorCreateResponse
+		if err := json.Unmarshal(body, &resp); err != nil {
+			return CreateMonitorResult{}, err
+		}
+		return CreateMonitorResult{
+			ID:  strconv.Itoa(resp.ID),
+			URL: resp.URL,
+		}, nil
 	}
 
-	for _, m := range resp.Monitors {
-		if m.URL == url {
+	if res.StatusCode == http.StatusConflict {
+		// 409 Duplicate: resolve existing monitor ID and adopt it so reconciliation can continue.
+		if id := parseMonitorIDFrom409Body(body); id != "" {
+			m, getErr := c.GetMonitor(ctx, id)
+			if getErr == nil {
+				return CreateMonitorResult{ID: id, URL: m.URL}, nil
+			}
+			return CreateMonitorResult{ID: id}, nil
+		}
+
+		// Try by URL first (most reliable for HTTP/HTTPS duplicates), then by name. Retry once on rate limit.
+		tryFind := func() (CreateMonitorResult, bool) {
+			if monitor.URL != "" {
+				if id, findErr := c.FindMonitorByURL(ctx, monitor.URL); findErr == nil {
+					// Fetch full monitor details to get URL (especially important for heartbeat monitors)
+					if m, getErr := c.GetMonitor(ctx, id); getErr == nil {
+						return CreateMonitorResult{ID: id, URL: m.URL}, true
+					}
+					// Fallback: return just ID if GetMonitor fails
+					return CreateMonitorResult{ID: id}, true
+				}
+			}
+			if m, findErr := c.FindMonitorByName(ctx, monitor.Name); findErr == nil {
+				return CreateMonitorResult{ID: strconv.Itoa(m.ID), URL: m.URL}, true
+			}
+			return CreateMonitorResult{}, false
+		}
+
+		if result, ok := tryFind(); ok {
+			return result, nil
+		}
+
+		// Retry once after a short delay (e.g. list may have hit 429 rate limit).
+		select {
+		case <-ctx.Done():
+			return CreateMonitorResult{}, ctx.Err()
+		case <-time.After(2 * time.Second):
+		}
+
+		if result, ok := tryFind(); ok {
+			return result, nil
+		}
+	}
+	return CreateMonitorResult{}, fmt.Errorf("%w: %s - %s", ErrStatus, res.Status, string(body))
+}
+
+// parseMonitorIDFrom409Body extracts a monitor ID from a 409 response body if present.
+// Handles top-level id, and nested data.id / monitor.id shapes.
+func parseMonitorIDFrom409Body(body []byte) string {
+	var withID struct {
+		ID int `json:"id"`
+	}
+	if err := json.Unmarshal(body, &withID); err == nil && withID.ID > 0 {
+		return strconv.Itoa(withID.ID)
+	}
+	var nested struct {
+		Data *struct {
+			ID int `json:"id"`
+		} `json:"data"`
+		Monitor *struct {
+			ID int `json:"id"`
+		} `json:"monitor"`
+	}
+	if err := json.Unmarshal(body, &nested); err != nil {
+		return ""
+	}
+	if nested.Data != nil && nested.Data.ID > 0 {
+		return strconv.Itoa(nested.Data.ID)
+	}
+	if nested.Monitor != nil && nested.Monitor.ID > 0 {
+		return strconv.Itoa(nested.Monitor.ID)
+	}
+	return ""
+}
+
+// normalizeURL trims trailing slash for consistent comparison with API-stored URLs.
+func normalizeURL(u string) string {
+	return strings.TrimSuffix(strings.TrimSpace(u), "/")
+}
+
+// FindMonitorByURL searches for a monitor by its URL, listing all pages so the monitor is found.
+func (c Client) FindMonitorByURL(ctx context.Context, url string) (string, error) {
+	all, err := c.listAllMonitors(ctx)
+	if err != nil {
+		return "", err
+	}
+	norm := normalizeURL(url)
+	for _, m := range all {
+		if normalizeURL(m.URL) == norm {
 			return strconv.Itoa(m.ID), nil
 		}
 	}
-
 	return "", ErrMonitorNotFound
 }
 
-// FindMonitorByName searches for a monitor by its friendly name.
-// This is useful for heartbeat monitors which don't have a user-defined URL.
+// FindMonitorByName searches for a monitor by its friendly name, listing all pages so the monitor is found.
 func (c Client) FindMonitorByName(ctx context.Context, name string) (*MonitorResponse, error) {
-	var resp MonitorsListResponse
-	if err := c.doJSON(ctx, http.MethodGet, "monitors", nil, &resp); err != nil {
+	all, err := c.listAllMonitors(ctx)
+	if err != nil {
 		return nil, err
 	}
-
-	for _, m := range resp.Monitors {
-		if m.FriendlyName == name {
-			return &m, nil
+	for i := range all {
+		if all[i].FriendlyName == name {
+			return &all[i], nil
 		}
 	}
-
 	return nil, ErrMonitorNotFound
 }
 

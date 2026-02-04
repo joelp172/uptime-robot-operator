@@ -67,6 +67,9 @@ vet: ## Run go vet against code.
 test: manifests generate fmt vet setup-envtest ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
 
+# Kind cluster name for e2e tests. Override when using a named cluster, e.g. kind create cluster --name e2e-test
+KIND_CLUSTER ?= kind
+
 # Run basic e2e tests (without real UptimeRobot API).
 # The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.
 .PHONY: test-e2e
@@ -75,11 +78,13 @@ test-e2e: manifests generate fmt vet ## Run the e2e tests. Expected an isolated 
 		echo "Kind is not installed. Please install Kind manually."; \
 		exit 1; \
 	}
-	@kind get clusters | grep -q 'kind' || { \
-		echo "No Kind cluster is running. Please start a Kind cluster before running the e2e tests."; \
+	@kind get clusters | grep -q '$(KIND_CLUSTER)' || { \
+		echo "No Kind cluster \"$(KIND_CLUSTER)\" is running. Start one with: kind create cluster"; \
+		echo "  or use a named cluster: KIND_CLUSTER=e2e-test make test-e2e"; \
 		exit 1; \
 	}
-	go test ./test/e2e/ -v -ginkgo.v -ginkgo.skip="CRD Reconciliation"
+	@echo "Using Kind cluster: $(KIND_CLUSTER). Ensure kubectl context is set: kubectl config use-context kind-$(KIND_CLUSTER)"
+	KIND_CLUSTER=$(KIND_CLUSTER) go test ./test/e2e/ -v -ginkgo.v -ginkgo.skip="CRD Reconciliation"
 
 # Run e2e tests with real UptimeRobot API (requires UPTIME_ROBOT_API_KEY env var)
 .PHONY: test-e2e-real
@@ -88,15 +93,17 @@ test-e2e-real: manifests generate fmt vet ## Run e2e tests against real UptimeRo
 		echo "Kind is not installed. Please install Kind manually."; \
 		exit 1; \
 	}
-	@kind get clusters | grep -q 'kind' || { \
-		echo "No Kind cluster is running. Please start a Kind cluster before running the e2e tests."; \
+	@kind get clusters | grep -q '$(KIND_CLUSTER)' || { \
+		echo "No Kind cluster \"$(KIND_CLUSTER)\" is running. Start one with: kind create cluster"; \
+		echo "  or use a named cluster: KIND_CLUSTER=e2e-test make test-e2e-real"; \
 		exit 1; \
 	}
+	@echo "Using Kind cluster: $(KIND_CLUSTER). Ensure kubectl context is set: kubectl config use-context kind-$(KIND_CLUSTER)"
 	@[ -n "$$UPTIME_ROBOT_API_KEY" ] || { \
 		echo "UPTIME_ROBOT_API_KEY is not set. Please set it to run real API tests."; \
 		exit 1; \
 	}
-	go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="crd-reconciliation" -timeout 20m
+	KIND_CLUSTER=$(KIND_CLUSTER) go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="crd-reconciliation" -timeout 20m
 
 # Run all e2e tests (basic + real API)
 .PHONY: test-e2e-all
@@ -105,11 +112,13 @@ test-e2e-all: manifests generate fmt vet ## Run all e2e tests including real API
 		echo "Kind is not installed. Please install Kind manually."; \
 		exit 1; \
 	}
-	@kind get clusters | grep -q 'kind' || { \
-		echo "No Kind cluster is running. Please start a Kind cluster before running the e2e tests."; \
+	@kind get clusters | grep -q '$(KIND_CLUSTER)' || { \
+		echo "No Kind cluster \"$(KIND_CLUSTER)\" is running. Start one with: kind create cluster"; \
+		echo "  or use a named cluster: KIND_CLUSTER=e2e-test make test-e2e-all"; \
 		exit 1; \
 	}
-	go test ./test/e2e/ -v -ginkgo.v -timeout 20m
+	@echo "Using Kind cluster: $(KIND_CLUSTER). Ensure kubectl context is set: kubectl config use-context kind-$(KIND_CLUSTER)"
+	KIND_CLUSTER=$(KIND_CLUSTER) go test ./test/e2e/ -v -ginkgo.v -timeout 20m
 
 .PHONY: dev-cluster
 dev-cluster: ## Create a local Kind cluster for development.
