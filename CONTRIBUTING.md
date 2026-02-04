@@ -92,7 +92,7 @@ make test-e2e       # or KIND_CLUSTER=e2e-test make test-e2e for a named cluster
 KIND_CLUSTER=e2e-test make test-e2e-real  # full e2e with real API
 ```
 
-#### Option 1: Quick Setup with Kind
+#### Option 1: Manual
 
 ```bash
 # Create a Kind cluster (default name is "kind")
@@ -122,23 +122,40 @@ kubectl wait --for=condition=Available deployment/uptime-robot-controller-manage
 
 #### Option 2: Use the Dev Cluster Script
 
+The dev cluster script creates a cluster named `uptime-robot-dev`, installs CRDs, builds the operator image, loads it into the cluster, and deploys it:
+
 ```bash
-# Create a development cluster (uses minikube by default)
+# Kind (default) - creates cluster named "uptime-robot-dev" and deploys operator
 make dev-cluster
 
-# Or use Kind
-make dev-cluster-kind
+# Or use minikube
+make dev-cluster-minikube
 ```
+
+This is equivalent to running:
+
+```bash
+kind create cluster --name uptime-robot-dev
+make install
+make docker-build IMG=uptime-robot-operator:dev
+kind load docker-image uptime-robot-operator:dev --name uptime-robot-dev
+make deploy IMG=uptime-robot-operator:dev
+```
+
+**Note:** The dev cluster is named `uptime-robot-dev`, so you'll need to specify `KIND_CLUSTER=uptime-robot-dev` when running e2e tests (see below).
 
 #### Running Basic E2E Tests
 
 Basic tests verify the operator starts and serves metrics (no UptimeRobot API key needed). They build the image, load it into Kind, and run the suite:
 
 ```bash
-# Default cluster name "kind"
+# If using the dev cluster created by make dev-cluster
+KIND_CLUSTER=uptime-robot-dev make test-e2e
+
+# Or with default cluster name "kind"
 make test-e2e
 
-# Named cluster (e.g. e2e-test)
+# Or with a custom named cluster (e.g. e2e-test)
 KIND_CLUSTER=e2e-test make test-e2e
 ```
 
@@ -150,10 +167,13 @@ Full e2e tests create actual monitors in UptimeRobot. You'll need an API key fro
 # Set your test API key
 export UPTIME_ROBOT_API_KEY=your-test-api-key
 
-# Run full e2e tests (default cluster name "kind")
+# If using the dev cluster created by make dev-cluster
+KIND_CLUSTER=uptime-robot-dev make test-e2e-real
+
+# Or with default cluster name "kind"
 make test-e2e-real
 
-# Named cluster
+# Or with a custom named cluster
 KIND_CLUSTER=e2e-test make test-e2e-real
 ```
 

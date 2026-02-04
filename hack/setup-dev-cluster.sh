@@ -149,6 +149,38 @@ install_crds() {
     fi
 }
 
+# Build and deploy operator
+build_and_deploy_operator() {
+    log_info "Building operator image..."
+    
+    if [[ ! -f "Makefile" ]]; then
+        log_warn "Makefile not found, skipping operator build and deployment"
+        return 0
+    fi
+    
+    # Build the operator image
+    make docker-build IMG=uptime-robot-operator:dev
+    
+    log_info "Loading operator image into cluster..."
+    
+    # Load image into cluster
+    case $DRIVER in
+        minikube)
+            minikube image load uptime-robot-operator:dev --profile "$CLUSTER_NAME"
+            ;;
+        kind)
+            kind load docker-image uptime-robot-operator:dev --name "$CLUSTER_NAME"
+            ;;
+    esac
+    
+    log_info "Deploying operator to cluster..."
+    
+    # Deploy the operator
+    make deploy IMG=uptime-robot-operator:dev
+    
+    log_info "Operator deployed successfully"
+}
+
 # Print next steps
 print_next_steps() {
     echo ""
@@ -156,12 +188,37 @@ print_next_steps() {
     log_info "Development cluster setup complete!"
     log_info "============================================="
     echo ""
+    echo "The operator has been built and deployed to the cluster."
+    echo ""
+    echo "Cluster name: $CLUSTER_NAME"
+    case $DRIVER in
+        kind)
+            echo "Kubectl context: kind-$CLUSTER_NAME"
+            ;;
+        minikube)
+            echo "Minikube profile: $CLUSTER_NAME"
+            ;;
+    esac
+    echo ""
     echo "Next steps:"
     echo ""
-    echo "  1. Run the operator locally:"
-    echo "     make run"
+    echo "  1. Create a test monitor:"
+    echo "     kubectl apply -f config/samples/"
     echo ""
-    echo "  2. Or build and deploy to the cluster:"
+    echo "  2. Check operator logs:"
+    echo "     kubectl logs -n uptime-robot-operator-system deployment/uptime-robot-operator-controller-manager -f"
+    echo ""
+    echo "  3. Run e2e tests:"
+    case $DRIVER in
+        kind)
+            echo "     KIND_CLUSTER=$CLUSTER_NAME make test-e2e"
+            ;;
+        minikube)
+            echo "     make test-e2e  # (minikube uses current profile)"
+            ;;
+    esac
+    echo ""
+    echo "  4. Rebuild and redeploy after changes:"
     echo "     make docker-build IMG=uptime-robot-operator:dev"
     case $DRIVER in
         minikube)
@@ -171,23 +228,10 @@ print_next_steps() {
             echo "     kind load docker-image uptime-robot-operator:dev --name $CLUSTER_NAME"
             ;;
     esac
-    echo "     make deploy IMG=uptime-robot-operator:dev"
-    echo ""
-    echo "  3. Create a test monitor:"
-    echo "     kubectl apply -f config/samples/"
-    echo ""
-    echo "  4. Run e2e tests:"
-    echo "     make test-e2e"
+    echo "     kubectl rollout restart -n uptime-robot-operator-system deployment/uptime-robot-operator-controller-manager"
     echo ""
     echo "  5. Delete the cluster when done:"
-    case $DRIVER in
-        minikube)
-            echo "     minikube delete --profile $CLUSTER_NAME"
-            ;;
-        kind)
-            echo "     kind delete cluster --name $CLUSTER_NAME"
-            ;;
-    esac
+    echo "     make dev-cluster-delete"
     echo ""
 }
 
@@ -202,6 +246,7 @@ main() {
     create_cluster
     wait_for_cluster
     install_crds
+    build_and_deploy_operator
     print_next_steps
 }
 
