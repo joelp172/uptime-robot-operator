@@ -117,7 +117,7 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	}
 
 	// Convert duration from Go format to minutes
-	durationMinutes := int(mw.Spec.Duration.Duration.Minutes())
+	durationMinutes := int(mw.Spec.Duration.Minutes())
 	if durationMinutes < 1 {
 		durationMinutes = 1
 	}
