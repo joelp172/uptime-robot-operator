@@ -279,11 +279,11 @@ type APIError struct {
 type CreateMaintenanceWindowRequest struct {
 	Name            string `json:"name"`
 	AutoAddMonitors bool   `json:"autoAddMonitors,omitempty"`
-	Interval        string `json:"interval"` // "once", "daily", "weekly", "monthly"
-	Date            string `json:"date"`     // YYYY-MM-DD format
-	Time            string `json:"time"`     // HH:mm:ss format
-	Duration        int    `json:"duration"` // Duration in minutes
-	Days            []int  `json:"days,omitempty"`
+	Interval        string `json:"interval"`       // "once", "daily", "weekly", "monthly"
+	Date            string `json:"date,omitempty"` // YYYY-MM-DD format (required only for "once" interval)
+	Time            string `json:"time"`           // HH:mm:ss format
+	Duration        int    `json:"duration"`       // Duration in minutes
+	Days            []int  `json:"days,omitempty"` // Required for weekly/monthly intervals
 	MonitorIDs      []int  `json:"monitorIds,omitempty"`
 }
 
@@ -302,14 +302,17 @@ type UpdateMaintenanceWindowRequest struct {
 // MaintenanceWindowResponse represents a maintenance window in v3 API responses.
 type MaintenanceWindowResponse struct {
 	ID              int    `json:"id"`
+	UserID          int    `json:"userId"`
 	Name            string `json:"name"`
 	AutoAddMonitors bool   `json:"autoAddMonitors"`
 	Interval        string `json:"interval"`
-	Date            string `json:"date"`
+	Date            string `json:"date,omitempty"` // Only present for "once" interval
 	Time            string `json:"time"`
 	Duration        int    `json:"duration"`
 	Days            []int  `json:"days,omitempty"`
 	MonitorIDs      []int  `json:"monitorIds,omitempty"`
+	Status          string `json:"status"`  // e.g., "active"
+	Created         string `json:"created"` // ISO 8601 timestamp
 }
 
 // MaintenanceWindowsListResponse represents the v3 API response for listing maintenance windows.
