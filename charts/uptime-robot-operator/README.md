@@ -303,12 +303,13 @@ helm upgrade uptime-robot-operator ./charts/uptime-robot-operator
 
 By default, the chart installs CRDs and preserves them when the chart is uninstalled. This prevents accidental data loss.
 
-To completely remove CRDs (this will delete all Account, Contact, and Monitor resources):
+To completely remove CRDs (this will delete all Account, Contact, Monitor, and MaintenanceWindow resources):
 
 ```bash
 kubectl delete crd accounts.uptimerobot.com
 kubectl delete crd contacts.uptimerobot.com
 kubectl delete crd monitors.uptimerobot.com
+kubectl delete crd maintenancewindows.uptimerobot.com
 ```
 
 ## Troubleshooting

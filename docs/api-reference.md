@@ -409,6 +409,136 @@ spec:
 
 ---
 
+## MaintenanceWindow
+
+Schedule planned downtime periods to prevent false alerts during deployments or maintenance.
+
+**Scope:** Namespaced
+
+### Spec
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `syncInterval` | duration | No | `24h` | How often to reconcile with UptimeRobot API |
+| `prune` | boolean | No | `true` | Delete maintenance window from UptimeRobot when CR is deleted |
+| `account.name` | string | No | default account | Account to use for API access |
+| `name` | string | Yes | - | Friendly name of the maintenance window (max 255 chars) |
+| `interval` | string | Yes | - | Recurrence pattern: `once`, `daily`, `weekly`, `monthly` |
+| `startDate` | string | Yes | - | Start date in YYYY-MM-DD format |
+| `startTime` | string | Yes | - | Start time in HH:mm:ss format |
+| `duration` | duration | Yes | - | Duration of the maintenance window (e.g., "30m", "1h", "2h30m") |
+| `days` | []int | Conditional | - | Days for weekly/monthly intervals (see below) |
+| `autoAddMonitors` | boolean | No | `false` | Automatically add all monitors to this window |
+| `monitorRefs` | []LocalObjectReference | No | - | List of Monitor resources to add to this window |
+
+### Days Field
+
+The `days` field is required for `weekly` and `monthly` intervals:
+
+- **Weekly**: Day of week (0=Sunday, 1=Monday, ..., 6=Saturday)
+- **Monthly**: Day of month (1-31, or -1 for last day of month)
+
+### Status
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `ready` | boolean | Whether the maintenance window is successfully created |
+| `id` | string | UptimeRobot maintenance window ID |
+| `monitorCount` | integer | Number of monitors assigned to this window |
+
+### Examples
+
+#### One-time Maintenance Window
+
+```yaml
+apiVersion: uptimerobot.com/v1alpha1
+kind: MaintenanceWindow
+metadata:
+  name: emergency-maintenance
+spec:
+  name: "Emergency Database Upgrade"
+  interval: once
+  startDate: "2026-03-15"
+  startTime: "03:00:00"
+  duration: 2h
+  autoAddMonitors: true
+```
+
+#### Daily Maintenance Window
+
+```yaml
+apiVersion: uptimerobot.com/v1alpha1
+kind: MaintenanceWindow
+metadata:
+  name: daily-backup-window
+spec:
+  name: "Daily Backup Window"
+  interval: daily
+  startDate: "2026-02-01"
+  startTime: "02:00:00"
+  duration: 30m
+  monitorRefs:
+    - name: database-monitor
+    - name: storage-monitor
+```
+
+#### Weekly Deployment Window
+
+```yaml
+apiVersion: uptimerobot.com/v1alpha1
+kind: MaintenanceWindow
+metadata:
+  name: weekly-deployment-window
+spec:
+  name: "Weekly Deployment Window"
+  interval: weekly
+  startDate: "2026-02-10"
+  startTime: "02:00:00"
+  duration: 1h
+  days: [2, 4]  # Tuesday and Thursday
+  monitorRefs:
+    - name: production-api
+    - name: frontend-app
+```
+
+#### Monthly Maintenance Window
+
+```yaml
+apiVersion: uptimerobot.com/v1alpha1
+kind: MaintenanceWindow
+metadata:
+  name: monthly-maintenance
+spec:
+  name: "Monthly Maintenance"
+  interval: monthly
+  startDate: "2026-02-01"
+  startTime: "05:00:00"
+  duration: 4h
+  days: [1, 15, -1]  # 1st, 15th, and last day of month
+  autoAddMonitors: false
+  monitorRefs:
+    - name: my-website
+```
+
+### Monitor References
+
+Maintenance windows can be assigned to monitors in two ways:
+
+1. **Auto-add**: Set `autoAddMonitors: true` to include all monitors
+2. **Explicit references**: List specific monitors in `monitorRefs`
+
+Note: Monitors must be in the same namespace as the MaintenanceWindow resource.
+
+### Validation Rules
+
+- `days` is required when `interval` is `weekly` or `monthly`
+- `days` must not be set when `interval` is `once` or `daily`
+- For weekly intervals, `days` values must be 0-6
+- For monthly intervals, `days` values must be 1-31 or -1
+- `duration` must be at least 1 minute
+
+---
+
 ## Duration Format
 
 Duration fields accept Go duration strings:

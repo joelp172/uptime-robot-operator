@@ -183,7 +183,7 @@ KIND_CLUSTER=e2e-test make test-e2e-real
 
 ```bash
 # Delete test resources
-kubectl delete monitors,contacts,accounts --all
+kubectl delete maintenancewindows,monitors,contacts,accounts --all
 
 # Undeploy the operator
 make undeploy

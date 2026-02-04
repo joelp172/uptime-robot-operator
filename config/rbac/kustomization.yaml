@@ -31,4 +31,7 @@ resources:
 - monitor_admin_role.yaml
 - monitor_editor_role.yaml
 - monitor_viewer_role.yaml
+- maintenancewindow_admin_role.yaml
+- maintenancewindow_editor_role.yaml
+- maintenancewindow_viewer_role.yaml
 

@@ -1,0 +1,28 @@
+apiVersion: uptimerobot.com/v1alpha1
+kind: MaintenanceWindow
+metadata:
+  labels:
+    app.kubernetes.io/name: uptime-robot-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: weekly-deployment-window
+spec:
+  syncInterval: 24h  # How often operator syncs with UptimeRobot API (drift detection)
+  prune: true
+  name: "Weekly Deployment Window"
+  
+  # Schedule configuration
+  interval: weekly
+  startDate: "2026-02-10"
+  startTime: "02:00:00"
+  duration: 1h  # Using Go duration format
+  
+  # For weekly: days of week (0=Sunday, 1=Monday, etc.)
+  # For monthly: days of month (1-31, -1 for last day)
+  days: [2, 4]  # Tuesday and Thursday
+  
+  # Monitor selection (choose one approach)
+  autoAddMonitors: false  # Add all monitors automatically
+  
+  # Option: Reference monitors by name
+  monitorRefs:
+    - name: example

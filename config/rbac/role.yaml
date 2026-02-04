@@ -50,6 +50,7 @@ rules:
   resources:
   - accounts
   - contacts
+  - maintenancewindows
   - monitors
   verbs:
   - create
@@ -64,6 +65,7 @@ rules:
   resources:
   - accounts/finalizers
   - contacts/finalizers
+  - maintenancewindows/finalizers
   - monitors/finalizers
   verbs:
   - update
@@ -72,6 +74,7 @@ rules:
   resources:
   - accounts/status
   - contacts/status
+  - maintenancewindows/status
   - monitors/status
   verbs:
   - get

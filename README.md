@@ -13,7 +13,7 @@ A Kubernetes operator for managing [UptimeRobot](https://uptimerobot.com/?red=jo
 - Automatic drift detection and correction
 - Support for all UptimeRobot monitor types: HTTPS, Keyword, Ping, Port, Heartbeat, DNS
 - Alert contact configuration
-- Maintenance window assignment
+- Maintenance window scheduling
 - Garbage collection of deleted monitors
 
 ## Quick Start
@@ -161,6 +161,62 @@ After creation, retrieve the webhook URL from the status:
 
 ```bash
 kubectl get monitor backup-job -o jsonpath='{.status.heartbeatURL}'
+```
+
+### Maintenance Windows
+
+Schedule planned downtime periods to prevent false alerts during deployments or maintenance:
+
+```yaml
+apiVersion: uptimerobot.com/v1alpha1
+kind: MaintenanceWindow
+metadata:
+  name: weekly-deployment-window
+spec:
+  name: "Weekly Deployment Window"
+  
+  # Schedule configuration
+  interval: weekly
+  startDate: "2026-02-10"
+  startTime: "02:00:00"
+  duration: 1h  # Using Go duration format
+  
+  # For weekly: days of week (0=Sunday, 1=Monday, etc.)
+  # For monthly: days of month (1-31, -1 for last day)
+  days: [2, 4]  # Tuesday and Thursday
+  
+  # Monitor selection
+  autoAddMonitors: false  # Add all monitors automatically
+  
+  # Reference specific monitors by name
+  monitorRefs:
+    - name: my-website
+```
+
+**Interval Options:**
+
+- `once` - One-time maintenance window
+- `daily` - Runs every day
+- `weekly` - Specific days of the week (requires `days` field with 0-6, where 0=Sunday)
+- `monthly` - Specific days of the month (requires `days` field with 1-31, or -1 for last day)
+
+**Example - One-time maintenance:**
+```yaml
+spec:
+  interval: once
+  startDate: "2026-03-15"
+  startTime: "03:00:00"
+  duration: 2h
+```
+
+**Example - Monthly maintenance on 1st, 15th, and last day:**
+```yaml
+spec:
+  interval: monthly
+  startDate: "2026-02-01"
+  startTime: "05:00:00"
+  duration: 4h
+  days: [1, 15, -1]
 ```
 
 ## How It Works

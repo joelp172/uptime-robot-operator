@@ -49,6 +49,19 @@ func NewServer() *httptest.Server {
 	// GET /user/alert-contacts - Get alert contacts
 	mux.HandleFunc("GET /user/alert-contacts", handleGetAlertContacts)
 
+	// GET /maintenance-windows - List maintenance windows
+	mux.HandleFunc("GET /maintenance-windows", handleGetMaintenanceWindows)
+	mux.HandleFunc("GET /maintenance-windows/", handleGetMaintenanceWindows)
+
+	// POST /maintenance-windows - Create maintenance window
+	mux.HandleFunc("POST /maintenance-windows", handleCreateMaintenanceWindow)
+
+	// PATCH /maintenance-windows/{id} - Update maintenance window
+	mux.HandleFunc("PATCH /maintenance-windows/", handleUpdateMaintenanceWindow)
+
+	// DELETE /maintenance-windows/{id} - Delete maintenance window
+	mux.HandleFunc("DELETE /maintenance-windows/", handleDeleteMaintenanceWindow)
+
 	return httptest.NewServer(mux)
 }
 
@@ -84,6 +97,32 @@ func handleGetUser(w http.ResponseWriter, r *http.Request) {
 
 func handleGetAlertContacts(w http.ResponseWriter, r *http.Request) {
 	serveJSONFile(w, "alert_contacts.json")
+}
+
+func handleGetMaintenanceWindows(w http.ResponseWriter, r *http.Request) {
+	// Check for specific maintenance window ID in path
+	path := strings.TrimPrefix(r.URL.Path, "/maintenance-windows/")
+	if path != "" && path != r.URL.Path {
+		// Single maintenance window request
+		serveJSONFile(w, "maintenance_window.json")
+		return
+	}
+
+	// List maintenance windows
+	serveJSONFile(w, "maintenance_windows.json")
+}
+
+func handleCreateMaintenanceWindow(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusCreated)
+	serveJSONFile(w, "maintenance_window_create.json")
+}
+
+func handleUpdateMaintenanceWindow(w http.ResponseWriter, r *http.Request) {
+	serveJSONFile(w, "maintenance_window_update.json")
+}
+
+func handleDeleteMaintenanceWindow(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func serveJSONFile(w http.ResponseWriter, filename string) {

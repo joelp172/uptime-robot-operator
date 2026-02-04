@@ -1,0 +1,193 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.2
+  name: maintenancewindows.uptimerobot.com
+spec:
+  group: uptimerobot.com
+  names:
+    kind: MaintenanceWindow
+    listKind: MaintenanceWindowList
+    plural: maintenancewindows
+    singular: maintenancewindow
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.ready
+      name: Ready
+      type: boolean
+    - jsonPath: .spec.interval
+      name: Interval
+      type: string
+    - jsonPath: .spec.startDate
+      name: Start Date
+      type: string
+    - jsonPath: .spec.duration
+      name: Duration
+      type: string
+    - jsonPath: .status.monitorCount
+      name: Monitor Count
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: MaintenanceWindow is the Schema for the maintenancewindows API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: MaintenanceWindowSpec defines the desired state of MaintenanceWindow.
+            properties:
+              account:
+                description: Account references this object's Account. If not specified,
+                  the default will be used.
+                properties:
+                  name:
+                    default: ""
+                    description: |-
+                      Name of the referent.
+                      This field is effectively required, but due to backwards compatibility is
+                      allowed to be empty. Instances of this type with an empty value here are
+                      almost certainly wrong.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
+              autoAddMonitors:
+                description: AutoAddMonitors, when true, automatically adds all monitors
+                  to this maintenance window.
+                type: boolean
+              days:
+                description: |-
+                  Days specifies which days the maintenance window runs on.
+                  For weekly: day of week (0=Sunday, 1=Monday, ..., 6=Saturday).
+                  For monthly: day of month (1-31, -1 for last day of month).
+                  Required for weekly and monthly intervals.
+                items:
+                  type: integer
+                maxItems: 31
+                type: array
+              duration:
+                description: |-
+                  Duration is the duration of the maintenance window.
+                  Supports Go duration format (e.g., "30m", "1h", "2h30m").
+                  Minimum value is 1 minute.
+                type: string
+              interval:
+                description: Interval defines the recurrence pattern of the maintenance
+                  window.
+                enum:
+                - once
+                - daily
+                - weekly
+                - monthly
+                type: string
+              monitorRefs:
+                description: |-
+                  MonitorRefs is a list of Monitor resources to add to this maintenance window.
+                  Each reference specifies the monitor name and is resolved within the same namespace
+                  as this MaintenanceWindow.
+                items:
+                  description: |-
+                    LocalObjectReference contains enough information to let you locate the
+                    referenced object inside the same namespace.
+                  properties:
+                    name:
+                      default: ""
+                      description: |-
+                        Name of the referent.
+                        This field is effectively required, but due to backwards compatibility is
+                        allowed to be empty. Instances of this type with an empty value here are
+                        almost certainly wrong.
+                        More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                      type: string
+                  type: object
+                  x-kubernetes-map-type: atomic
+                type: array
+              name:
+                description: Name is the friendly name of the maintenance window (max
+                  255 chars).
+                type: string
+              prune:
+                default: true
+                description: Prune enables garbage collection.
+                type: boolean
+              startDate:
+                description: StartDate is the start date of the maintenance window
+                  in YYYY-MM-DD format.
+                pattern: ^(19|20)\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$
+                type: string
+              startTime:
+                description: StartTime is the start time of the maintenance window
+                  in HH:mm:ss format.
+                pattern: ^(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d$
+                type: string
+              syncInterval:
+                default: 24h
+                description: |-
+                  SyncInterval defines how often the operator reconciles with the UptimeRobot API.
+                  This controls drift detection frequency.
+                type: string
+            required:
+            - duration
+            - interval
+            - name
+            - startDate
+            - startTime
+            type: object
+            x-kubernetes-validations:
+            - message: days field is required and must not be empty when interval
+                is weekly or monthly
+              rule: self.interval == 'once' || self.interval == 'daily' || (has(self.days)
+                && size(self.days) > 0)
+            - message: days field is only valid for weekly or monthly intervals
+              rule: '!has(self.days) || self.interval == ''weekly'' || self.interval
+                == ''monthly'''
+            - message: days must be 0-6 for weekly interval (0=Sunday)
+              rule: '!has(self.days) || self.interval != ''weekly'' || self.days.all(d,
+                d >= 0 && d <= 6)'
+            - message: days must be 1-31 or -1 (last day) for monthly interval
+              rule: '!has(self.days) || self.interval != ''monthly'' || self.days.all(d,
+                (d >= 1 && d <= 31) || d == -1)'
+          status:
+            description: MaintenanceWindowStatus defines the observed state of MaintenanceWindow.
+            properties:
+              id:
+                description: ID is the UptimeRobot maintenance window ID.
+                type: string
+              monitorCount:
+                description: MonitorCount is the number of monitors assigned to this
+                  maintenance window.
+                type: integer
+              ready:
+                description: Ready indicates if the maintenance window is successfully
+                  created in UptimeRobot.
+                type: boolean
+            required:
+            - ready
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
