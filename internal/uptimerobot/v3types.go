@@ -216,7 +216,7 @@ type UpdateMaintenanceWindowRequest struct {
 	Time            string `json:"time,omitempty"`
 	Duration        int    `json:"duration,omitempty"`
 	Days            []int  `json:"days,omitempty"`
-	MonitorIDs      []int  `json:"monitorIds,omitempty"`
+	MonitorIDs      *[]int `json:"monitorIds,omitempty"`
 }
 
 // MaintenanceWindowResponse represents a maintenance window in v3 API responses.

@@ -105,7 +105,8 @@ spec:
               monitorRefs:
                 description: |-
                   MonitorRefs is a list of Monitor resources to add to this maintenance window.
-                  Each reference should specify the name and optionally the namespace.
+                  Each reference specifies the monitor name and is resolved within the same namespace
+                  as this MaintenanceWindow.
                 items:
                   description: |-
                     LocalObjectReference contains enough information to let you locate the
@@ -155,8 +156,10 @@ spec:
             - startTime
             type: object
             x-kubernetes-validations:
-            - message: days field is required when interval is weekly or monthly
-              rule: self.interval == 'once' || self.interval == 'daily' || has(self.days)
+            - message: days field is required and must not be empty when interval
+                is weekly or monthly
+              rule: self.interval == 'once' || self.interval == 'daily' || (has(self.days)
+                && size(self.days) > 0)
             - message: days field is only valid for weekly or monthly intervals
               rule: '!has(self.days) || self.interval == ''weekly'' || self.interval
                 == ''monthly'''

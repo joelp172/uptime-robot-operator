@@ -55,7 +55,20 @@ var (
 	ErrResponse        = errors.New("received fail from Uptime Robot API")
 	ErrMonitorNotFound = errors.New("monitor not found")
 	ErrContactNotFound = errors.New("contact not found")
+	ErrNotFound        = errors.New("resource not found")
 )
+
+// IsNotFound checks if an error indicates a resource was not found (404).
+func IsNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	// Check for 404 status code in error message
+	return strings.Contains(err.Error(), "404") ||
+		errors.Is(err, ErrNotFound) ||
+		errors.Is(err, ErrMonitorNotFound) ||
+		errors.Is(err, ErrContactNotFound)
+}
 
 // newRequest creates a new HTTP request with v3 API authentication.
 func (c Client) newRequest(ctx context.Context, method, endpoint string, body any) (*http.Request, error) {
@@ -680,7 +693,7 @@ func keywordTypeToString(t urtypes.KeywordType) string {
 // CreateMaintenanceWindow creates a new maintenance window using the v3 API.
 func (c Client) CreateMaintenanceWindow(ctx context.Context, req CreateMaintenanceWindowRequest) (MaintenanceWindowResponse, error) {
 	var result MaintenanceWindowResponse
-	err := c.doJSON(ctx, "POST", "maintenance-windows", req, &result)
+	err := c.doJSON(ctx, http.MethodPost, "maintenance-windows", req, &result)
 	return result, err
 }
 
@@ -688,7 +701,7 @@ func (c Client) CreateMaintenanceWindow(ctx context.Context, req CreateMaintenan
 func (c Client) GetMaintenanceWindow(ctx context.Context, id string) (MaintenanceWindowResponse, error) {
 	var result MaintenanceWindowResponse
 	endpoint := fmt.Sprintf("maintenance-windows/%s", id)
-	err := c.doJSON(ctx, "GET", endpoint, nil, &result)
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &result)
 	return result, err
 }
 
@@ -696,20 +709,20 @@ func (c Client) GetMaintenanceWindow(ctx context.Context, id string) (Maintenanc
 func (c Client) UpdateMaintenanceWindow(ctx context.Context, id string, req UpdateMaintenanceWindowRequest) (MaintenanceWindowResponse, error) {
 	var result MaintenanceWindowResponse
 	endpoint := fmt.Sprintf("maintenance-windows/%s", id)
-	err := c.doJSON(ctx, "PATCH", endpoint, req, &result)
+	err := c.doJSON(ctx, http.MethodPatch, endpoint, req, &result)
 	return result, err
 }
 
 // DeleteMaintenanceWindow deletes a maintenance window using the v3 API.
 func (c Client) DeleteMaintenanceWindow(ctx context.Context, id string) error {
 	endpoint := fmt.Sprintf("maintenance-windows/%s", id)
-	return c.doJSON(ctx, "DELETE", endpoint, nil, nil)
+	return c.doJSON(ctx, http.MethodDelete, endpoint, nil, nil)
 }
 
 // ListMaintenanceWindows lists all maintenance windows using the v3 API.
 func (c Client) ListMaintenanceWindows(ctx context.Context) ([]MaintenanceWindowResponse, error) {
 	var result MaintenanceWindowsListResponse
-	err := c.doJSON(ctx, "GET", "maintenance-windows", nil, &result)
+	err := c.doJSON(ctx, http.MethodGet, "maintenance-windows", nil, &result)
 	if err != nil {
 		return nil, err
 	}

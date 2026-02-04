@@ -22,7 +22,7 @@ import (
 )
 
 //+kubebuilder:object:generate=true
-//+kubebuilder:validation:XValidation:rule="self.interval == 'once' || self.interval == 'daily' || has(self.days)", message="days field is required when interval is weekly or monthly"
+//+kubebuilder:validation:XValidation:rule="self.interval == 'once' || self.interval == 'daily' || (has(self.days) && size(self.days) > 0)", message="days field is required and must not be empty when interval is weekly or monthly"
 //+kubebuilder:validation:XValidation:rule="!has(self.days) || self.interval == 'weekly' || self.interval == 'monthly'", message="days field is only valid for weekly or monthly intervals"
 //+kubebuilder:validation:XValidation:rule="!has(self.days) || self.interval != 'weekly' || self.days.all(d, d >= 0 && d <= 6)", message="days must be 0-6 for weekly interval (0=Sunday)"
 //+kubebuilder:validation:XValidation:rule="!has(self.days) || self.interval != 'monthly' || self.days.all(d, (d >= 1 && d <= 31) || d == -1)", message="days must be 1-31 or -1 (last day) for monthly interval"
@@ -74,7 +74,8 @@ type MaintenanceWindowSpec struct {
 	AutoAddMonitors bool `json:"autoAddMonitors,omitempty"`
 
 	// MonitorRefs is a list of Monitor resources to add to this maintenance window.
-	// Each reference should specify the name and optionally the namespace.
+	// Each reference specifies the monitor name and is resolved within the same namespace
+	// as this MaintenanceWindow.
 	//+optional
 	MonitorRefs []corev1.LocalObjectReference `json:"monitorRefs,omitempty"`
 }
