@@ -32,6 +32,11 @@ import (
 	uptimerobotv1 "github.com/joelp172/uptime-robot-operator/api/v1alpha1"
 )
 
+const (
+	// testTimeout is the default timeout for Eventually checks in tests
+	testTimeout = 5 * time.Second
+)
+
 var _ = Describe("MaintenanceWindow Controller", func() {
 	Context("Basic Reconciliation", func() {
 		var (
@@ -56,7 +61,7 @@ var _ = Describe("MaintenanceWindow Controller", func() {
 				Interval:        "daily",
 				StartDate:       "2026-02-10",
 				StartTime:       "02:00:00",
-				Duration:        metav1.Duration{Duration: 1 * time.Hour},
+				Duration:        metav1.Duration{Duration: time.Hour},
 				AutoAddMonitors: true,
 			})
 			defer CleanupMaintenanceWindow(ctx, mw)
@@ -82,7 +87,7 @@ var _ = Describe("MaintenanceWindow Controller", func() {
 				Interval:  "daily",
 				StartDate: "2026-02-10",
 				StartTime: "02:00:00",
-				Duration:  metav1.Duration{Duration: 1 * time.Hour},
+				Duration:  metav1.Duration{Duration: time.Hour},
 			})
 			defer CleanupMaintenanceWindow(ctx, mw)
 
@@ -113,7 +118,7 @@ var _ = Describe("MaintenanceWindow Controller", func() {
 				Interval:  "daily",
 				StartDate: "2026-02-10",
 				StartTime: "02:00:00",
-				Duration:  metav1.Duration{Duration: 1 * time.Hour},
+				Duration:  metav1.Duration{Duration: time.Hour},
 				Prune:     true,
 			})
 
@@ -137,7 +142,7 @@ var _ = Describe("MaintenanceWindow Controller", func() {
 			Eventually(func() bool {
 				err := k8sClient.Get(ctx, types.NamespacedName{Name: mw.Name, Namespace: mw.Namespace}, mw)
 				return errors.IsNotFound(err)
-			}, 5*time.Second).Should(BeTrue())
+			}, testTimeout).Should(BeTrue())
 		})
 
 		It("should delete maintenance window with prune=false", func() {
@@ -146,7 +151,7 @@ var _ = Describe("MaintenanceWindow Controller", func() {
 				Interval:  "daily",
 				StartDate: "2026-02-10",
 				StartTime: "02:00:00",
-				Duration:  metav1.Duration{Duration: 1 * time.Hour},
+				Duration:  metav1.Duration{Duration: time.Hour},
 				Prune:     false,
 			})
 
@@ -171,7 +176,7 @@ var _ = Describe("MaintenanceWindow Controller", func() {
 			Eventually(func() bool {
 				err := k8sClient.Get(ctx, types.NamespacedName{Name: mw.Name, Namespace: mw.Namespace}, mw)
 				return errors.IsNotFound(err)
-			}, 5*time.Second).Should(BeTrue())
+			}, testTimeout).Should(BeTrue())
 			Expect(mwID).NotTo(BeEmpty(), "ID should have been set before deletion")
 		})
 	})
@@ -218,7 +223,7 @@ var _ = Describe("MaintenanceWindow Controller", func() {
 				Interval:  "daily",
 				StartDate: "2026-02-10",
 				StartTime: "02:00:00",
-				Duration:  metav1.Duration{Duration: 1 * time.Hour},
+				Duration:  metav1.Duration{Duration: time.Hour},
 				MonitorRefs: []corev1.LocalObjectReference{
 					{Name: monitor1.Name},
 					{Name: monitor2.Name},
@@ -248,7 +253,7 @@ var _ = Describe("MaintenanceWindow Controller", func() {
 				Interval:  "daily",
 				StartDate: "2026-02-10",
 				StartTime: "02:00:00",
-				Duration:  metav1.Duration{Duration: 1 * time.Hour},
+				Duration:  metav1.Duration{Duration: time.Hour},
 				MonitorRefs: []corev1.LocalObjectReference{
 					{Name: monitor1.Name},
 				},
@@ -271,7 +276,7 @@ var _ = Describe("MaintenanceWindow Controller", func() {
 				Interval:  "daily",
 				StartDate: "2026-02-10",
 				StartTime: "02:00:00",
-				Duration:  metav1.Duration{Duration: 1 * time.Hour},
+				Duration:  metav1.Duration{Duration: time.Hour},
 				MonitorRefs: []corev1.LocalObjectReference{
 					{Name: "non-existent-monitor"},
 				},
@@ -299,7 +304,7 @@ var _ = Describe("MaintenanceWindow Controller", func() {
 				Interval:  "daily",
 				StartDate: "2026-02-10",
 				StartTime: "02:00:00",
-				Duration:  metav1.Duration{Duration: 1 * time.Hour},
+				Duration:  metav1.Duration{Duration: time.Hour},
 				MonitorRefs: []corev1.LocalObjectReference{
 					{Name: monitor1.Name},
 				},
@@ -423,7 +428,7 @@ var _ = Describe("MaintenanceWindow Controller", func() {
 				Interval:  "daily",
 				StartDate: "2026-02-10",
 				StartTime: "02:00:00",
-				Duration:  metav1.Duration{Duration: 1 * time.Hour},
+				Duration:  metav1.Duration{Duration: time.Hour},
 				MonitorRefs: []corev1.LocalObjectReference{
 					{Name: monitor.Name},
 				},
@@ -463,7 +468,7 @@ var _ = Describe("MaintenanceWindow Controller", func() {
 				Interval:  "daily",
 				StartDate: "2026-02-10",
 				StartTime: "02:00:00",
-				Duration:  metav1.Duration{Duration: 1 * time.Hour},
+				Duration:  metav1.Duration{Duration: time.Hour},
 			})
 			defer CleanupMaintenanceWindow(ctx, mw)
 

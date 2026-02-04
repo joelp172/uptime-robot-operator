@@ -544,7 +544,6 @@ spec:
 			applyMaintenanceWindow(updatedYAML)
 
 			By("waiting for update to complete")
-			time.Sleep(5 * time.Second)
 			Eventually(func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "maintenancewindow", mwName,
 					"-o", "jsonpath={.status.ready}")
