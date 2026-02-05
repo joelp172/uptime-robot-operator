@@ -31,7 +31,7 @@ import (
 	"github.com/joelp172/uptime-robot-operator/test/utils"
 )
 
-var _ = Describe("MaintenanceWindow CRD Reconciliation", Ordered, Label("crd-reconciliation"), func() {
+var _ = Describe("MaintenanceWindow CRD Reconciliation", Ordered, Label("maintenancewindow"), func() {
 	// Skip all tests in this suite if no API key is provided
 	BeforeAll(func() {
 		if skipCRDReconciliation {
@@ -200,15 +200,23 @@ spec:
 `, mwName, testRunID)
 
 			applyMaintenanceWindow(mwYAML)
-			waitMaintenanceWindowReady(mwName)
+			mwID := waitMaintenanceWindowReadyAndGetID(mwName)
 
-			By("verifying MaintenanceWindow status fields")
+			By("validating maintenance window fields in UptimeRobot API")
+			apiKey := os.Getenv("UPTIME_ROBOT_API_KEY")
 			Eventually(func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "maintenancewindow", mwName,
-					"-o", "jsonpath={.status.id}")
-				output, err := utils.Run(cmd)
+				mw, err := getMaintenanceWindowFromAPI(apiKey, mwID)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(strings.TrimSpace(output)).NotTo(BeEmpty())
+				errs := ValidateMaintenanceWindowFields(
+					"E2E Once MW",
+					"once",
+					"02:00:00",
+					60,  // 1h in minutes
+					nil, // no days for once interval
+					"2026-03-01",
+					mw,
+				)
+				g.Expect(errs).To(BeEmpty(), "field validation: %s", errs)
 			}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
 		})
 	})
@@ -237,14 +245,24 @@ spec:
 `, mwName, testRunID)
 
 			applyMaintenanceWindow(mwYAML)
-			waitMaintenanceWindowReady(mwName)
+			mwID := waitMaintenanceWindowReadyAndGetID(mwName)
 
-			By("verifying interval is set to daily")
-			cmd := exec.Command("kubectl", "get", "maintenancewindow", mwName,
-				"-o", "jsonpath={.spec.interval}")
-			output, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(strings.TrimSpace(output)).To(Equal("daily"))
+			By("validating maintenance window fields in UptimeRobot API")
+			apiKey := os.Getenv("UPTIME_ROBOT_API_KEY")
+			Eventually(func(g Gomega) {
+				mw, err := getMaintenanceWindowFromAPI(apiKey, mwID)
+				g.Expect(err).NotTo(HaveOccurred())
+				errs := ValidateMaintenanceWindowFields(
+					"E2E Daily MW",
+					"daily",
+					"03:00:00",
+					120, // 2h in minutes
+					nil, // no days for daily interval
+					"",  // no startDate for daily interval
+					mw,
+				)
+				g.Expect(errs).To(BeEmpty(), "field validation: %s", errs)
+			}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
 		})
 	})
 
@@ -273,14 +291,24 @@ spec:
 `, mwName, testRunID)
 
 			applyMaintenanceWindow(mwYAML)
-			waitMaintenanceWindowReady(mwName)
+			mwID := waitMaintenanceWindowReadyAndGetID(mwName)
 
-			By("verifying days are set")
-			cmd := exec.Command("kubectl", "get", "maintenancewindow", mwName,
-				"-o", "jsonpath={.spec.days}")
-			output, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(ContainSubstring("1"))
+			By("validating maintenance window fields in UptimeRobot API")
+			apiKey := os.Getenv("UPTIME_ROBOT_API_KEY")
+			Eventually(func(g Gomega) {
+				mw, err := getMaintenanceWindowFromAPI(apiKey, mwID)
+				g.Expect(err).NotTo(HaveOccurred())
+				errs := ValidateMaintenanceWindowFields(
+					"E2E Weekly MW",
+					"weekly",
+					"04:00:00",
+					30, // 30m in minutes
+					[]int{1, 3, 5},
+					"", // no startDate for weekly interval
+					mw,
+				)
+				g.Expect(errs).To(BeEmpty(), "field validation: %s", errs)
+			}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
 		})
 	})
 
@@ -309,14 +337,24 @@ spec:
 `, mwName, testRunID)
 
 			applyMaintenanceWindow(mwYAML)
-			waitMaintenanceWindowReady(mwName)
+			mwID := waitMaintenanceWindowReadyAndGetID(mwName)
 
-			By("verifying days include last day of month")
-			cmd := exec.Command("kubectl", "get", "maintenancewindow", mwName,
-				"-o", "jsonpath={.spec.days}")
-			output, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(ContainSubstring("-1"))
+			By("validating maintenance window fields in UptimeRobot API")
+			apiKey := os.Getenv("UPTIME_ROBOT_API_KEY")
+			Eventually(func(g Gomega) {
+				mw, err := getMaintenanceWindowFromAPI(apiKey, mwID)
+				g.Expect(err).NotTo(HaveOccurred())
+				errs := ValidateMaintenanceWindowFields(
+					"E2E Monthly MW",
+					"monthly",
+					"05:00:00",
+					60, // 1h in minutes
+					[]int{1, 15, -1},
+					"", // no startDate for monthly interval
+					mw,
+				)
+				g.Expect(errs).To(BeEmpty(), "field validation: %s", errs)
+			}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
 		})
 	})
 
@@ -578,16 +616,55 @@ spec:
 `, mwName, testRunID, monitor1Name, monitor2Name)
 
 			applyMaintenanceWindow(mwYAML)
-			waitMaintenanceWindowReady(mwName)
+			mwID := waitMaintenanceWindowReadyAndGetID(mwName)
 
-			By("verifying monitor count in status")
+			// Get monitor IDs from cluster
+			cmd := exec.Command("kubectl", "get", "monitor", monitor1Name, "-o", "jsonpath={.status.id}")
+			monitor1ID, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			cmd = exec.Command("kubectl", "get", "monitor", monitor2Name, "-o", "jsonpath={.status.id}")
+			monitor2ID, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			apiKey := os.Getenv("UPTIME_ROBOT_API_KEY")
+
+			By("verifying MW contains monitor IDs via API")
 			Eventually(func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "maintenancewindow", mwName,
-					"-o", "jsonpath={.status.monitorCount}")
-				output, err := utils.Run(cmd)
+				mw, err := getMaintenanceWindowFromAPI(apiKey, mwID)
 				g.Expect(err).NotTo(HaveOccurred())
-				// Note: Mock might not return monitor count, so just check it's a valid field
-				_ = output
+				g.Expect(mw.MonitorIDs).To(ContainElement(monitor1ID), "MW should contain monitor1 ID")
+				g.Expect(mw.MonitorIDs).To(ContainElement(monitor2ID), "MW should contain monitor2 ID")
+			}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
+
+			By("verifying monitors contain MW ID via API")
+			Eventually(func(g Gomega) {
+				monitor1, err := getMonitorFromAPI(apiKey, monitor1ID)
+				g.Expect(err).NotTo(HaveOccurred())
+				monitor2, err := getMonitorFromAPI(apiKey, monitor2ID)
+				g.Expect(err).NotTo(HaveOccurred())
+
+				// Check that both monitors have the MW in their maintenanceWindows list
+				g.Expect(monitor1.MaintenanceWindows).NotTo(BeEmpty(), "Monitor1 should have maintenance windows")
+				g.Expect(monitor2.MaintenanceWindows).NotTo(BeEmpty(), "Monitor2 should have maintenance windows")
+
+				// Check that the MW ID is in the list (compare as string)
+				found1 := false
+				for _, mw := range monitor1.MaintenanceWindows {
+					if fmt.Sprintf("%d", mw.ID) == mwID {
+						found1 = true
+						break
+					}
+				}
+				g.Expect(found1).To(BeTrue(), "Monitor1 should have MW ID %s", mwID)
+
+				found2 := false
+				for _, mw := range monitor2.MaintenanceWindows {
+					if fmt.Sprintf("%d", mw.ID) == mwID {
+						found2 = true
+						break
+					}
+				}
+				g.Expect(found2).To(BeTrue(), "Monitor2 should have MW ID %s", mwID)
 			}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
 		})
 
@@ -791,59 +868,6 @@ spec:
 })
 
 // Helper functions for MaintenanceWindow e2e tests
-
-// applyMaintenanceWindow applies a MaintenanceWindow YAML via kubectl
-func applyMaintenanceWindow(mwYAML string) {
-	By("creating/updating MaintenanceWindow resource")
-	debugLog("Applying MaintenanceWindow YAML:\n%s", mwYAML)
-
-	cmd := exec.Command("kubectl", "apply", "-f", "-")
-	cmd.Stdin = strings.NewReader(mwYAML)
-	output, err := utils.Run(cmd)
-
-	if err != nil {
-		debugLog("Failed to apply MaintenanceWindow: %v", err)
-	} else {
-		debugLog("MaintenanceWindow apply output: %s", output)
-	}
-
-	Expect(err).NotTo(HaveOccurred())
-}
-
-// waitMaintenanceWindowReady waits for a MaintenanceWindow to become ready
-func waitMaintenanceWindowReady(mwName string) {
-	By(fmt.Sprintf("waiting for MaintenanceWindow %s to become ready", mwName))
-	debugLog("Polling for MaintenanceWindow readiness: %s", mwName)
-
-	pollCount := 0
-	Eventually(func(g Gomega) {
-		pollCount++
-
-		// Get ready status
-		cmd := exec.Command("kubectl", "get", "maintenancewindow", mwName,
-			"-o", "jsonpath={.status.ready}")
-		output, err := utils.Run(cmd)
-		if err != nil {
-			debugLog("Poll #%d: Failed to get MaintenanceWindow %s: %v", pollCount, mwName, err)
-		} else {
-			debugLog("Poll #%d: MaintenanceWindow %s status.ready: %q", pollCount, mwName, output)
-		}
-
-		// Every 3 polls (15 seconds), get full status for debugging
-		if debugEnabled() && pollCount%3 == 0 {
-			cmd = exec.Command("kubectl", "get", "maintenancewindow", mwName, "-o", "yaml")
-			fullStatus, yamlErr := utils.Run(cmd)
-			if yamlErr == nil {
-				debugLog("Full MaintenanceWindow status:\n%s", fullStatus)
-			}
-		}
-
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(output).To(Equal("true"))
-	}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
-
-	debugLog("MaintenanceWindow %s is ready after %d polls", mwName, pollCount)
-}
 
 // deleteMaintenanceWindowAndWait deletes a MaintenanceWindow and waits for it to be removed
 func deleteMaintenanceWindowAndWait(mwName string) {

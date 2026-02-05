@@ -48,18 +48,25 @@ var _ = BeforeSuite(func() {
 
 	// TODO(user): If you want to change the e2e test vendor from Kind, ensure the image is
 	// built and available before running the tests. Also, remove the following block.
+
+	// Check if deployment exists BEFORE loading new image
+	// If it exists, we need to restart it after loading to pick up the new image
+	checkCmd := exec.Command("kubectl", "get", "deployment", "uptime-robot-controller-manager", "-n", "uptime-robot-system")
+	deploymentExisted := false
+	if _, err := utils.Run(checkCmd); err == nil {
+		deploymentExisted = true
+	}
+
 	By("loading the manager(Operator) image on Kind")
 	err = utils.LoadImageToKindClusterWithName(projectImage)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the manager(Operator) image into Kind")
 
-	// Restart the deployment if it exists to pick up the new image
-	// (only if namespace exists, indicating a previous deployment)
-	By("restarting controller deployment if it exists")
-	checkCmd := exec.Command("kubectl", "get", "deployment", "uptime-robot-controller-manager", "-n", "uptime-robot-system")
-	if _, err := utils.Run(checkCmd); err == nil {
-		// Deployment exists, restart it
+	// Only restart if deployment existed before we loaded the new image
+	// This ensures the new image is picked up, but doesn't restart unnecessarily on fresh deployments
+	if deploymentExisted {
+		By("restarting controller deployment to pick up new image")
 		cmd = exec.Command("kubectl", "rollout", "restart", "deployment/uptime-robot-controller-manager", "-n", "uptime-robot-system")
-		_, _ = utils.Run(cmd) // Ignore errors if deployment doesn't exist
+		_, _ = utils.Run(cmd)
 		cmd = exec.Command("kubectl", "rollout", "status", "deployment/uptime-robot-controller-manager", "-n", "uptime-robot-system", "--timeout=2m")
 		_, _ = utils.Run(cmd)
 	}
