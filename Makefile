@@ -103,7 +103,7 @@ test-e2e-real: manifests generate fmt vet ## Run e2e tests against real UptimeRo
 		echo "UPTIME_ROBOT_API_KEY is not set. Please set it to run real API tests."; \
 		exit 1; \
 	}
-	KIND_CLUSTER=$(KIND_CLUSTER) go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="crd-reconciliation" -timeout 20m
+	KIND_CLUSTER=$(KIND_CLUSTER) go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="monitor || maintenancewindow || account || contact" -timeout 20m
 
 # Run all e2e tests (basic + real API)
 .PHONY: test-e2e-all
@@ -122,16 +122,11 @@ test-e2e-all: manifests generate fmt vet ## Run all e2e tests including real API
 
 .PHONY: dev-cluster
 dev-cluster: ## Create a local Kind cluster for development.
-	./hack/setup-dev-cluster.sh --driver kind
-
-.PHONY: dev-cluster-minikube
-dev-cluster-minikube: ## Create a local minikube cluster for development.
-	./hack/setup-dev-cluster.sh --driver minikube
+	./hack/setup-dev-cluster.sh
 
 .PHONY: dev-cluster-delete
 dev-cluster-delete: ## Delete the local development cluster.
-	./hack/setup-dev-cluster.sh --delete --driver kind || true
-	./hack/setup-dev-cluster.sh --delete --driver minikube || true
+	./hack/setup-dev-cluster.sh --delete
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter

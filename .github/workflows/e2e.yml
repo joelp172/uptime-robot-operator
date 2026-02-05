@@ -174,7 +174,7 @@ jobs:
           UPTIME_ROBOT_API_KEY: ${{ secrets.UPTIME_ROBOT_API_DEV }}
           KIND_CLUSTER: ${{ env.KIND_CLUSTER_NAME }}
         run: |
-          go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="crd-reconciliation" -timeout 20m
+          go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="monitor || maintenancewindow || account || contact" -timeout 20m
 
       - name: Collect debug info on failure
         if: failure()

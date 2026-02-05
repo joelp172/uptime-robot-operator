@@ -1,21 +1,19 @@
 #!/usr/bin/env bash
 #
-# setup-dev-cluster.sh - Create a local Kubernetes cluster for development
+# setup-dev-cluster.sh - Create a local Kind cluster for development
 #
 # Usage:
 #   ./hack/setup-dev-cluster.sh [options]
 #
 # Options:
-#   --driver <minikube|kind>   Cluster driver (default: kind)
 #   --delete                   Delete existing cluster first
 #   -h, --help                 Show this help message
 
 set -euo pipefail
 
 # Defaults
-DRIVER="kind"
 DELETE_FIRST=false
-CLUSTER_NAME="uptime-robot-dev"
+CLUSTER_NAME="kind"
 
 # Colours
 RED='\033[0;31m'
@@ -35,10 +33,6 @@ usage() {
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --driver)
-            DRIVER="$2"
-            shift 2
-            ;;
         --delete)
             DELETE_FIRST=true
             shift
@@ -62,26 +56,11 @@ check_prerequisites() {
         exit 1
     fi
     
-    case $DRIVER in
-        minikube)
-            if ! command -v minikube &> /dev/null; then
-                log_error "minikube is not installed. Please install it first."
-                log_info "Install: brew install minikube"
-                exit 1
-            fi
-            ;;
-        kind)
-            if ! command -v kind &> /dev/null; then
-                log_error "kind is not installed. Please install it first."
-                log_info "Install: brew install kind"
-                exit 1
-            fi
-            ;;
-        *)
-            log_error "Unknown driver: $DRIVER. Use 'minikube' or 'kind'."
-            exit 1
-            ;;
-    esac
+    if ! command -v kind &> /dev/null; then
+        log_error "kind is not installed. Please install it first."
+        log_info "Install: brew install kind"
+        exit 1
+    fi
     
     log_info "Prerequisites check passed"
 }
@@ -89,45 +68,20 @@ check_prerequisites() {
 # Delete existing cluster
 delete_cluster() {
     log_info "Deleting existing cluster..."
-    
-    case $DRIVER in
-        minikube)
-            minikube delete --profile "$CLUSTER_NAME" 2>/dev/null || true
-            ;;
-        kind)
-            kind delete cluster --name "$CLUSTER_NAME" 2>/dev/null || true
-            ;;
-    esac
+    kind delete cluster --name "$CLUSTER_NAME" 2>/dev/null || true
 }
 
 # Create cluster
 create_cluster() {
-    log_info "Creating $DRIVER cluster: $CLUSTER_NAME"
+    log_info "Creating Kind cluster: $CLUSTER_NAME"
     
-    case $DRIVER in
-        minikube)
-            if minikube status --profile "$CLUSTER_NAME" &>/dev/null; then
-                log_warn "Cluster already exists. Use --delete to recreate."
-                minikube profile "$CLUSTER_NAME"
-                return 0
-            fi
-            minikube start \
-                --profile "$CLUSTER_NAME" \
-                --cpus 2 \
-                --memory 6144 \
-                --kubernetes-version stable \
-                --driver docker
-            ;;
-        kind)
-            if kind get clusters 2>/dev/null | grep -q "^${CLUSTER_NAME}$"; then
-                log_warn "Cluster already exists. Use --delete to recreate."
-                kubectl config use-context "kind-${CLUSTER_NAME}"
-                return 0
-            fi
-            kind create cluster --name "$CLUSTER_NAME" --wait 60s
-            ;;
-    esac
+    if kind get clusters 2>/dev/null | grep -q "^${CLUSTER_NAME}$"; then
+        log_warn "Cluster already exists. Use --delete to recreate."
+        kubectl config use-context "kind-${CLUSTER_NAME}"
+        return 0
+    fi
     
+    kind create cluster --name "$CLUSTER_NAME" --wait 60s
     log_info "Cluster created successfully"
 }
 
@@ -162,16 +116,7 @@ build_and_deploy_operator() {
     make docker-build IMG=uptime-robot-operator:dev
     
     log_info "Loading operator image into cluster..."
-    
-    # Load image into cluster
-    case $DRIVER in
-        minikube)
-            minikube image load uptime-robot-operator:dev --profile "$CLUSTER_NAME"
-            ;;
-        kind)
-            kind load docker-image uptime-robot-operator:dev --name "$CLUSTER_NAME"
-            ;;
-    esac
+    kind load docker-image uptime-robot-operator:dev --name "$CLUSTER_NAME"
     
     log_info "Deploying operator to cluster..."
     
@@ -191,14 +136,7 @@ print_next_steps() {
     echo "The operator has been built and deployed to the cluster."
     echo ""
     echo "Cluster name: $CLUSTER_NAME"
-    case $DRIVER in
-        kind)
-            echo "Kubectl context: kind-$CLUSTER_NAME"
-            ;;
-        minikube)
-            echo "Minikube profile: $CLUSTER_NAME"
-            ;;
-    esac
+    echo "Kubectl context: kind-$CLUSTER_NAME"
     echo ""
     echo "Next steps:"
     echo ""
@@ -208,29 +146,19 @@ print_next_steps() {
     echo "  2. Check operator logs:"
     echo "     kubectl logs -n uptime-robot-operator-system deployment/uptime-robot-operator-controller-manager -f"
     echo ""
-    echo "  3. Run e2e tests:"
-    case $DRIVER in
-        kind)
-            echo "     KIND_CLUSTER=$CLUSTER_NAME make test-e2e"
-            ;;
-        minikube)
-            echo "     make test-e2e  # (minikube uses current profile)"
-            ;;
-    esac
+    echo "  3. Run basic e2e tests:"
+    echo "     make test-e2e"
     echo ""
-    echo "  4. Rebuild and redeploy after changes:"
+    echo "  4. Run full e2e tests (requires UPTIME_ROBOT_API_KEY):"
+    echo "     export UPTIME_ROBOT_API_KEY=your-test-api-key"
+    echo "     make test-e2e-real"
+    echo ""
+    echo "  5. Rebuild and redeploy after changes:"
     echo "     make docker-build IMG=uptime-robot-operator:dev"
-    case $DRIVER in
-        minikube)
-            echo "     minikube image load uptime-robot-operator:dev --profile $CLUSTER_NAME"
-            ;;
-        kind)
-            echo "     kind load docker-image uptime-robot-operator:dev --name $CLUSTER_NAME"
-            ;;
-    esac
+    echo "     kind load docker-image uptime-robot-operator:dev --name $CLUSTER_NAME"
     echo "     kubectl rollout restart -n uptime-robot-operator-system deployment/uptime-robot-operator-controller-manager"
     echo ""
-    echo "  5. Delete the cluster when done:"
+    echo "  6. Delete the cluster when done:"
     echo "     make dev-cluster-delete"
     echo ""
 }
@@ -241,6 +169,8 @@ main() {
     
     if [[ "$DELETE_FIRST" == "true" ]]; then
         delete_cluster
+        log_info "Cluster deleted successfully"
+        exit 0
     fi
     
     create_cluster
