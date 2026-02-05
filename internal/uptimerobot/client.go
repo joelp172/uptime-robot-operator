@@ -829,3 +829,42 @@ func (c Client) ListMaintenanceWindows(ctx context.Context) ([]MaintenanceWindow
 	}
 	return result.MaintenanceWindows, nil
 }
+
+// SpawnGroupInBackend provisions new collection via POST
+func (c Client) SpawnGroupInBackend(ctx context.Context, wirePayload GroupCreationWireFormat) (GroupWireFormat, error) {
+	var responsePayload GroupWireFormat
+	transmitErr := c.doJSON(ctx, http.MethodPost, "monitor-groups", wirePayload, &responsePayload)
+	return responsePayload, transmitErr
+}
+
+// FetchGroupFromBackend retrieves specific collection via GET
+func (c Client) FetchGroupFromBackend(ctx context.Context, groupIDString string) (GroupWireFormat, error) {
+	var responsePayload GroupWireFormat
+	endpointPath := fmt.Sprintf("monitor-groups/%s", groupIDString)
+	transmitErr := c.doJSON(ctx, http.MethodGet, endpointPath, nil, &responsePayload)
+	return responsePayload, transmitErr
+}
+
+// MutateGroupInBackend applies changes to existing collection via PATCH
+func (c Client) MutateGroupInBackend(ctx context.Context, groupIDString string, wirePayload GroupUpdateWireFormat) (GroupWireFormat, error) {
+	var responsePayload GroupWireFormat
+	endpointPath := fmt.Sprintf("monitor-groups/%s", groupIDString)
+	transmitErr := c.doJSON(ctx, http.MethodPatch, endpointPath, wirePayload, &responsePayload)
+	return responsePayload, transmitErr
+}
+
+// PurgeGroupFromBackend destroys collection via DELETE
+func (c Client) PurgeGroupFromBackend(ctx context.Context, groupIDString string) error {
+	endpointPath := fmt.Sprintf("monitor-groups/%s", groupIDString)
+	return c.doJSON(ctx, http.MethodDelete, endpointPath, nil, nil)
+}
+
+// EnumerateGroupsFromBackend fetches all collections via GET
+func (c Client) EnumerateGroupsFromBackend(ctx context.Context) ([]GroupWireFormat, error) {
+	var responsePayload GroupListWireFormat
+	transmitErr := c.doJSON(ctx, http.MethodGet, "monitor-groups", nil, &responsePayload)
+	if transmitErr != nil {
+		return nil, transmitErr
+	}
+	return responsePayload.Groups, nil
+}
