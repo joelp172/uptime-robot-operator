@@ -239,7 +239,7 @@ var _ = Describe("MaintenanceWindow Controller", func() {
 
 		It("should skip monitors that are not ready", func() {
 			// Create a monitor but don't reconcile it (so it's not ready)
-			monitor1 := CreateMonitorNoReconcile(ctx, "test-notready-mon", account.Name, contact.Name)
+			monitor1 := CreateMonitor(ctx, "test-notready-mon", account.Name, contact.Name)
 			defer CleanupMonitor(ctx, monitor1)
 
 			// Create maintenance window with monitor ref
@@ -537,11 +537,6 @@ func CreateMonitor(ctx context.Context, name string, accountName string, contact
 	}
 	Expect(k8sClient.Create(ctx, monitor)).To(Succeed())
 	return monitor
-}
-
-// CreateMonitorNoReconcile creates a Monitor CR without reconciling it
-func CreateMonitorNoReconcile(ctx context.Context, name string, accountName string, contactName string) *uptimerobotv1.Monitor {
-	return CreateMonitor(ctx, name, accountName, contactName)
 }
 
 // ReconcileMonitor reconciles a Monitor resource

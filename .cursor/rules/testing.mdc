@@ -11,8 +11,8 @@ alwaysApply: true
 |---------|-------------|
 | `make test` | Run unit tests with envtest |
 | `make lint` | Run golangci-lint |
-| `make test-e2e` | Run basic e2e tests (no API key required) |
-| `make test-e2e-real` | Run full e2e tests (requires `UPTIME_ROBOT_API_KEY`) |
+| `make test-e2e` | Run basic e2e tests (operator deployment, metrics) - no API calls |
+| `make test-e2e-real` | Run full e2e tests with real UptimeRobot API (requires `UPTIME_ROBOT_API_KEY`) |
 
 ## Running Tests Locally
 
@@ -24,13 +24,14 @@ make test
 
 ### E2E Tests (Basic)
 
-Requires a Kind cluster named `kind`. Use `make dev-cluster` to create and set up the cluster:
+Tests operator deployment and basic functionality without making real API calls. Requires a Kind cluster named `kind`:
 
 ```bash
 # Create cluster and deploy operator
 make dev-cluster
 
-# Run basic tests (suite builds/loads image automatically)
+# Run basic tests (operator pod, metrics endpoint)
+# Skips all CRD reconciliation tests (monitor, maintenancewindow, account, contact)
 make test-e2e
 ```
 
@@ -86,5 +87,6 @@ make manifests generate fmt vet && make lint && make test
 - E2E tests require Kind cluster named `kind`
 - Use `make dev-cluster` to create the cluster and deploy the operator
 - Kind automatically sets kubectl context to `kind-kind` when creating the cluster
-- Full e2e tests create real monitors in UptimeRobot (use dev account)
+- `test-e2e` only tests operator deployment/metrics (no API calls)
+- `test-e2e-real` creates real monitors/maintenance windows in UptimeRobot (use dev account)
 - Clean up with: `make dev-cluster-delete`

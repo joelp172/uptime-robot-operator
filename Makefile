@@ -84,7 +84,8 @@ test-e2e: manifests generate fmt vet ## Run the e2e tests. Expected an isolated 
 		exit 1; \
 	}
 	@echo "Using Kind cluster: $(KIND_CLUSTER). Ensure kubectl context is set: kubectl config use-context kind-$(KIND_CLUSTER)"
-	KIND_CLUSTER=$(KIND_CLUSTER) go test ./test/e2e/ -v -ginkgo.v -ginkgo.skip="CRD Reconciliation"
+	@echo "NOTE: Skipping real API tests (monitor, maintenancewindow, account, contact). Use 'make test-e2e-real' to run with real UptimeRobot API."
+	KIND_CLUSTER=$(KIND_CLUSTER) go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="!monitor && !maintenancewindow && !account && !contact"
 
 # Run e2e tests with real UptimeRobot API (requires UPTIME_ROBOT_API_KEY env var)
 .PHONY: test-e2e-real

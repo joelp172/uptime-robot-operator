@@ -65,7 +65,7 @@ func waitMonitorReadyAndGetID(monitorName string) string {
 	cmd := exec.Command("kubectl", "get", "monitor", monitorName, "-o", "jsonpath={.status.id}")
 	monitorID, err := utils.Run(cmd)
 	Expect(err).NotTo(HaveOccurred())
-	return monitorID
+	return strings.TrimSpace(monitorID)
 }
 
 // deleteMonitorAndWaitForAPICleanup deletes a monitor CR and waits for it to be removed from the API

@@ -922,7 +922,12 @@ func cleanupMaintenanceWindows() {
 
 	// Delete any maintenance window whose name starts with our test prefix
 	// Note: We delete ALL E2E maintenance windows, not just this test run's,
-	// since the API doesn't store the testRunID and we want to clean up any leftover MWs
+	// since the API doesn't store the testRunID and we want to clean up any leftover MWs.
+	//
+	// LIMITATION: This cleanup approach is not safe for concurrent test runs.
+	// Multiple test suites running in parallel (e.g., in CI/CD) will interfere with
+	// each other's cleanup. To avoid this, ensure e2e tests run sequentially, or use
+	// separate UptimeRobot accounts per test run.
 	testPrefix := "E2E " // All our test MWs start with "E2E "
 	for _, mw := range mwList {
 		if strings.HasPrefix(mw.Name, testPrefix) {
