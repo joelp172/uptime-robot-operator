@@ -641,7 +641,7 @@ spec:
 			deleteMonitorAndWaitForAPICleanup(monitorName)
 		})
 
-		It("should create DNS monitor and validate config.dnsRecords in API", func() {
+		It("should create DNS monitor with A records and validate in API", func() {
 			applyMonitor(fmt.Sprintf(`
 apiVersion: uptimerobot.com/v1alpha1
 kind: Monitor
@@ -653,7 +653,7 @@ spec:
   account:
     name: e2e-account-%s
   monitor:
-    name: "E2E DNS Monitor"
+    name: "E2E DNS A Record Monitor"
     url: google.com
     type: DNS
     interval: 5m
@@ -673,6 +673,158 @@ spec:
 				g.Expect(monitor.Config).NotTo(BeNil())
 				g.Expect(monitor.Config.DNSRecords).NotTo(BeNil())
 				g.Expect(monitor.Config.DNSRecords.A).NotTo(BeEmpty())
+			}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
+		})
+
+		It("should create DNS monitor with CNAME records and validate in API", func() {
+			monitorName := fmt.Sprintf("e2e-dns-cname-%s", testRunID)
+			defer deleteMonitorAndWaitForAPICleanup(monitorName)
+
+			applyMonitor(fmt.Sprintf(`
+apiVersion: uptimerobot.com/v1alpha1
+kind: Monitor
+metadata:
+  name: %s
+spec:
+  syncInterval: 1m
+  prune: true
+  account:
+    name: e2e-account-%s
+  monitor:
+    name: "E2E DNS CNAME Monitor"
+    url: www.github.com
+    type: DNS
+    interval: 5m
+    dns:
+      cname: ["github.com"]
+`, monitorName, testRunID))
+
+			monitorID := waitMonitorReadyAndGetID(monitorName)
+			apiKey := os.Getenv("UPTIME_ROBOT_API_KEY")
+
+			Eventually(func(g Gomega) {
+				monitor, err := getMonitorFromAPI(apiKey, monitorID)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(monitor.Type).To(Equal("DNS"))
+				g.Expect(monitor.URL).To(Equal("www.github.com"))
+				errs := ValidateDNSMonitorFields(DNSRecordExpectation{
+					CNAME: []string{"github.com"},
+				}, monitor)
+				g.Expect(errs).To(BeEmpty(), "DNS CNAME validation: %s", errs)
+			}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
+		})
+
+		It("should create DNS monitor with MX records and validate in API", func() {
+			monitorName := fmt.Sprintf("e2e-dns-mx-%s", testRunID)
+			defer deleteMonitorAndWaitForAPICleanup(monitorName)
+
+			applyMonitor(fmt.Sprintf(`
+apiVersion: uptimerobot.com/v1alpha1
+kind: Monitor
+metadata:
+  name: %s
+spec:
+  syncInterval: 1m
+  prune: true
+  account:
+    name: e2e-account-%s
+  monitor:
+    name: "E2E DNS MX Monitor"
+    url: google.com
+    type: DNS
+    interval: 5m
+    dns:
+      mx: ["smtp.google.com"]
+`, monitorName, testRunID))
+
+			monitorID := waitMonitorReadyAndGetID(monitorName)
+			apiKey := os.Getenv("UPTIME_ROBOT_API_KEY")
+
+			Eventually(func(g Gomega) {
+				monitor, err := getMonitorFromAPI(apiKey, monitorID)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(monitor.Type).To(Equal("DNS"))
+				g.Expect(monitor.URL).To(Equal("google.com"))
+				errs := ValidateDNSMonitorFields(DNSRecordExpectation{
+					MX: []string{"smtp.google.com"},
+				}, monitor)
+				g.Expect(errs).To(BeEmpty(), "DNS MX validation: %s", errs)
+			}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
+		})
+
+		It("should create DNS monitor with NS records and validate in API", func() {
+			monitorName := fmt.Sprintf("e2e-dns-ns-%s", testRunID)
+			defer deleteMonitorAndWaitForAPICleanup(monitorName)
+
+			applyMonitor(fmt.Sprintf(`
+apiVersion: uptimerobot.com/v1alpha1
+kind: Monitor
+metadata:
+  name: %s
+spec:
+  syncInterval: 1m
+  prune: true
+  account:
+    name: e2e-account-%s
+  monitor:
+    name: "E2E DNS NS Monitor"
+    url: google.com
+    type: DNS
+    interval: 5m
+    dns:
+      ns: ["ns1.google.com", "ns2.google.com"]
+`, monitorName, testRunID))
+
+			monitorID := waitMonitorReadyAndGetID(monitorName)
+			apiKey := os.Getenv("UPTIME_ROBOT_API_KEY")
+
+			Eventually(func(g Gomega) {
+				monitor, err := getMonitorFromAPI(apiKey, monitorID)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(monitor.Type).To(Equal("DNS"))
+				g.Expect(monitor.URL).To(Equal("google.com"))
+				errs := ValidateDNSMonitorFields(DNSRecordExpectation{
+					NS: []string{"ns1.google.com", "ns2.google.com"},
+				}, monitor)
+				g.Expect(errs).To(BeEmpty(), "DNS NS validation: %s", errs)
+			}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
+		})
+
+		It("should create DNS monitor with TXT records and validate in API", func() {
+			monitorName := fmt.Sprintf("e2e-dns-txt-%s", testRunID)
+			defer deleteMonitorAndWaitForAPICleanup(monitorName)
+
+			applyMonitor(fmt.Sprintf(`
+apiVersion: uptimerobot.com/v1alpha1
+kind: Monitor
+metadata:
+  name: %s
+spec:
+  syncInterval: 1m
+  prune: true
+  account:
+    name: e2e-account-%s
+  monitor:
+    name: "E2E DNS TXT Monitor"
+    url: google.com
+    type: DNS
+    interval: 5m
+    dns:
+      txt: ["v=spf1 include:_spf.google.com ~all"]
+`, monitorName, testRunID))
+
+			monitorID := waitMonitorReadyAndGetID(monitorName)
+			apiKey := os.Getenv("UPTIME_ROBOT_API_KEY")
+
+			Eventually(func(g Gomega) {
+				monitor, err := getMonitorFromAPI(apiKey, monitorID)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(monitor.Type).To(Equal("DNS"))
+				g.Expect(monitor.URL).To(Equal("google.com"))
+				errs := ValidateDNSMonitorFields(DNSRecordExpectation{
+					TXT: []string{"v=spf1 include:_spf.google.com ~all"},
+				}, monitor)
+				g.Expect(errs).To(BeEmpty(), "DNS TXT validation: %s", errs)
 			}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
 		})
 	})
