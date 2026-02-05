@@ -59,7 +59,6 @@ var _ = Describe("MaintenanceWindow Controller", func() {
 			mw := CreateMaintenanceWindow(ctx, "test-create-mw", account.Name, uptimerobotv1.MaintenanceWindowSpec{
 				Name:            "Test Create MW",
 				Interval:        "daily",
-				StartDate:       "2026-02-10",
 				StartTime:       "02:00:00",
 				Duration:        metav1.Duration{Duration: time.Hour},
 				AutoAddMonitors: true,
@@ -85,7 +84,6 @@ var _ = Describe("MaintenanceWindow Controller", func() {
 			mw := CreateMaintenanceWindow(ctx, "test-update-mw", account.Name, uptimerobotv1.MaintenanceWindowSpec{
 				Name:      "Test Update MW",
 				Interval:  "daily",
-				StartDate: "2026-02-10",
 				StartTime: "02:00:00",
 				Duration:  metav1.Duration{Duration: time.Hour},
 			})
@@ -116,7 +114,6 @@ var _ = Describe("MaintenanceWindow Controller", func() {
 			mw := CreateMaintenanceWindow(ctx, "test-delete-prune-mw", account.Name, uptimerobotv1.MaintenanceWindowSpec{
 				Name:      "Test Delete Prune MW",
 				Interval:  "daily",
-				StartDate: "2026-02-10",
 				StartTime: "02:00:00",
 				Duration:  metav1.Duration{Duration: time.Hour},
 				Prune:     true,
@@ -149,7 +146,6 @@ var _ = Describe("MaintenanceWindow Controller", func() {
 			mw := CreateMaintenanceWindow(ctx, "test-delete-noprune-mw", account.Name, uptimerobotv1.MaintenanceWindowSpec{
 				Name:      "Test Delete No Prune MW",
 				Interval:  "daily",
-				StartDate: "2026-02-10",
 				StartTime: "02:00:00",
 				Duration:  metav1.Duration{Duration: time.Hour},
 				Prune:     false,
@@ -221,7 +217,6 @@ var _ = Describe("MaintenanceWindow Controller", func() {
 			mw := CreateMaintenanceWindow(ctx, "test-monref-mw", account.Name, uptimerobotv1.MaintenanceWindowSpec{
 				Name:      "Test Monitor Refs MW",
 				Interval:  "daily",
-				StartDate: "2026-02-10",
 				StartTime: "02:00:00",
 				Duration:  metav1.Duration{Duration: time.Hour},
 				MonitorRefs: []corev1.LocalObjectReference{
@@ -251,7 +246,6 @@ var _ = Describe("MaintenanceWindow Controller", func() {
 			mw := CreateMaintenanceWindow(ctx, "test-notready-mw", account.Name, uptimerobotv1.MaintenanceWindowSpec{
 				Name:      "Test Not Ready MW",
 				Interval:  "daily",
-				StartDate: "2026-02-10",
 				StartTime: "02:00:00",
 				Duration:  metav1.Duration{Duration: time.Hour},
 				MonitorRefs: []corev1.LocalObjectReference{
@@ -274,7 +268,6 @@ var _ = Describe("MaintenanceWindow Controller", func() {
 			mw := CreateMaintenanceWindow(ctx, "test-missing-monref-mw", account.Name, uptimerobotv1.MaintenanceWindowSpec{
 				Name:      "Test Missing Monitor MW",
 				Interval:  "daily",
-				StartDate: "2026-02-10",
 				StartTime: "02:00:00",
 				Duration:  metav1.Duration{Duration: time.Hour},
 				MonitorRefs: []corev1.LocalObjectReference{
@@ -302,7 +295,6 @@ var _ = Describe("MaintenanceWindow Controller", func() {
 			mw := CreateMaintenanceWindow(ctx, "test-clear-mw", account.Name, uptimerobotv1.MaintenanceWindowSpec{
 				Name:      "Test Clear Monitors MW",
 				Interval:  "daily",
-				StartDate: "2026-02-10",
 				StartTime: "02:00:00",
 				Duration:  metav1.Duration{Duration: time.Hour},
 				MonitorRefs: []corev1.LocalObjectReference{
@@ -353,7 +345,6 @@ var _ = Describe("MaintenanceWindow Controller", func() {
 			mw := CreateMaintenanceWindow(ctx, "test-roundup-mw", account.Name, uptimerobotv1.MaintenanceWindowSpec{
 				Name:      "Test Round Up MW",
 				Interval:  "daily",
-				StartDate: "2026-02-10",
 				StartTime: "02:00:00",
 				Duration:  metav1.Duration{Duration: 90 * time.Second}, // 1.5 minutes -> should round to 2
 			})
@@ -373,7 +364,6 @@ var _ = Describe("MaintenanceWindow Controller", func() {
 			mw := CreateMaintenanceWindow(ctx, "test-minduration-mw", account.Name, uptimerobotv1.MaintenanceWindowSpec{
 				Name:      "Test Min Duration MW",
 				Interval:  "daily",
-				StartDate: "2026-02-10",
 				StartTime: "02:00:00",
 				Duration:  metav1.Duration{Duration: 30 * time.Second}, // 0.5 minutes -> should be 1
 			})
@@ -426,7 +416,6 @@ var _ = Describe("MaintenanceWindow Controller", func() {
 			mw := CreateMaintenanceWindow(ctx, "test-invalidid-mw", account.Name, uptimerobotv1.MaintenanceWindowSpec{
 				Name:      "Test Invalid ID MW",
 				Interval:  "daily",
-				StartDate: "2026-02-10",
 				StartTime: "02:00:00",
 				Duration:  metav1.Duration{Duration: time.Hour},
 				MonitorRefs: []corev1.LocalObjectReference{
@@ -466,7 +455,6 @@ var _ = Describe("MaintenanceWindow Controller", func() {
 			mw := CreateMaintenanceWindow(ctx, "test-finalizer-mw", account.Name, uptimerobotv1.MaintenanceWindowSpec{
 				Name:      "Test Finalizer MW",
 				Interval:  "daily",
-				StartDate: "2026-02-10",
 				StartTime: "02:00:00",
 				Duration:  metav1.Duration{Duration: time.Hour},
 			})
