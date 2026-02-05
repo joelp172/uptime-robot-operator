@@ -153,6 +153,7 @@ spec:
             - duration
             - interval
             - name
+            - prune
             - startTime
             type: object
             x-kubernetes-validations:
