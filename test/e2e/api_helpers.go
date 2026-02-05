@@ -445,13 +445,33 @@ func ValidateMaintenanceWindowFields(
 	}
 
 	// Validate days for weekly/monthly intervals
+	// Compare as sets since API may return days in different order
 	if len(expectedDays) > 0 {
 		if len(actual.Days) != len(expectedDays) {
 			errs = append(errs, fmt.Sprintf("days length: got %d want %d", len(actual.Days), len(expectedDays)))
 		} else {
-			for i, want := range expectedDays {
-				if actual.Days[i] != want {
-					errs = append(errs, fmt.Sprintf("days[%d]: got %d want %d", i, actual.Days[i], want))
+			// Create maps to compare as sets
+			expectedSet := make(map[int]bool)
+			for _, day := range expectedDays {
+				expectedSet[day] = true
+			}
+			actualSet := make(map[int]bool)
+			for _, day := range actual.Days {
+				actualSet[day] = true
+			}
+
+			// Check if all expected days are present
+			for day := range expectedSet {
+				if !actualSet[day] {
+					errs = append(errs, fmt.Sprintf("days: missing expected day %d (got %v, want %v)", day, actual.Days, expectedDays))
+					break
+				}
+			}
+			// Check if there are any unexpected days
+			for day := range actualSet {
+				if !expectedSet[day] {
+					errs = append(errs, fmt.Sprintf("days: unexpected day %d (got %v, want %v)", day, actual.Days, expectedDays))
+					break
 				}
 			}
 		}

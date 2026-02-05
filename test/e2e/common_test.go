@@ -70,9 +70,13 @@ func waitMonitorReadyAndGetID(monitorName string) string {
 
 // deleteMonitorAndWaitForAPICleanup deletes a monitor CR and waits for it to be removed from the API
 func deleteMonitorAndWaitForAPICleanup(monitorName string) {
+	// Try to get the monitor ID first - if the resource doesn't exist, skip cleanup
 	cmd := exec.Command("kubectl", "get", "monitor", monitorName, "-o", "jsonpath={.status.id}")
 	monitorID, err := utils.Run(cmd)
-	Expect(err).NotTo(HaveOccurred())
+	if err != nil {
+		// Monitor resource doesn't exist, nothing to clean up
+		return
+	}
 
 	cmd = exec.Command("kubectl", "delete", "monitor", monitorName, "--ignore-not-found=true")
 	_, err = utils.Run(cmd)

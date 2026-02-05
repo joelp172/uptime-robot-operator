@@ -67,10 +67,19 @@ var _ = Describe("Monitor Resources", Ordered, Label("monitor"), func() {
 		// Delete existing secret from a previous run so create succeeds
 		cmd = exec.Command("kubectl", "delete", "secret", "uptime-robot-e2e", "-n", namespace, "--ignore-not-found=true")
 		_, _ = utils.Run(cmd)
-		cmd = exec.Command("kubectl", "create", "secret", "generic",
-			"uptime-robot-e2e",
-			"--namespace", namespace,
-			"--from-literal=apiKey="+apiKey)
+		// Use kubectl apply with stdin to avoid exposing API key in command line logs
+		secretYAML := fmt.Sprintf(`
+apiVersion: v1
+kind: Secret
+metadata:
+  name: uptime-robot-e2e
+  namespace: %s
+type: Opaque
+stringData:
+  apiKey: %s
+`, namespace, apiKey)
+		cmd = exec.Command("kubectl", "apply", "-f", "-")
+		cmd.Stdin = strings.NewReader(secretYAML)
 		out, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to create API key secret: %s", out)
 

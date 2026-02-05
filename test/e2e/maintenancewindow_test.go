@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -53,7 +54,7 @@ type: Opaque
 stringData:
   apiKey: %s
 `, namespace, apiKey)
-		debugLog("Applying Secret YAML:\n%s", secretYAML)
+		debugLog("Applying Secret for MaintenanceWindow tests (name: uptime-robot-e2e-mw, namespace: %s)", namespace)
 		cmd := exec.Command("kubectl", "apply", "-f", "-")
 		cmd.Stdin = strings.NewReader(secretYAML)
 		output, err := utils.Run(cmd)
@@ -620,11 +621,17 @@ spec:
 
 			// Get monitor IDs from cluster
 			cmd := exec.Command("kubectl", "get", "monitor", monitor1Name, "-o", "jsonpath={.status.id}")
-			monitor1ID, err := utils.Run(cmd)
+			monitor1IDStr, err := utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
 			cmd = exec.Command("kubectl", "get", "monitor", monitor2Name, "-o", "jsonpath={.status.id}")
-			monitor2ID, err := utils.Run(cmd)
+			monitor2IDStr, err := utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
+
+			// Convert monitor IDs to integers for comparison with API response
+			monitor1ID, err := strconv.Atoi(monitor1IDStr)
+			Expect(err).NotTo(HaveOccurred(), "Failed to convert monitor1 ID to int")
+			monitor2ID, err := strconv.Atoi(monitor2IDStr)
+			Expect(err).NotTo(HaveOccurred(), "Failed to convert monitor2 ID to int")
 
 			apiKey := os.Getenv("UPTIME_ROBOT_API_KEY")
 
@@ -638,9 +645,9 @@ spec:
 
 			By("verifying monitors contain MW ID via API")
 			Eventually(func(g Gomega) {
-				monitor1, err := getMonitorFromAPI(apiKey, monitor1ID)
+				monitor1, err := getMonitorFromAPI(apiKey, monitor1IDStr)
 				g.Expect(err).NotTo(HaveOccurred())
-				monitor2, err := getMonitorFromAPI(apiKey, monitor2ID)
+				monitor2, err := getMonitorFromAPI(apiKey, monitor2IDStr)
 				g.Expect(err).NotTo(HaveOccurred())
 
 				// Check that both monitors have the MW in their maintenanceWindows list
