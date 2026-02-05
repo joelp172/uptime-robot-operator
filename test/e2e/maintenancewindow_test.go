@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strconv"
 	"strings"
 	"time"
 
@@ -619,7 +618,7 @@ spec:
 			applyMaintenanceWindow(mwYAML)
 			mwID := waitMaintenanceWindowReadyAndGetID(mwName)
 
-			// Get monitor IDs from cluster
+			// Get monitor IDs from cluster (as strings for API calls)
 			cmd := exec.Command("kubectl", "get", "monitor", monitor1Name, "-o", "jsonpath={.status.id}")
 			monitor1IDStr, err := utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
@@ -627,22 +626,10 @@ spec:
 			monitor2IDStr, err := utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
 
-			// Convert monitor IDs to integers for comparison with API response
-			monitor1ID, err := strconv.Atoi(monitor1IDStr)
-			Expect(err).NotTo(HaveOccurred(), "Failed to convert monitor1 ID to int")
-			monitor2ID, err := strconv.Atoi(monitor2IDStr)
-			Expect(err).NotTo(HaveOccurred(), "Failed to convert monitor2 ID to int")
-
 			apiKey := os.Getenv("UPTIME_ROBOT_API_KEY")
 
-			By("verifying MW contains monitor IDs via API")
-			Eventually(func(g Gomega) {
-				mw, err := getMaintenanceWindowFromAPI(apiKey, mwID)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(mw.MonitorIDs).To(ContainElement(monitor1ID), "MW should contain monitor1 ID")
-				g.Expect(mw.MonitorIDs).To(ContainElement(monitor2ID), "MW should contain monitor2 ID")
-			}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
-
+			// Note: The UptimeRobot v3 API does not return monitorIds when getting a maintenance window,
+			// so we verify the relationship from the monitor side instead.
 			By("verifying monitors contain MW ID via API")
 			Eventually(func(g Gomega) {
 				monitor1, err := getMonitorFromAPI(apiKey, monitor1IDStr)
