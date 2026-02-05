@@ -1,0 +1,13 @@
+{
+  "id": 308434,
+  "userId": 123456,
+  "name": "E2E MW with Monitors",
+  "interval": "daily",
+  "date": null,
+  "time": "10:00:00",
+  "duration": 60,
+  "autoAddMonitors": false,
+  "days": [],
+  "status": "active",
+  "created": "2026-02-05T18:00:00Z"
+}

@@ -29,23 +29,11 @@ import (
 	"github.com/joelp172/uptime-robot-operator/test/utils"
 )
 
-const (
-	e2ePollInterval = 5 * time.Second
-	e2ePollTimeout  = 3 * time.Minute
-)
-
-// testRunID is a unique identifier for this test run to avoid conflicts
-var testRunID = fmt.Sprintf("e2e-%d", time.Now().Unix())
-
-// skipCRDReconciliation determines if CRD reconciliation tests should be skipped
-// Tests require UPTIME_ROBOT_API_KEY environment variable to be set
-var skipCRDReconciliation = os.Getenv("UPTIME_ROBOT_API_KEY") == ""
-
-var _ = Describe("CRD Reconciliation", Ordered, Label("crd-reconciliation"), func() {
+var _ = Describe("Monitor Resources", Ordered, Label("monitor"), func() {
 	// Skip all tests in this suite if no API key is provided
 	BeforeAll(func() {
 		if skipCRDReconciliation {
-			Skip("Skipping CRD reconciliation tests: UPTIME_ROBOT_API_KEY not set")
+			Skip("Skipping Monitor tests: UPTIME_ROBOT_API_KEY not set")
 		}
 
 		By("ensuring manager namespace exists")
@@ -75,50 +63,28 @@ var _ = Describe("CRD Reconciliation", Ordered, Label("crd-reconciliation"), fun
 
 		By("creating the API key secret")
 		apiKey := os.Getenv("UPTIME_ROBOT_API_KEY")
-		Expect(apiKey).NotTo(BeEmpty(), "UPTIME_ROBOT_API_KEY must be set for CRD reconciliation tests")
+		Expect(apiKey).NotTo(BeEmpty(), "UPTIME_ROBOT_API_KEY must be set for Monitor tests")
 		// Delete existing secret from a previous run so create succeeds
 		cmd = exec.Command("kubectl", "delete", "secret", "uptime-robot-e2e", "-n", namespace, "--ignore-not-found=true")
 		_, _ = utils.Run(cmd)
-		cmd = exec.Command("kubectl", "create", "secret", "generic",
-			"uptime-robot-e2e",
-			"--namespace", namespace,
-			"--from-literal=apiKey="+apiKey)
+		// Use kubectl apply with stdin to avoid exposing API key in command line logs
+		secretYAML := fmt.Sprintf(`
+apiVersion: v1
+kind: Secret
+metadata:
+  name: uptime-robot-e2e
+  namespace: %s
+type: Opaque
+stringData:
+  apiKey: %s
+`, namespace, apiKey)
+		cmd = exec.Command("kubectl", "apply", "-f", "-")
+		cmd.Stdin = strings.NewReader(secretYAML)
 		out, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to create API key secret: %s", out)
-	})
 
-	AfterAll(func() {
-		if skipCRDReconciliation {
-			return
-		}
-
-		By("cleaning up e2e test resources")
-		cleanupMonitors()
-		// Delete default contact, account and secret
-		cmd := exec.Command("kubectl", "delete", "contact", fmt.Sprintf("e2e-default-contact-%s", testRunID), "--ignore-not-found=true")
-		_, _ = utils.Run(cmd)
-		cmd = exec.Command("kubectl", "delete", "account", fmt.Sprintf("e2e-account-%s", testRunID), "--ignore-not-found=true")
-		_, _ = utils.Run(cmd)
-		cmd = exec.Command("kubectl", "delete", "secret", "uptime-robot-e2e", "-n", namespace, "--ignore-not-found=true")
-		_, _ = utils.Run(cmd)
-
-		By("undeploying the controller-manager")
-		cmd = exec.Command("make", "undeploy")
-		_, _ = utils.Run(cmd)
-
-		By("uninstalling CRDs")
-		cmd = exec.Command("make", "uninstall")
-		_, _ = utils.Run(cmd)
-
-		By("removing manager namespace")
-		cmd = exec.Command("kubectl", "delete", "ns", namespace, "--ignore-not-found=true")
-		_, _ = utils.Run(cmd)
-	})
-
-	Context("Account and Default Contact Setup", func() {
-		It("should create Account and default Contact", func() {
-			By("creating an Account resource")
-			accountYAML := fmt.Sprintf(`
+		By("creating Account resource for monitors")
+		accountYAML := fmt.Sprintf(`
 apiVersion: uptimerobot.com/v1alpha1
 kind: Account
 metadata:
@@ -129,40 +95,31 @@ spec:
     name: uptime-robot-e2e
     key: apiKey
 `, testRunID)
+		cmd = exec.Command("kubectl", "apply", "-f", "-")
+		cmd.Stdin = strings.NewReader(accountYAML)
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred())
 
-			cmd := exec.Command("kubectl", "apply", "-f", "-")
-			cmd.Stdin = strings.NewReader(accountYAML)
-			_, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("waiting for Account to become ready")
-			Eventually(func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "account",
-					fmt.Sprintf("e2e-account-%s", testRunID),
-					"-o", "jsonpath={.status.ready}")
-				output, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("true"))
-			}, 2*time.Minute, 5*time.Second).Should(Succeed())
-
-			By("verifying Account has email in status")
-			cmd = exec.Command("kubectl", "get", "account",
+		By("waiting for Account to become ready")
+		Eventually(func(g Gomega) {
+			cmd := exec.Command("kubectl", "get", "account",
 				fmt.Sprintf("e2e-account-%s", testRunID),
-				"-o", "jsonpath={.status.email}")
+				"-o", "jsonpath={.status.ready}")
 			output, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(output).NotTo(BeEmpty(), "Account should have email in status")
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(output).To(Equal("true"))
+		}, 2*time.Minute, 5*time.Second).Should(Succeed())
 
-			By("getting the first contact ID from Account status")
-			cmd = exec.Command("kubectl", "get", "account",
-				fmt.Sprintf("e2e-account-%s", testRunID),
-				"-o", "jsonpath={.status.alertContacts[0].id}")
-			contactID, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(contactID).NotTo(BeEmpty(), "Account should have at least one alert contact")
+		By("getting the first contact ID from Account status")
+		cmd = exec.Command("kubectl", "get", "account",
+			fmt.Sprintf("e2e-account-%s", testRunID),
+			"-o", "jsonpath={.status.alertContacts[0].id}")
+		contactID, err := utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(contactID).NotTo(BeEmpty(), "Account should have at least one alert contact")
 
-			By("creating a default Contact resource")
-			contactYAML := fmt.Sprintf(`
+		By("creating a default Contact resource")
+		contactYAML := fmt.Sprintf(`
 apiVersion: uptimerobot.com/v1alpha1
 kind: Contact
 metadata:
@@ -172,27 +129,45 @@ spec:
   contact:
     id: "%s"
 `, testRunID, contactID)
+		cmd = exec.Command("kubectl", "apply", "-f", "-")
+		cmd.Stdin = strings.NewReader(contactYAML)
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred())
 
-			cmd = exec.Command("kubectl", "apply", "-f", "-")
-			cmd.Stdin = strings.NewReader(contactYAML)
-			_, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
+		By("waiting for Contact to become ready")
+		Eventually(func(g Gomega) {
+			cmd := exec.Command("kubectl", "get", "contact",
+				fmt.Sprintf("e2e-default-contact-%s", testRunID),
+				"-o", "jsonpath={.status.ready}")
+			output, err := utils.Run(cmd)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(output).To(Equal("true"))
+		}, 1*time.Minute, 5*time.Second).Should(Succeed())
+	})
 
-			By("waiting for Contact to become ready")
-			Eventually(func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "contact",
-					fmt.Sprintf("e2e-default-contact-%s", testRunID),
-					"-o", "jsonpath={.status.ready}")
-				output, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("true"))
-			}, 1*time.Minute, 5*time.Second).Should(Succeed())
-		})
+	AfterAll(func() {
+		if skipCRDReconciliation {
+			return
+		}
+
+		By("cleaning up e2e test monitors")
+		cleanupMonitors()
+
+		By("cleaning up Account, Contact, and Secret")
+		cmd := exec.Command("kubectl", "delete", "contact", fmt.Sprintf("e2e-default-contact-%s", testRunID), "--ignore-not-found=true")
+		_, _ = utils.Run(cmd)
+		cmd = exec.Command("kubectl", "delete", "account", fmt.Sprintf("e2e-account-%s", testRunID), "--ignore-not-found=true")
+		_, _ = utils.Run(cmd)
+		cmd = exec.Command("kubectl", "delete", "secret", "uptime-robot-e2e", "-n", namespace, "--ignore-not-found=true")
+		_, _ = utils.Run(cmd)
+
+		// NOTE: Infrastructure cleanup (undeploy, uninstall CRDs, delete namespace) is handled
+		// by e2e_test.go AfterAll to ensure all test suites complete before teardown
 	})
 
 	// HTTP monitor: kubectl uses metadata.name (e.g. e2e-http-e2e-<id>); we set
 	// spec.monitor.name to the same so the UptimeRobot UI label matches the resource.
-	Context("Monitor Resource - HTTP Type", func() {
+	Context("HTTP Type", func() {
 		monitorName := fmt.Sprintf("e2e-http-%s", testRunID)
 		friendlyName := fmt.Sprintf("E2E Test HTTP Monitor (%s)", monitorName)
 
@@ -226,7 +201,13 @@ spec:
 			Eventually(func(g Gomega) {
 				monitor, err := getMonitorFromAPI(apiKey, monitorID)
 				g.Expect(err).NotTo(HaveOccurred())
-				errs := ValidateHTTPSMonitorFields(friendlyName, "https://example.com", "HTTP", 300, "HEAD", monitor)
+				errs := ValidateHTTPSMonitorFields(HTTPSMonitorExpectation{
+					Name:        friendlyName,
+					URL:         "https://example.com",
+					Type:        "HTTP",
+					IntervalSec: 300,
+					Method:      "HEAD",
+				}, monitor)
 				g.Expect(errs).To(BeEmpty(), "field validation: %s", errs)
 			}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
 		})
@@ -279,7 +260,7 @@ spec:
 		})
 	})
 
-	Context("Monitor Resource - Heartbeat Type", func() {
+	Context("Heartbeat Type", func() {
 		monitorName := fmt.Sprintf("e2e-heartbeat-%s", testRunID)
 
 		AfterEach(func() {
@@ -326,7 +307,7 @@ spec:
 		})
 	})
 
-	Context("Monitor Resource - HTTPS Full", func() {
+	Context("HTTPS Full", func() {
 		monitorName := fmt.Sprintf("e2e-https-full-%s", testRunID)
 
 		AfterEach(func() {
@@ -370,18 +351,36 @@ spec:
 			Eventually(func(g Gomega) {
 				monitor, err := getMonitorFromAPI(apiKey, monitorID)
 				g.Expect(err).NotTo(HaveOccurred())
-				errs := ValidateHTTPSMonitorFields("E2E HTTPS Full", "https://httpbin.org/get", "HTTP", 300, "GET", monitor)
+				timeout := 30
+				gracePeriod := 60
+				responseTimeThreshold := 5000
+				checkSSL := true
+				followRedir := true
+				sslExpReminder := true
+				domainExpReminder := true
+				errs := ValidateHTTPSMonitorFields(HTTPSMonitorExpectation{
+					Name:                     "E2E HTTPS Full",
+					URL:                      "https://httpbin.org/get",
+					Type:                     "HTTP",
+					IntervalSec:              300,
+					Method:                   "GET",
+					Timeout:                  &timeout,
+					GracePeriod:              &gracePeriod,
+					ResponseTimeThreshold:    &responseTimeThreshold,
+					CheckSSLErrors:           &checkSSL,
+					FollowRedirections:       &followRedir,
+					SSLExpirationReminder:    &sslExpReminder,
+					DomainExpirationReminder: &domainExpReminder,
+					SuccessHTTPResponseCodes: []string{"2xx", "3xx"},
+					Tags:                     []string{"e2e", "https"},
+					CustomHTTPHeaders:        map[string]string{"X-Custom": "test-value"},
+				}, monitor)
 				g.Expect(errs).To(BeEmpty(), "field validation: %s", errs)
-				g.Expect(monitor.CustomHTTPHeaders).To(HaveKeyWithValue("X-Custom", "test-value"))
-				g.Expect(monitor.CheckSSLErrors).NotTo(BeNil())
-				g.Expect(*monitor.CheckSSLErrors).To(BeTrue())
-				g.Expect(monitor.FollowRedirections).NotTo(BeNil())
-				g.Expect(*monitor.FollowRedirections).To(BeTrue())
 			}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
 		})
 	})
 
-	Context("Monitor Resource - HTTPS Auth", func() {
+	Context("HTTPS Auth", func() {
 		monitorName := fmt.Sprintf("e2e-https-auth-%s", testRunID)
 
 		AfterEach(func() {
@@ -422,7 +421,7 @@ spec:
 		})
 	})
 
-	Context("Monitor Resource - HTTPS POST", func() {
+	Context("HTTPS POST", func() {
 		monitorName := fmt.Sprintf("e2e-https-post-%s", testRunID)
 
 		AfterEach(func() {
@@ -465,7 +464,7 @@ spec:
 		})
 	})
 
-	Context("Monitor Resource - Keyword Full", func() {
+	Context("Keyword Full", func() {
 		monitorName := fmt.Sprintf("e2e-keyword-%s", testRunID)
 
 		AfterEach(func() {
@@ -502,7 +501,14 @@ spec:
 			Eventually(func(g Gomega) {
 				monitor, err := getMonitorFromAPI(apiKey, monitorID)
 				g.Expect(err).NotTo(HaveOccurred())
-				errs := ValidateHTTPSMonitorFields("E2E Keyword Full", "https://example.com", "KEYWORD", 300, "", monitor)
+				timeout := 30
+				errs := ValidateHTTPSMonitorFields(HTTPSMonitorExpectation{
+					Name:        "E2E Keyword Full",
+					URL:         "https://example.com",
+					Type:        "KEYWORD",
+					IntervalSec: 300,
+					Timeout:     &timeout,
+				}, monitor)
 				g.Expect(errs).To(BeEmpty())
 				errs = ValidateKeywordMonitorFields("ALERT_EXISTS", "Example Domain", &cs, monitor)
 				g.Expect(errs).To(BeEmpty())
@@ -510,7 +516,7 @@ spec:
 		})
 	})
 
-	Context("Monitor Resource - Keyword NotExists", func() {
+	Context("Keyword NotExists", func() {
 		monitorName := fmt.Sprintf("e2e-keyword-notexists-%s", testRunID)
 
 		AfterEach(func() {
@@ -550,7 +556,7 @@ spec:
 		})
 	})
 
-	Context("Monitor Resource - Ping", func() {
+	Context("Ping", func() {
 		monitorName := fmt.Sprintf("e2e-ping-%s", testRunID)
 
 		AfterEach(func() {
@@ -588,7 +594,7 @@ spec:
 		})
 	})
 
-	Context("Monitor Resource - Port", func() {
+	Context("Port", func() {
 		monitorName := fmt.Sprintf("e2e-port-%s", testRunID)
 
 		AfterEach(func() {
@@ -608,7 +614,7 @@ spec:
     name: e2e-account-%s
   monitor:
     name: "E2E Port Monitor"
-    url: google.com
+    url: google.com:443
     type: Port
     interval: 5m
     port:
@@ -628,7 +634,7 @@ spec:
 		})
 	})
 
-	Context("Monitor Resource - DNS", func() {
+	Context("DNS", func() {
 		monitorName := fmt.Sprintf("e2e-dns-%s", testRunID)
 
 		AfterEach(func() {
@@ -671,7 +677,7 @@ spec:
 		})
 	})
 
-	Context("Monitor Resource - Contact assignment", func() {
+	Context("Contact assignment", func() {
 		monitorName := fmt.Sprintf("e2e-contacts-%s", testRunID)
 
 		AfterEach(func() {
@@ -715,71 +721,3 @@ spec:
 		})
 	})
 })
-
-// getMonitorIDFromCluster returns the status.id of a Monitor resource, or empty if not found.
-func getMonitorIDFromCluster(monitorName string) string {
-	cmd := exec.Command("kubectl", "get", "monitor", monitorName, "-o", "jsonpath={.status.id}")
-	output, err := utils.Run(cmd)
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(output)
-}
-
-// deleteMonitorAndWaitForAPICleanup deletes the Monitor CR and waits until it is removed from the
-// UptimeRobot API. Ensures only one monitor exists at a time for accounts with monitor limits.
-func deleteMonitorAndWaitForAPICleanup(monitorName string) {
-	monitorID := getMonitorIDFromCluster(monitorName)
-	cmd := exec.Command("kubectl", "delete", "monitor", monitorName, "--ignore-not-found=true")
-	_, _ = utils.Run(cmd)
-	if monitorID != "" && !skipCRDReconciliation {
-		WaitForMonitorDeletedFromAPI(os.Getenv("UPTIME_ROBOT_API_KEY"), monitorID)
-	}
-}
-
-// applyMonitor applies the given monitor YAML via kubectl.
-func applyMonitor(monitorYAML string) {
-	By("creating/updating Monitor resource")
-	cmd := exec.Command("kubectl", "apply", "-f", "-")
-	cmd.Stdin = strings.NewReader(monitorYAML)
-	_, err := utils.Run(cmd)
-	Expect(err).NotTo(HaveOccurred())
-}
-
-// waitMonitorReadyAndGetID waits for the monitor to become ready and returns status.id.
-func waitMonitorReadyAndGetID(monitorName string) string {
-	By("waiting for Monitor to become ready")
-	Eventually(func(g Gomega) {
-		cmd := exec.Command("kubectl", "get", "monitor", monitorName, "-o", "jsonpath={.status.ready}")
-		output, err := utils.Run(cmd)
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(output).To(Equal("true"))
-	}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
-
-	cmd := exec.Command("kubectl", "get", "monitor", monitorName, "-o", "jsonpath={.status.id}")
-	output, err := utils.Run(cmd)
-	Expect(err).NotTo(HaveOccurred())
-	return strings.TrimSpace(output)
-}
-
-// cleanupMonitors deletes all monitors created during the e2e tests
-func cleanupMonitors() {
-	monitorPrefixes := []string{
-		fmt.Sprintf("e2e-http-%s", testRunID),
-		fmt.Sprintf("e2e-https-full-%s", testRunID),
-		fmt.Sprintf("e2e-https-auth-%s", testRunID),
-		fmt.Sprintf("e2e-https-post-%s", testRunID),
-		fmt.Sprintf("e2e-keyword-%s", testRunID),
-		fmt.Sprintf("e2e-keyword-notexists-%s", testRunID),
-		fmt.Sprintf("e2e-ping-%s", testRunID),
-		fmt.Sprintf("e2e-port-%s", testRunID),
-		fmt.Sprintf("e2e-heartbeat-%s", testRunID),
-		fmt.Sprintf("e2e-dns-%s", testRunID),
-		fmt.Sprintf("e2e-contacts-%s", testRunID),
-	}
-
-	for _, name := range monitorPrefixes {
-		cmd := exec.Command("kubectl", "delete", "monitor", name, "--ignore-not-found=true")
-		_, _ = utils.Run(cmd)
-	}
-}

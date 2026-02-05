@@ -26,6 +26,8 @@ import (
 //+kubebuilder:validation:XValidation:rule="!has(self.days) || self.interval == 'weekly' || self.interval == 'monthly'", message="days field is only valid for weekly or monthly intervals"
 //+kubebuilder:validation:XValidation:rule="!has(self.days) || self.interval != 'weekly' || self.days.all(d, d >= 0 && d <= 6)", message="days must be 0-6 for weekly interval (0=Sunday)"
 //+kubebuilder:validation:XValidation:rule="!has(self.days) || self.interval != 'monthly' || self.days.all(d, (d >= 1 && d <= 31) || d == -1)", message="days must be 1-31 or -1 (last day) for monthly interval"
+//+kubebuilder:validation:XValidation:rule="!has(self.startDate) || self.interval == 'once'", message="startDate is only valid for once interval"
+//+kubebuilder:validation:XValidation:rule="self.interval != 'once' || has(self.startDate)", message="startDate is required for once interval"
 
 // MaintenanceWindowSpec defines the desired state of MaintenanceWindow.
 type MaintenanceWindowSpec struct {
@@ -49,8 +51,10 @@ type MaintenanceWindowSpec struct {
 	Interval string `json:"interval"`
 
 	// StartDate is the start date of the maintenance window in YYYY-MM-DD format.
+	// Required for once interval, not allowed for daily/weekly/monthly intervals.
+	//+optional
 	//+kubebuilder:validation:Pattern=`^(19|20)\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$`
-	StartDate string `json:"startDate"`
+	StartDate string `json:"startDate,omitempty"`
 
 	// StartTime is the start time of the maintenance window in HH:mm:ss format.
 	//+kubebuilder:validation:Pattern=`^(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d$`

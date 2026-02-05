@@ -190,8 +190,24 @@ type MonitorResponse struct {
 	Config                   *MonitorConfigResponse     `json:"config,omitempty"`
 	Tags                     []TagResponse              `json:"tags,omitempty"`
 	AssignedAlertContacts    []AssignedAlertContactResp `json:"assignedAlertContacts,omitempty"`
+	MaintenanceWindows       []MaintenanceWindowSummary `json:"maintenanceWindows,omitempty"`
 	RegionalData             *RegionalDataResponse      `json:"regionalData,omitempty"`
 	GroupID                  *int                       `json:"groupId,omitempty"`
+}
+
+// MaintenanceWindowSummary represents a maintenance window in monitor API responses
+type MaintenanceWindowSummary struct {
+	ID              int    `json:"id"`
+	UserID          int    `json:"userId,omitempty"`
+	Name            string `json:"name"`
+	Interval        string `json:"interval"`
+	Date            string `json:"date,omitempty"`
+	Time            string `json:"time"`
+	Duration        int    `json:"duration"`
+	AutoAddMonitors bool   `json:"autoAddMonitors,omitempty"`
+	Days            []int  `json:"days,omitempty"`
+	Status          string `json:"status,omitempty"`
+	Created         string `json:"created,omitempty"`
 }
 
 // MonitorsListResponse represents the v3 API response for listing monitors.

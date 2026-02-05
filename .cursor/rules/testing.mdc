@@ -11,8 +11,8 @@ alwaysApply: true
 |---------|-------------|
 | `make test` | Run unit tests with envtest |
 | `make lint` | Run golangci-lint |
-| `make test-e2e` | Run basic e2e tests (no API key required) |
-| `make test-e2e-real` | Run full e2e tests (requires `UPTIME_ROBOT_API_KEY`) |
+| `make test-e2e` | Run basic e2e tests (operator deployment, metrics) - no API calls |
+| `make test-e2e-real` | Run full e2e tests with real UptimeRobot API (requires `UPTIME_ROBOT_API_KEY`) |
 
 ## Running Tests Locally
 
@@ -24,24 +24,15 @@ make test
 
 ### E2E Tests (Basic)
 
-Requires a Kind cluster. Default cluster name is `kind`; for a named cluster set `KIND_CLUSTER`. **Set kubectl context** to the Kind cluster so tests can run `kubectl` and `make deploy` against it (Kind usually sets this when you create the cluster):
+Tests operator deployment and basic functionality without making real API calls. Requires a Kind cluster named `kind`:
 
 ```bash
-# Create cluster (default name: kind)
-kind create cluster
+# Create cluster and deploy operator
+make dev-cluster
 
-# Or named cluster (then use KIND_CLUSTER when running tests)
-kind create cluster --name e2e-test
-
-# Ensure context is set (if Kind didn't switch it)
-kubectl config use-context kind-kind       # default cluster
-kubectl config use-context kind-e2e-test   # named cluster e2e-test
-
-# Run basic tests (suite builds/loads image automatically)
+# Run basic tests (operator pod, metrics endpoint)
+# Skips all CRD reconciliation tests (monitor, maintenancewindow, account, contact)
 make test-e2e
-
-# Named cluster:
-KIND_CLUSTER=e2e-test make test-e2e
 ```
 
 ### E2E Tests (Full with Real API)
@@ -49,12 +40,32 @@ KIND_CLUSTER=e2e-test make test-e2e
 **Note**: Tests default to `https://api.uptimerobot.com/v3`. To use a different API endpoint (e.g., mock server), export `UPTIME_ROBOT_API` before running.
 
 ```bash
-# Default cluster name "kind"
-UPTIME_ROBOT_API_KEY='your-api-key' make test-e2e-real
+# Run full e2e tests with real API
+export UPTIME_ROBOT_API_KEY='your-api-key'
+make test-e2e-real
 
-# Named cluster (e.g. e2e-test)
-KIND_CLUSTER=e2e-test UPTIME_ROBOT_API_KEY='your-api-key' make test-e2e-real
+# With debug logging enabled
+E2E_DEBUG=1 make test-e2e-real
 ```
+
+### Debug Logging
+
+Set `E2E_DEBUG=1` (or `true`/`yes`) to enable detailed debug output for API calls and validations:
+
+```bash
+# Enable debug logging
+E2E_DEBUG=1 make test-e2e-real
+
+# Disable debug logging (default)
+make test-e2e-real
+```
+
+Debug logging shows:
+- API endpoint being used
+- Monitor ID being queried
+- Full monitor response details
+- Field validation comparisons
+- Success/failure of each validation step
 
 ## Before Committing
 
@@ -73,8 +84,9 @@ make manifests generate fmt vet && make lint && make test
 ## Notes
 
 - Unit tests use envtest (mock Kubernetes API)
-- E2E tests require Kind cluster; default cluster name is `kind`
-- **Set kubectl context** to the Kind cluster before running e2e (e.g. `kubectl config use-context kind-e2e-test`); otherwise deploy and tests will target the wrong cluster or fail
-- Use `KIND_CLUSTER=<name>` when running e2e targets against a named cluster (e.g. `KIND_CLUSTER=e2e-test make test-e2e-real`)
-- Full e2e tests create real monitors in UptimeRobot (use dev account)
-- Clean up with: `make dev-cluster-delete` or `kind delete cluster --name <name>`
+- E2E tests require Kind cluster named `kind`
+- Use `make dev-cluster` to create the cluster and deploy the operator
+- Kind automatically sets kubectl context to `kind-kind` when creating the cluster
+- `test-e2e` only tests operator deployment/metrics (no API calls)
+- `test-e2e-real` creates real monitors/maintenance windows in UptimeRobot (use dev account)
+- Clean up with: `make dev-cluster-delete`
