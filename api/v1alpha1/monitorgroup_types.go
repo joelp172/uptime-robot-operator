@@ -50,9 +50,9 @@ type MonitorGroupSpec struct {
 
 // MonitorGroupStatus defines observed state of MonitorGroup.
 type MonitorGroupStatus struct {
-	Ready        bool         `json:"ready"`
-	ID           string       `json:"id,omitempty"`
-	MonitorCount int          `json:"monitorCount,omitempty"`
+	Ready          bool         `json:"ready"`
+	ID             string       `json:"id,omitempty"`
+	MonitorCount   int          `json:"monitorCount,omitempty"`
 	LastReconciled *metav1.Time `json:"lastReconciled,omitempty"`
 }
 
