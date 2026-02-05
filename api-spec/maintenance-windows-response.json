@@ -1,0 +1,15 @@
+{
+  "id": 0,
+  "userId": 0,
+  "name": "AAA",
+  "interval": "once",
+  "date": "string",
+  "time": "00:00:00",
+  "duration": 1,
+  "autoAddMonitors": false,
+  "days": [
+  0
+  ],
+  "status": "active",
+  "created": null
+  }

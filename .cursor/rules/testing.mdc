@@ -54,7 +54,29 @@ UPTIME_ROBOT_API_KEY='your-api-key' make test-e2e-real
 
 # Named cluster (e.g. e2e-test)
 KIND_CLUSTER=e2e-test UPTIME_ROBOT_API_KEY='your-api-key' make test-e2e-real
+
+# With debug logging enabled
+E2E_DEBUG=1 UPTIME_ROBOT_API_KEY='your-api-key' make test-e2e-real
 ```
+
+### Debug Logging
+
+Set `E2E_DEBUG=1` (or `true`/`yes`) to enable detailed debug output for API calls and validations:
+
+```bash
+# Enable debug logging
+E2E_DEBUG=1 make test-e2e-real
+
+# Disable debug logging (default)
+make test-e2e-real
+```
+
+Debug logging shows:
+- API endpoint being used
+- Monitor ID being queried
+- Full monitor response details
+- Field validation comparisons
+- Success/failure of each validation step
 
 ## Before Committing
 

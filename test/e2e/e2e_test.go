@@ -73,6 +73,16 @@ var _ = Describe("Manager", Ordered, func() {
 		cmd = exec.Command("make", "deploy", fmt.Sprintf("IMG=%s", projectImage))
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager")
+
+		By("restarting controller-manager deployment to pick up new image")
+		cmd = exec.Command("kubectl", "rollout", "restart", "deployment/uptime-robot-controller-manager", "-n", namespace)
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to restart controller-manager deployment")
+
+		By("waiting for controller-manager deployment to be ready")
+		cmd = exec.Command("kubectl", "rollout", "status", "deployment/uptime-robot-controller-manager", "-n", namespace, "--timeout=2m")
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Controller-manager deployment did not become ready")
 	})
 
 	// After all tests have been executed, clean up by undeploying the controller, uninstalling CRDs,

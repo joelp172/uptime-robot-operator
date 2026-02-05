@@ -73,6 +73,16 @@ var _ = Describe("CRD Reconciliation", Ordered, Label("crd-reconciliation"), fun
 		out, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager: %s", out)
 
+		By("restarting controller-manager deployment to pick up new image")
+		cmd = exec.Command("kubectl", "rollout", "restart", "deployment/uptime-robot-controller-manager", "-n", namespace)
+		out, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to restart controller-manager deployment: %s", out)
+
+		By("waiting for controller-manager deployment to be ready")
+		cmd = exec.Command("kubectl", "rollout", "status", "deployment/uptime-robot-controller-manager", "-n", namespace, "--timeout=2m")
+		out, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Controller-manager deployment did not become ready: %s", out)
+
 		By("creating the API key secret")
 		apiKey := os.Getenv("UPTIME_ROBOT_API_KEY")
 		Expect(apiKey).NotTo(BeEmpty(), "UPTIME_ROBOT_API_KEY must be set for CRD reconciliation tests")
@@ -102,17 +112,8 @@ var _ = Describe("CRD Reconciliation", Ordered, Label("crd-reconciliation"), fun
 		cmd = exec.Command("kubectl", "delete", "secret", "uptime-robot-e2e", "-n", namespace, "--ignore-not-found=true")
 		_, _ = utils.Run(cmd)
 
-		By("undeploying the controller-manager")
-		cmd = exec.Command("make", "undeploy")
-		_, _ = utils.Run(cmd)
-
-		By("uninstalling CRDs")
-		cmd = exec.Command("make", "uninstall")
-		_, _ = utils.Run(cmd)
-
-		By("removing manager namespace")
-		cmd = exec.Command("kubectl", "delete", "ns", namespace, "--ignore-not-found=true")
-		_, _ = utils.Run(cmd)
+		// NOTE: Infrastructure cleanup (undeploy, uninstall CRDs, delete namespace) is handled
+		// by e2e_test.go AfterAll to ensure all test suites complete before teardown
 	})
 
 	Context("Account and Default Contact Setup", func() {
@@ -608,7 +609,7 @@ spec:
     name: e2e-account-%s
   monitor:
     name: "E2E Port Monitor"
-    url: google.com
+    url: google.com:443
     type: Port
     interval: 5m
     port:

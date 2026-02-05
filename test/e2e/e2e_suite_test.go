@@ -51,6 +51,18 @@ var _ = BeforeSuite(func() {
 	By("loading the manager(Operator) image on Kind")
 	err = utils.LoadImageToKindClusterWithName(projectImage)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the manager(Operator) image into Kind")
+
+	// Restart the deployment if it exists to pick up the new image
+	// (only if namespace exists, indicating a previous deployment)
+	By("restarting controller deployment if it exists")
+	checkCmd := exec.Command("kubectl", "get", "deployment", "uptime-robot-controller-manager", "-n", "uptime-robot-system")
+	if _, err := utils.Run(checkCmd); err == nil {
+		// Deployment exists, restart it
+		cmd = exec.Command("kubectl", "rollout", "restart", "deployment/uptime-robot-controller-manager", "-n", "uptime-robot-system")
+		_, _ = utils.Run(cmd) // Ignore errors if deployment doesn't exist
+		cmd = exec.Command("kubectl", "rollout", "status", "deployment/uptime-robot-controller-manager", "-n", "uptime-robot-system", "--timeout=2m")
+		_, _ = utils.Run(cmd)
+	}
 })
 
 var _ = AfterSuite(func() {

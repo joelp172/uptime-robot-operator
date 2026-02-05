@@ -37,6 +37,11 @@ import (
 	uptimerobotv1 "github.com/joelp172/uptime-robot-operator/api/v1alpha1"
 )
 
+const (
+	// intervalOnce represents the "once" interval type for maintenance windows
+	intervalOnce = "once"
+)
+
 // MaintenanceWindowReconciler reconciles a MaintenanceWindow object
 type MaintenanceWindowReconciler struct {
 	client.Client
@@ -145,7 +150,7 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			MonitorIDs:      monitorIDs,
 		}
 		// Only include date for "once" interval
-		if mw.Spec.Interval == "once" {
+		if mw.Spec.Interval == intervalOnce {
 			createReq.Date = mw.Spec.StartDate
 		}
 
@@ -166,11 +171,14 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			Name:            mw.Spec.Name,
 			AutoAddMonitors: &mw.Spec.AutoAddMonitors,
 			Interval:        mw.Spec.Interval,
-			Date:            mw.Spec.StartDate,
 			Time:            mw.Spec.StartTime,
 			Duration:        durationMinutes,
 			Days:            mw.Spec.Days,
 			MonitorIDs:      &monitorIDs,
+		}
+		// Only include date for "once" interval (API rejects it for daily/weekly/monthly)
+		if mw.Spec.Interval == intervalOnce {
+			updateReq.Date = mw.Spec.StartDate
 		}
 
 		result, err := urclient.UpdateMaintenanceWindow(ctx, mw.Status.ID, updateReq)
@@ -188,7 +196,7 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 					MonitorIDs:      monitorIDs,
 				}
 				// Only include date for "once" interval
-				if mw.Spec.Interval == "once" {
+				if mw.Spec.Interval == intervalOnce {
 					createReq.Date = mw.Spec.StartDate
 				}
 

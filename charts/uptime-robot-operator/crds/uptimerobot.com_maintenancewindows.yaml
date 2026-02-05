@@ -133,8 +133,9 @@ spec:
                 description: Prune enables garbage collection.
                 type: boolean
               startDate:
-                description: StartDate is the start date of the maintenance window
-                  in YYYY-MM-DD format.
+                description: |-
+                  StartDate is the start date of the maintenance window in YYYY-MM-DD format.
+                  Required for once interval, not allowed for daily/weekly/monthly intervals.
                 pattern: ^(19|20)\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$
                 type: string
               startTime:
@@ -152,7 +153,6 @@ spec:
             - duration
             - interval
             - name
-            - startDate
             - startTime
             type: object
             x-kubernetes-validations:
@@ -169,6 +169,10 @@ spec:
             - message: days must be 1-31 or -1 (last day) for monthly interval
               rule: '!has(self.days) || self.interval != ''monthly'' || self.days.all(d,
                 (d >= 1 && d <= 31) || d == -1)'
+            - message: startDate is only valid for once interval
+              rule: '!has(self.startDate) || self.interval == ''once'''
+            - message: startDate is required for once interval
+              rule: self.interval != 'once' || has(self.startDate)
           status:
             description: MaintenanceWindowStatus defines the observed state of MaintenanceWindow.
             properties:
