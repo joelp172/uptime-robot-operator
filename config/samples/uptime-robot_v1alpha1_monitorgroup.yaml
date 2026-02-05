@@ -7,6 +7,8 @@ metadata:
   name: monitorgroup-sample
 spec:
   friendlyName: "Production Services"
+  account:
+    name: uptimerobot-account
   monitors:
     - name: web-api-monitor
     - name: database-monitor
