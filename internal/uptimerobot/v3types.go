@@ -353,11 +353,11 @@ type GroupUpdateWireFormat struct {
 
 // GroupWireFormat represents collection data from backend
 type GroupWireFormat struct {
-	ID         int    `json:"id"`
-	Name       string `json:"name"`
-	CreatedAt  string `json:"createdAt"`
-	UpdatedAt  string `json:"updatedAt"`
-	MonitorIDs []int  `json:"monitorIds,omitempty"`
+	ID         int     `json:"id"`
+	Name       string  `json:"name"`
+	CreatedAt  *string `json:"createdAt"`
+	UpdatedAt  *string `json:"updatedAt"`
+	MonitorIDs []int   `json:"monitorIds,omitempty"`
 }
 
 // GroupListWireFormat wraps multiple collections from list endpoints
