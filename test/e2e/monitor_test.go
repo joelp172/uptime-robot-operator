@@ -872,4 +872,258 @@ spec:
 			}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
 		})
 	})
+
+	Context("Monitor Adoption", func() {
+		monitorName := fmt.Sprintf("e2e-adopt-%s", testRunID)
+		adoptedMonitorName := fmt.Sprintf("e2e-adopted-%s", testRunID)
+
+		AfterEach(func() {
+			// Clean up both the created monitor and the adopted monitor
+			deleteMonitorAndWaitForAPICleanup(monitorName)
+			deleteMonitorAndWaitForAPICleanup(adoptedMonitorName)
+		})
+
+		It("should adopt an existing monitor via annotation", func() {
+			By("creating a monitor directly via the operator first")
+			applyMonitor(fmt.Sprintf(`
+apiVersion: uptimerobot.com/v1alpha1
+kind: Monitor
+metadata:
+  name: %s
+spec:
+  syncInterval: 1m
+  prune: true
+  account:
+    name: e2e-account-%s
+  monitor:
+    name: "E2E Monitor to Adopt"
+    url: https://example.com
+    type: HTTPS
+    interval: 5m
+`, monitorName, testRunID))
+
+			existingMonitorID := waitMonitorReadyAndGetID(monitorName)
+			Expect(existingMonitorID).NotTo(BeEmpty(), "Monitor should have ID in status")
+
+			By("adopting the existing monitor with a new Monitor resource")
+			adoptMonitorYAML := fmt.Sprintf(`
+apiVersion: uptimerobot.com/v1alpha1
+kind: Monitor
+metadata:
+  name: %s
+  annotations:
+    uptimerobot.com/adopt-id: "%s"
+spec:
+  syncInterval: 1m
+  prune: false
+  account:
+    name: e2e-account-%s
+  monitor:
+    name: "E2E Adopted Monitor (Updated)"
+    url: https://example.com
+    type: HTTPS
+    interval: 5m
+`, adoptedMonitorName, existingMonitorID, testRunID)
+
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(adoptMonitorYAML)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("waiting for the adopted Monitor to become ready")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "monitor", adoptedMonitorName,
+					"-o", "jsonpath={.status.ready}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("true"))
+			}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
+
+			By("verifying the adopted monitor has the same ID as the original")
+			cmd = exec.Command("kubectl", "get", "monitor", adoptedMonitorName,
+				"-o", "jsonpath={.status.id}")
+			adoptedID, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(strings.TrimSpace(adoptedID)).To(Equal(existingMonitorID))
+
+			By("verifying the monitor was updated with the new spec values")
+			apiKey := os.Getenv("UPTIME_ROBOT_API_KEY")
+			Eventually(func(g Gomega) {
+				monitor, err := getMonitorFromAPI(apiKey, existingMonitorID)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(monitor.FriendlyName).To(Equal("E2E Adopted Monitor (Updated)"))
+			}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
+
+			By("deleting the original Monitor resource (should not delete from UptimeRobot)")
+			cmd = exec.Command("kubectl", "delete", "monitor", monitorName)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying the monitor still exists in UptimeRobot API")
+			Eventually(func(g Gomega) {
+				monitor, err := getMonitorFromAPI(apiKey, existingMonitorID)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(monitor.FriendlyName).To(Equal("E2E Adopted Monitor (Updated)"))
+			}, 30*time.Second, 5*time.Second).Should(Succeed())
+		})
+
+		It("should fail to adopt a non-existent monitor", func() {
+			By("attempting to adopt a monitor with a non-existent ID")
+			nonExistentID := "999999999"
+			adoptMonitorYAML := fmt.Sprintf(`
+apiVersion: uptimerobot.com/v1alpha1
+kind: Monitor
+metadata:
+  name: %s
+  annotations:
+    uptimerobot.com/adopt-id: "%s"
+spec:
+  syncInterval: 1m
+  prune: false
+  account:
+    name: e2e-account-%s
+  monitor:
+    name: "E2E Non-existent Monitor"
+    url: https://example.com
+    type: HTTPS
+    interval: 5m
+`, adoptedMonitorName, nonExistentID, testRunID)
+
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(adoptMonitorYAML)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying the monitor does not become ready")
+			Consistently(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "monitor", adoptedMonitorName,
+					"-o", "jsonpath={.status.ready}")
+				output, err := utils.Run(cmd)
+				if err == nil {
+					// If no error, status.ready should not be "true"
+					g.Expect(output).NotTo(Equal("true"))
+				}
+			}, 30*time.Second, 5*time.Second).Should(Succeed())
+		})
+
+		It("should fail to adopt a monitor with type mismatch", func() {
+			By("creating an HTTPS monitor first")
+			applyMonitor(fmt.Sprintf(`
+apiVersion: uptimerobot.com/v1alpha1
+kind: Monitor
+metadata:
+  name: %s
+spec:
+  syncInterval: 1m
+  prune: true
+  account:
+    name: e2e-account-%s
+  monitor:
+    name: "E2E HTTPS Monitor for Type Mismatch"
+    url: https://example.com
+    type: HTTPS
+    interval: 5m
+`, monitorName, testRunID))
+
+			existingMonitorID := waitMonitorReadyAndGetID(monitorName)
+
+			By("attempting to adopt it with a Ping type specification")
+			adoptMonitorYAML := fmt.Sprintf(`
+apiVersion: uptimerobot.com/v1alpha1
+kind: Monitor
+metadata:
+  name: %s
+  annotations:
+    uptimerobot.com/adopt-id: "%s"
+spec:
+  syncInterval: 1m
+  prune: false
+  account:
+    name: e2e-account-%s
+  monitor:
+    name: "E2E Ping Type Mismatch"
+    url: "8.8.8.8"
+    type: Ping
+    interval: 5m
+`, adoptedMonitorName, existingMonitorID, testRunID)
+
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(adoptMonitorYAML)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying the monitor does not become ready due to type mismatch")
+			Consistently(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "monitor", adoptedMonitorName,
+					"-o", "jsonpath={.status.ready}")
+				output, err := utils.Run(cmd)
+				if err == nil {
+					g.Expect(output).NotTo(Equal("true"))
+				}
+			}, 30*time.Second, 5*time.Second).Should(Succeed())
+		})
+
+		It("should delete adopted monitor from UptimeRobot when prune is true", func() {
+			By("creating a monitor first")
+			applyMonitor(fmt.Sprintf(`
+apiVersion: uptimerobot.com/v1alpha1
+kind: Monitor
+metadata:
+  name: %s
+spec:
+  syncInterval: 1m
+  prune: true
+  account:
+    name: e2e-account-%s
+  monitor:
+    name: "E2E Monitor for Prune Test"
+    url: https://example.com
+    type: HTTPS
+    interval: 5m
+`, monitorName, testRunID))
+
+			existingMonitorID := waitMonitorReadyAndGetID(monitorName)
+
+			By("adopting the monitor with prune: true")
+			adoptMonitorYAML := fmt.Sprintf(`
+apiVersion: uptimerobot.com/v1alpha1
+kind: Monitor
+metadata:
+  name: %s
+  annotations:
+    uptimerobot.com/adopt-id: "%s"
+spec:
+  syncInterval: 1m
+  prune: true
+  account:
+    name: e2e-account-%s
+  monitor:
+    name: "E2E Adopted for Prune"
+    url: https://example.com
+    type: HTTPS
+    interval: 5m
+`, adoptedMonitorName, existingMonitorID, testRunID)
+
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(adoptMonitorYAML)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			waitMonitorReadyAndGetID(adoptedMonitorName)
+
+			By("deleting the original monitor resource")
+			cmd = exec.Command("kubectl", "delete", "monitor", monitorName)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("deleting the adopted monitor resource with prune: true")
+			cmd = exec.Command("kubectl", "delete", "monitor", adoptedMonitorName)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying the monitor is deleted from UptimeRobot API")
+			apiKey := os.Getenv("UPTIME_ROBOT_API_KEY")
+			WaitForMonitorDeletedFromAPI(apiKey, existingMonitorID)
+		})
+	})
 })

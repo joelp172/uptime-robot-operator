@@ -211,5 +211,55 @@ var _ = Describe("Monitor Controller", func() {
 			Expect(monitor.Status.ID).To(Equal(existingMonitorID))
 			Expect(monitor.Status.Type).To(Equal(urtypes.TypeHTTPS))
 		})
+
+		It("should fail to adopt monitor with type mismatch", func() {
+			By("Creating a monitor resource with wrong type for adoption")
+			mismatchNamespacedName := types.NamespacedName{
+				Name:      "test-adopt-type-mismatch",
+				Namespace: "default",
+			}
+			wrongTypeMonitor := &uptimerobotv1.Monitor{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      mismatchNamespacedName.Name,
+					Namespace: mismatchNamespacedName.Namespace,
+					Annotations: map[string]string{
+						AdoptIDAnnotation: existingMonitorID,
+					},
+				},
+				Spec: uptimerobotv1.MonitorSpec{
+					Account: corev1.LocalObjectReference{
+						Name: account.Name,
+					},
+					Monitor: uptimerobotv1.MonitorValues{
+						Name: "Wrong Type Monitor",
+						URL:  "8.8.8.8",
+						Type: urtypes.TypePing, // Mismatch - existing is HTTPS
+					},
+					Contacts: []uptimerobotv1.MonitorContactRef{
+						{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: contact.Name,
+							},
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, wrongTypeMonitor)).To(Succeed())
+
+			By("Reconciling and expecting an error due to type mismatch")
+			controllerReconciler := &MonitorReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: mismatchNamespacedName,
+			})
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("type mismatch"))
+
+			By("Cleanup the type mismatch monitor")
+			Expect(k8sClient.Delete(ctx, wrongTypeMonitor)).To(Succeed())
+		})
 	})
 })
