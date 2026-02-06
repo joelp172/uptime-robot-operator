@@ -24,6 +24,27 @@ make test-e2e-real
 
 **Warning:** Use a test account, not production.
 
+### Running Specific Test Suites
+
+Run only specific test suites using Ginkgo label filters:
+
+```bash
+# Run only MonitorGroup tests
+export UPTIME_ROBOT_API_KEY=your-test-key
+go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="monitorgroup" -timeout 20m
+
+# Run only Monitor tests
+go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="monitor" -timeout 20m
+
+# Run only MaintenanceWindow tests
+go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="maintenancewindow" -timeout 20m
+
+# Run only Account and Contact tests
+go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="account || contact" -timeout 20m
+```
+
+**Note:** Ensure the operator is deployed before running specific suites (`make dev-cluster`).
+
 ### Debug Logging
 
 ```bash
@@ -42,6 +63,13 @@ E2E_DEBUG=1 make test-e2e-real
 - Port monitors
 - DNS monitors
 - Contact assignment and thresholds
+
+### MonitorGroup Tests
+
+- Basic lifecycle (create, update, delete)
+- Prune behaviour on deletion
+- Monitor references and tracking
+- Monitor count validation
 
 ### MaintenanceWindow Tests
 

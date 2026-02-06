@@ -108,6 +108,57 @@ spec:
 			g.Expect(output).To(Equal("true"))
 		}, 2*time.Minute, 5*time.Second).Should(Succeed())
 		debugLog("Account e2e-account-mg-%s is ready", testRunID)
+
+		By("getting the first contact ID from Account status")
+		cmd = exec.Command("kubectl", "get", "account",
+			fmt.Sprintf("e2e-account-mg-%s", testRunID),
+			"-o", "jsonpath={.status.alertContacts[0].id}")
+		contactID, err := utils.Run(cmd)
+		if err != nil {
+			debugLog("Failed to get contact ID: %v", err)
+		} else {
+			debugLog("Got contact ID: %s", contactID)
+		}
+		Expect(err).NotTo(HaveOccurred())
+		Expect(contactID).NotTo(BeEmpty(), "Account should have at least one alert contact")
+
+		By("creating a default Contact resource for MonitorGroup tests")
+		contactYAML := fmt.Sprintf(`
+apiVersion: uptimerobot.com/v1alpha1
+kind: Contact
+metadata:
+  name: e2e-default-contact-mg-%s
+spec:
+  isDefault: true
+  contact:
+    id: "%s"
+`, testRunID, contactID)
+		debugLog("Applying Contact YAML:\n%s", contactYAML)
+		cmd = exec.Command("kubectl", "apply", "-f", "-")
+		cmd.Stdin = strings.NewReader(contactYAML)
+		output, err = utils.Run(cmd)
+		if err != nil {
+			debugLog("Failed to create Contact: %v, output: %s", err, output)
+		} else {
+			debugLog("Contact created successfully: %s", output)
+		}
+		Expect(err).NotTo(HaveOccurred())
+
+		By("waiting for Contact to become ready")
+		Eventually(func(g Gomega) {
+			cmd := exec.Command("kubectl", "get", "contact",
+				fmt.Sprintf("e2e-default-contact-mg-%s", testRunID),
+				"-o", "jsonpath={.status.ready}")
+			output, err := utils.Run(cmd)
+			if err != nil {
+				debugLog("Failed to get Contact: %v", err)
+			} else {
+				debugLog("Contact status ready=%s", output)
+			}
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(output).To(Equal("true"))
+		}, 1*time.Minute, 5*time.Second).Should(Succeed())
+		debugLog("Contact e2e-default-contact-mg-%s is ready", testRunID)
 	})
 
 	AfterAll(func() {
@@ -115,8 +166,12 @@ spec:
 			return
 		}
 
+		By("cleaning up Contact resource for MonitorGroup tests")
+		cmd := exec.Command("kubectl", "delete", "contact", fmt.Sprintf("e2e-default-contact-mg-%s", testRunID), "--ignore-not-found=true")
+		_, _ = utils.Run(cmd)
+
 		By("cleaning up Account resource for MonitorGroup tests")
-		cmd := exec.Command("kubectl", "delete", "account", fmt.Sprintf("e2e-account-mg-%s", testRunID), "--ignore-not-found=true")
+		cmd = exec.Command("kubectl", "delete", "account", fmt.Sprintf("e2e-account-mg-%s", testRunID), "--ignore-not-found=true")
 		_, _ = utils.Run(cmd)
 
 		By("cleaning up Secret for MonitorGroup tests")
@@ -148,6 +203,7 @@ spec:
     name: e2e-account-mg-%s
   friendlyName: "E2E Test Group %s"
   syncInterval: 24h
+  prune: true
 `, monitorGroupName, namespace, testRunID, testRunID)
 
 			debugLog("Applying MonitorGroup YAML:\n%s", monitorGroupYAML)
@@ -203,6 +259,7 @@ spec:
   account:
     name: e2e-account-mg-%s
   friendlyName: "E2E Test Group Original %s"
+  prune: true
 `, monitorGroupName, namespace, testRunID, testRunID)
 
 			cmd := exec.Command("kubectl", "apply", "-f", "-")
@@ -211,13 +268,22 @@ spec:
 			Expect(err).NotTo(HaveOccurred())
 
 			By("waiting for MonitorGroup to become ready")
+			var originalGroupID string
 			Eventually(func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "monitorgroup", monitorGroupName, "-n", namespace,
 					"-o", "jsonpath={.status.ready}")
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(output).To(Equal("true"))
+
+				// Capture the group ID
+				cmd = exec.Command("kubectl", "get", "monitorgroup", monitorGroupName, "-n", namespace,
+					"-o", "jsonpath={.status.id}")
+				originalGroupID, err = utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(originalGroupID).NotTo(BeEmpty())
 			}, 2*time.Minute, 5*time.Second).Should(Succeed())
+			debugLog("Original MonitorGroup ID: %s", originalGroupID)
 
 			By("updating MonitorGroup friendly name")
 			updatedYAML := fmt.Sprintf(`
@@ -230,6 +296,7 @@ spec:
   account:
     name: e2e-account-mg-%s
   friendlyName: "E2E Test Group Updated %s"
+  prune: true
 `, monitorGroupName, namespace, testRunID, testRunID)
 
 			cmd = exec.Command("kubectl", "apply", "-f", "-")
@@ -237,23 +304,45 @@ spec:
 			_, err = utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
 
-			By("waiting for update to propagate")
-			time.Sleep(10 * time.Second)
+			By("waiting for update to propagate and verifying group ID unchanged")
+			var updatedGroupID string
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "monitorgroup", monitorGroupName, "-n", namespace,
+					"-o", "jsonpath={.status.id}")
+				var err error
+				updatedGroupID, err = utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(updatedGroupID).To(Equal(originalGroupID), "Group ID should not change during update")
+			}, 1*time.Minute, 5*time.Second).Should(Succeed())
+			debugLog("Updated MonitorGroup ID: %s (should match original)", updatedGroupID)
 
 			By("verifying updated name in UptimeRobot API")
 			apiKey := os.Getenv("UPTIME_ROBOT_API_KEY")
 			client := uptimerobot.NewClient(apiKey)
-			groups, err := client.EnumerateGroupsFromBackend(context.Background())
-			Expect(err).NotTo(HaveOccurred())
 
-			found := false
-			for _, group := range groups {
-				if group.Name == fmt.Sprintf("E2E Test Group Updated %s", testRunID) {
-					found = true
-					break
+			Eventually(func(g Gomega) {
+				groups, err := client.EnumerateGroupsFromBackend(context.Background())
+				g.Expect(err).NotTo(HaveOccurred())
+
+				foundUpdated := false
+				foundOriginal := false
+				updatedName := fmt.Sprintf("E2E Test Group Updated %s", testRunID)
+				originalName := fmt.Sprintf("E2E Test Group Original %s", testRunID)
+
+				for _, group := range groups {
+					if group.Name == updatedName {
+						foundUpdated = true
+						debugLog("Found updated group: %s (ID: %d)", group.Name, group.ID)
+					}
+					if group.Name == originalName {
+						foundOriginal = true
+						debugLog("WARNING: Found original group still exists: %s (ID: %d)", group.Name, group.ID)
+					}
 				}
-			}
-			Expect(found).To(BeTrue(), "Updated MonitorGroup name should exist in UptimeRobot API")
+
+				g.Expect(foundUpdated).To(BeTrue(), "Updated MonitorGroup name should exist in UptimeRobot API")
+				g.Expect(foundOriginal).To(BeFalse(), "Original MonitorGroup name should NOT exist in UptimeRobot API")
+			}, 30*time.Second, 5*time.Second).Should(Succeed())
 		})
 
 		It("should delete MonitorGroup and clean up in UptimeRobot", func() {
@@ -306,20 +395,29 @@ spec:
 			}, 2*time.Minute, 5*time.Second).Should(Succeed())
 
 			By("verifying MonitorGroup is deleted from UptimeRobot API")
-			time.Sleep(10 * time.Second)
 			apiKey := os.Getenv("UPTIME_ROBOT_API_KEY")
 			client := uptimerobot.NewClient(apiKey)
-			groups, err := client.EnumerateGroupsFromBackend(context.Background())
-			Expect(err).NotTo(HaveOccurred())
 
-			found := false
-			for _, group := range groups {
-				if group.Name == fmt.Sprintf("E2E Test Group Delete %s", testRunID) {
-					found = true
-					break
+			Eventually(func(g Gomega) {
+				groups, err := client.EnumerateGroupsFromBackend(context.Background())
+				g.Expect(err).NotTo(HaveOccurred())
+
+				found := false
+				groupName := fmt.Sprintf("E2E Test Group Delete %s", testRunID)
+				for _, group := range groups {
+					if group.Name == groupName {
+						found = true
+						debugLog("MonitorGroup still exists in UptimeRobot API: %s (ID: %d)", group.Name, group.ID)
+						break
+					}
 				}
-			}
-			Expect(found).To(BeFalse(), "MonitorGroup should be deleted from UptimeRobot API")
+
+				if !found {
+					debugLog("MonitorGroup successfully deleted from UptimeRobot API: %s", groupName)
+				}
+
+				g.Expect(found).To(BeFalse(), "MonitorGroup should be deleted from UptimeRobot API")
+			}, 30*time.Second, 5*time.Second).Should(Succeed())
 		})
 	})
 
@@ -381,6 +479,7 @@ spec:
   account:
     name: e2e-account-mg-%s
   friendlyName: "E2E Test Group With Monitors %s"
+  prune: true
   monitors:
     - name: %s
 `, monitorGroupName, namespace, testRunID, testRunID, monitorName)
@@ -400,11 +499,21 @@ spec:
 			}, 2*time.Minute, 5*time.Second).Should(Succeed())
 
 			By("verifying MonitorGroup has the correct monitor count")
-			cmd = exec.Command("kubectl", "get", "monitorgroup", monitorGroupName, "-n", namespace,
-				"-o", "jsonpath={.status.monitorCount}")
-			output, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(Equal("1"))
+
+			// First, let's check the full status to see what's actually set
+			cmd = exec.Command("kubectl", "get", "monitorgroup", monitorGroupName, "-n", namespace, "-o", "yaml")
+			fullStatus, _ := utils.Run(cmd)
+			debugLog("Full MonitorGroup YAML:\n%s", fullStatus)
+
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "monitorgroup", monitorGroupName, "-n", namespace,
+					"-o", "jsonpath={.status.monitorCount}")
+				output, err := utils.Run(cmd)
+				debugLog("MonitorGroup monitorCount: '%s'", output)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).NotTo(BeEmpty(), "monitorCount should be set")
+				g.Expect(output).To(Equal("1"))
+			}, 1*time.Minute, 5*time.Second).Should(Succeed())
 		})
 	})
 })

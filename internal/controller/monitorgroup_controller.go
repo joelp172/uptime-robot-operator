@@ -81,6 +81,11 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				}
 			}
 
+			// Refetch the resource to get the latest version before removing finalizer
+			if fetchErr := r.Get(ctx, req.NamespacedName, groupResource); fetchErr != nil {
+				return ctrl.Result{}, client.IgnoreNotFound(fetchErr)
+			}
+
 			controllerutil.RemoveFinalizer(groupResource, cleanupMarker)
 			if updateErr := r.Update(ctx, groupResource); updateErr != nil {
 				return ctrl.Result{}, updateErr
@@ -146,7 +151,7 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 		groupResource.Status.Ready = true
 		groupResource.Status.ID = strconv.Itoa(backendResponse.ID)
-		groupResource.Status.MonitorCount = len(backendResponse.MonitorIDs)
+		groupResource.Status.MonitorCount = len(aggregatedMonitorIDs)
 		nowTimestamp := metav1.Now()
 		groupResource.Status.LastReconciled = &nowTimestamp
 
@@ -161,7 +166,7 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			GroupIDs:   groupResource.Spec.PullFromGroups,
 		}
 
-		backendResponse, updateErr := backendClient.MutateGroupInBackend(ctx, groupResource.Status.ID, updatePayload)
+		_, updateErr := backendClient.MutateGroupInBackend(ctx, groupResource.Status.ID, updatePayload)
 		if updateErr != nil {
 			// Handle out-of-band deletion
 			if uptimerobot.IsNotFound(updateErr) {
@@ -179,7 +184,7 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				}
 
 				groupResource.Status.ID = strconv.Itoa(backendResponse.ID)
-				groupResource.Status.MonitorCount = len(backendResponse.MonitorIDs)
+				groupResource.Status.MonitorCount = len(aggregatedMonitorIDs)
 				nowTimestamp := metav1.Now()
 				groupResource.Status.LastReconciled = &nowTimestamp
 
@@ -192,7 +197,7 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			return ctrl.Result{}, fmt.Errorf("group update failed: %w", updateErr)
 		}
 
-		groupResource.Status.MonitorCount = len(backendResponse.MonitorIDs)
+		groupResource.Status.MonitorCount = len(aggregatedMonitorIDs)
 		nowTimestamp := metav1.Now()
 		groupResource.Status.LastReconciled = &nowTimestamp
 
