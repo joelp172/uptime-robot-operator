@@ -240,6 +240,74 @@ kubectl create secret generic http-auth \
 
 ## Advanced Configuration
 
+### Adopting Existing Monitors
+
+The operator can adopt and manage existing UptimeRobot monitors that were created outside of Kubernetes (via the UptimeRobot UI, API, or other tooling). This enables migration to the operator without recreating monitors and losing historical data.
+
+To adopt an existing monitor, use the `uptimerobot.com/adopt-id` annotation with the monitor's ID:
+
+```yaml
+apiVersion: uptimerobot.com/v1alpha1
+kind: Monitor
+metadata:
+  name: legacy-api
+  annotations:
+    uptimerobot.com/adopt-id: "123456789"  # Your existing monitor ID
+spec:
+  prune: false  # Recommended: Preserve monitor if resource is deleted
+  monitor:
+    name: Legacy API Monitor
+    url: https://api.example.com/health
+    type: HTTPS
+    interval: 5m
+```
+
+**Adoption workflow:**
+
+1. Find your existing monitor ID from the UptimeRobot dashboard (visible in the URL when viewing a monitor)
+2. Create a Monitor resource with the `uptimerobot.com/adopt-id` annotation
+3. Set `prune: false` to prevent accidental deletion if the resource is removed
+4. The operator will verify the monitor exists and adopt it
+5. After successful adoption, the operator will update the monitor with your spec values
+
+**Important notes:**
+
+- The monitor ID must exist in your UptimeRobot account
+- After adoption, subsequent reconciles will update the monitor to match your spec
+- The annotation can be removed after successful adoption (ID is stored in status)
+- Set `prune: false` to preserve the monitor if the Kubernetes resource is accidentally deleted
+
+**Example: Migrating from UI to GitOps**
+
+```bash
+# Step 1: Find your monitor ID in UptimeRobot dashboard
+MONITOR_ID=123456789
+
+# Step 2: Create Monitor resource with adoption annotation
+cat <<EOF | kubectl apply -f -
+apiVersion: uptimerobot.com/v1alpha1
+kind: Monitor
+metadata:
+  name: production-api
+  annotations:
+    uptimerobot.com/adopt-id: "$MONITOR_ID"
+spec:
+  prune: false
+  monitor:
+    name: Production API
+    url: https://api.example.com/health
+    type: HTTPS
+    interval: 5m
+EOF
+
+# Step 3: Verify adoption succeeded
+kubectl get monitor production-api -o jsonpath='{.status.id}'
+# Output: 123456789
+
+# Step 4: (Optional) Remove annotation after successful adoption
+kubectl annotate monitor production-api uptimerobot.com/adopt-id-
+```
+
 ### Custom HTTP Headers
 
 ```yaml
