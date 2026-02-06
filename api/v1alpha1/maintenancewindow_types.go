@@ -75,7 +75,7 @@ type MaintenanceWindowSpec struct {
 
 	// AutoAddMonitors, when true, automatically adds all monitors to this maintenance window.
 	//+optional
-	AutoAddMonitors bool `json:"autoAddMonitors,omitempty"`
+	AutoAddMonitors bool `json:"autoAddMonitors"`
 
 	// MonitorRefs is a list of Monitor resources to add to this maintenance window.
 	// Each reference specifies the monitor name and is resolved within the same namespace

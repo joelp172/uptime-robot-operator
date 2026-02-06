@@ -581,3 +581,24 @@ func ValidateMaintenanceWindowFields(
 
 	return errs
 }
+
+// monitorHasMaintenanceWindow checks if a monitor's maintenanceWindows list
+// contains a maintenance window with the given ID (as string).
+func monitorHasMaintenanceWindow(mws []uptimerobot.MaintenanceWindowSummary, mwID string) bool {
+	for _, mw := range mws {
+		if fmt.Sprintf("%d", mw.ID) == mwID {
+			return true
+		}
+	}
+	return false
+}
+
+// maintenanceWindowIDs extracts the IDs from a list of maintenance window summaries.
+// Used for debug logging.
+func maintenanceWindowIDs(mws []uptimerobot.MaintenanceWindowSummary) []int {
+	ids := make([]int, len(mws))
+	for i, mw := range mws {
+		ids[i] = mw.ID
+	}
+	return ids
+}

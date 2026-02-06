@@ -892,7 +892,7 @@ spec:
 		})
 
 		It("should automatically add all monitors when autoAddMonitors is true", func() {
-			// Create two monitors first
+			By("creating two test monitors")
 			applyMonitor(fmt.Sprintf(`
 apiVersion: uptimerobot.com/v1alpha1
 kind: Monitor
@@ -928,6 +928,7 @@ spec:
 			By("waiting for monitors to become ready")
 			monitor1ID := waitMonitorReadyAndGetID(monitor1Name)
 			monitor2ID := waitMonitorReadyAndGetID(monitor2Name)
+			debugLog("Monitors ready: Mon1=%s, Mon2=%s", monitor1ID, monitor2ID)
 
 			mwName := fmt.Sprintf("e2e-mw-autoadd-%s", testRunID)
 			defer deleteMaintenanceWindowAndWait(mwName)
@@ -951,47 +952,44 @@ spec:
 
 			applyMaintenanceWindow(mwYAML)
 			mwID := waitMaintenanceWindowReadyAndGetID(mwName)
+			debugLog("MaintenanceWindow ready: ID=%s", mwID)
 
 			apiKey := os.Getenv("UPTIME_ROBOT_API_KEY")
 
-			// NOTE: Skipping autoAddMonitors verification due to UptimeRobot API v3 bug.
-			// The API accepts autoAddMonitors in POST/PUT but always returns false in GET responses.
-			// We verify the functional behaviour (monitors are added) instead.
-			By("verifying MW was created successfully")
-			mw, err := getMaintenanceWindowFromAPI(apiKey, mwID)
-			Expect(err).NotTo(HaveOccurred())
-			debugLog("MW created: Name=%s, autoAddMonitors=%v (API bug: always false, expected: true)", mw.Name, mw.AutoAddMonitors)
+			By("verifying autoAddMonitors=true is set on the MW in the API")
+			// The API returns autoAddMonitors: true and monitorIds: null when autoAdd is enabled.
+			Eventually(func(g Gomega) {
+				mw, err := getMaintenanceWindowFromAPI(apiKey, mwID)
+				g.Expect(err).NotTo(HaveOccurred())
+				debugLog("MW API response: autoAddMonitors=%v, monitorIds=%v", mw.AutoAddMonitors, mw.MonitorIDs)
+				g.Expect(mw.AutoAddMonitors).To(BeTrue(), "MW should have autoAddMonitors=true in API")
+			}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
 
-			By("verifying both monitors contain MW ID via API")
+			By("verifying monitors have the MW in their maintenanceWindows via API")
+			// When autoAddMonitors=true, each monitor's GET response includes the MW
+			// in its maintenanceWindows[] array. This is how we verify the relationship.
 			Eventually(func(g Gomega) {
 				monitor1, err := getMonitorFromAPI(apiKey, monitor1ID)
 				g.Expect(err).NotTo(HaveOccurred())
+				debugLog("Monitor1 maintenanceWindows count: %d", len(monitor1.MaintenanceWindows))
+
+				found1 := monitorHasMaintenanceWindow(monitor1.MaintenanceWindows, mwID)
+				if !found1 {
+					debugLog("Monitor1 MW IDs: %v (looking for %s)", maintenanceWindowIDs(monitor1.MaintenanceWindows), mwID)
+				}
+				g.Expect(found1).To(BeTrue(), "Monitor1 should have MW ID %s in maintenanceWindows", mwID)
+
 				monitor2, err := getMonitorFromAPI(apiKey, monitor2ID)
 				g.Expect(err).NotTo(HaveOccurred())
+				debugLog("Monitor2 maintenanceWindows count: %d", len(monitor2.MaintenanceWindows))
 
-				// Check that both monitors have the MW in their maintenanceWindows list
-				g.Expect(monitor1.MaintenanceWindows).NotTo(BeEmpty(), "Monitor1 should have maintenance windows")
-				g.Expect(monitor2.MaintenanceWindows).NotTo(BeEmpty(), "Monitor2 should have maintenance windows")
-
-				// Check that the MW ID is in the list
-				found1 := false
-				for _, mw := range monitor1.MaintenanceWindows {
-					if fmt.Sprintf("%d", mw.ID) == mwID {
-						found1 = true
-						break
-					}
+				found2 := monitorHasMaintenanceWindow(monitor2.MaintenanceWindows, mwID)
+				if !found2 {
+					debugLog("Monitor2 MW IDs: %v (looking for %s)", maintenanceWindowIDs(monitor2.MaintenanceWindows), mwID)
 				}
-				g.Expect(found1).To(BeTrue(), "Monitor1 should have MW ID %s", mwID)
-
-				found2 := false
-				for _, mw := range monitor2.MaintenanceWindows {
-					if fmt.Sprintf("%d", mw.ID) == mwID {
-						found2 = true
-						break
-					}
-				}
-				g.Expect(found2).To(BeTrue(), "Monitor2 should have MW ID %s", mwID)
+				g.Expect(found2).To(BeTrue(), "Monitor2 should have MW ID %s in maintenanceWindows", mwID)
 			}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
+			debugLog("AutoAddMonitors verification passed")
 		})
 	})
 })
