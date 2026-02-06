@@ -122,7 +122,8 @@ var _ = Describe("Monitor Controller", func() {
 
 	Context("When adopting an existing monitor", func() {
 		const resourceName = "test-adopt-monitor"
-		const existingMonitorID = "777810874" // This ID exists in the mock server
+		// This ID matches a monitor that will be created by the mock UptimeRobot API
+		const existingMonitorID = "777810874"
 		ctx := context.Background()
 		namespacedName := types.NamespacedName{
 			Name:      resourceName,
