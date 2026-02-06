@@ -168,6 +168,12 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				return ctrl.Result{}, fmt.Errorf("failed to get monitor for adoption: %w", err)
 			}
 
+			// Verify monitor type matches spec
+			existingType := urtypes.MonitorTypeFromAPIString(existingMonitor.Type)
+			if existingType != monitor.Spec.Monitor.Type {
+				return ctrl.Result{}, fmt.Errorf("cannot adopt monitor: type mismatch - existing monitor is %s but spec defines %s", existingMonitor.Type, monitor.Spec.Monitor.Type.String())
+			}
+
 			// Adopt the monitor by setting status
 			monitor.Status.Ready = true
 			monitor.Status.ID = adoptID
