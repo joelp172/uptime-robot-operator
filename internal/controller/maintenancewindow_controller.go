@@ -140,6 +140,20 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 
 	if !mw.Status.Ready {
 		// Create new maintenance window
+		logger.Info("Creating maintenance window",
+			"name", mw.Spec.Name,
+			"autoAddMonitors", mw.Spec.AutoAddMonitors,
+			"interval", mw.Spec.Interval,
+			"monitorIDs", monitorIDs,
+		)
+		// When autoAddMonitors is true, do NOT send monitorIds.
+		// The API automatically adds all monitors; sending an empty list
+		// would override that behaviour.
+		var createMonitorIDs []int
+		if !mw.Spec.AutoAddMonitors {
+			createMonitorIDs = monitorIDs
+		}
+
 		createReq := uptimerobot.CreateMaintenanceWindowRequest{
 			Name:            mw.Spec.Name,
 			AutoAddMonitors: mw.Spec.AutoAddMonitors,
@@ -147,7 +161,7 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			Time:            mw.Spec.StartTime,
 			Duration:        durationMinutes,
 			Days:            mw.Spec.Days,
-			MonitorIDs:      monitorIDs,
+			MonitorIDs:      createMonitorIDs,
 		}
 		// Only include date for "once" interval
 		if mw.Spec.Interval == intervalOnce {
@@ -167,6 +181,21 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		}
 	} else {
 		// Update existing maintenance window
+		logger.Info("Updating maintenance window",
+			"name", mw.Spec.Name,
+			"autoAddMonitors", mw.Spec.AutoAddMonitors,
+			"interval", mw.Spec.Interval,
+			"monitorIDs", monitorIDs,
+		)
+
+		// When autoAddMonitors is true, do NOT send monitorIds in the update.
+		// Sending an empty monitorIds list would override the auto-add behaviour
+		// and disassociate all monitors.
+		var monitorIDsPtr *[]int
+		if !mw.Spec.AutoAddMonitors {
+			monitorIDsPtr = &monitorIDs
+		}
+
 		updateReq := uptimerobot.UpdateMaintenanceWindowRequest{
 			Name:            mw.Spec.Name,
 			AutoAddMonitors: &mw.Spec.AutoAddMonitors,
@@ -174,7 +203,7 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			Time:            mw.Spec.StartTime,
 			Duration:        durationMinutes,
 			Days:            mw.Spec.Days,
-			MonitorIDs:      &monitorIDs,
+			MonitorIDs:      monitorIDsPtr,
 		}
 		// Only include date for "once" interval (API rejects it for daily/weekly/monthly)
 		if mw.Spec.Interval == intervalOnce {
@@ -186,6 +215,10 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			// If maintenance window was deleted out-of-band, recreate it
 			if uptimerobot.IsNotFound(err) {
 				logger.Info("Maintenance window not found in UptimeRobot, recreating", "id", mw.Status.ID)
+				var recreateMonitorIDs []int
+				if !mw.Spec.AutoAddMonitors {
+					recreateMonitorIDs = monitorIDs
+				}
 				createReq := uptimerobot.CreateMaintenanceWindowRequest{
 					Name:            mw.Spec.Name,
 					AutoAddMonitors: mw.Spec.AutoAddMonitors,
@@ -193,7 +226,7 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 					Time:            mw.Spec.StartTime,
 					Duration:        durationMinutes,
 					Days:            mw.Spec.Days,
-					MonitorIDs:      monitorIDs,
+					MonitorIDs:      recreateMonitorIDs,
 				}
 				// Only include date for "once" interval
 				if mw.Spec.Interval == intervalOnce {

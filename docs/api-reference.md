@@ -1,108 +1,60 @@
 # API Reference
 
-Complete reference for all Custom Resource Definitions provided by the Uptime Robot Operator.
+Complete field reference for all Custom Resource Definitions.
 
 ## Account
 
-Connects the operator to your UptimeRobot account via API key.
+Connects the operator to your UptimeRobot account.
 
-**Scope:** Cluster (no namespace required)
-
-**Note:** The Secret referenced by `apiKeySecretRef` must be in the `uptime-robot-system` namespace.
+**Scope:** Cluster-scoped (no namespace)
 
 ### Spec
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `isDefault` | boolean | No | `false` | Use this account when monitors don't specify one |
-| `apiKeySecretRef.name` | string | Yes | - | Name of the Secret containing the API key |
-| `apiKeySecretRef.key` | string | Yes | - | Key within the Secret that holds the API key |
+| `apiKeySecretRef.name` | string | Yes | - | Secret name containing API key (must be in `uptime-robot-system` namespace) |
+| `apiKeySecretRef.key` | string | Yes | - | Key within Secret containing API key |
 
 ### Status
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `ready` | boolean | Whether the account is successfully connected |
-| `email` | string | Email address associated with the UptimeRobot account |
-| `alertContacts` | array | List of available alert contacts (see below) |
-
-#### AlertContactInfo
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `id` | string | Unique contact ID (use this in Contact resources) |
-| `friendlyName` | string | Display name (may be empty) |
-| `type` | string | Contact type (Email, SMS, MobileApp, etc.) |
-| `value` | string | Contact value (email address, phone number, etc.) |
-
-### Example
-
-```yaml
-apiVersion: uptimerobot.com/v1alpha1
-kind: Account
-metadata:
-  name: default
-spec:
-  isDefault: true
-  apiKeySecretRef:
-    name: uptimerobot-api-key
-    key: apiKey
-```
+| `ready` | boolean | Account successfully connected |
+| `email` | string | Email address of UptimeRobot account |
+| `alertContacts[]` | array | Available alert contacts |
+| `alertContacts[].id` | string | Contact ID (use in Contact resources) |
+| `alertContacts[].friendlyName` | string | Display name |
+| `alertContacts[].type` | string | Contact type (Email, SMS, MobileApp, etc.) |
+| `alertContacts[].value` | string | Contact value (email, phone, etc.) |
 
 ---
 
 ## Contact
 
-References an existing alert contact in your UptimeRobot account.
+References an existing alert contact in UptimeRobot.
 
-**Scope:** Cluster (no namespace required)
+**Scope:** Cluster-scoped (no namespace)
 
-**Note:** The operator does not create contacts in UptimeRobot. You must create contacts in the UptimeRobot dashboard first, then reference them here.
+**Note:** Contacts must be created in UptimeRobot dashboard first.
 
 ### Spec
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `isDefault` | boolean | No | `false` | Use this contact when monitors don't specify one |
-| `account.name` | string | No | default account | Account to use for API access |
+| `account.name` | string | No | default account | Account to use |
 | `contact.id` | string | No* | - | UptimeRobot contact ID |
 | `contact.name` | string | No* | - | Contact friendlyName (must match exactly) |
 
-*Either `id` or `name` is required, but not both. Use `id` for contacts without a friendlyName.
+*Either `id` or `name` required, not both.
 
 ### Status
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `ready` | boolean | Whether the contact was found in UptimeRobot |
+| `ready` | boolean | Contact found in UptimeRobot |
 | `id` | string | Resolved contact ID |
-
-### Examples
-
-Reference by ID (recommended):
-
-```yaml
-apiVersion: uptimerobot.com/v1alpha1
-kind: Contact
-metadata:
-  name: my-email
-spec:
-  isDefault: true
-  contact:
-    id: "1234567"
-```
-
-Reference by friendlyName:
-
-```yaml
-apiVersion: uptimerobot.com/v1alpha1
-kind: Contact
-metadata:
-  name: my-phone
-spec:
-  contact:
-    name: "iPhone"
-```
 
 ---
 
@@ -116,302 +68,116 @@ Defines an UptimeRobot monitor.
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `syncInterval` | duration | No | `24h` | How often to reconcile with UptimeRobot API |
-| `prune` | boolean | No | `true` | Delete monitor from UptimeRobot when CR is deleted |
-| `account.name` | string | No | default account | Account to use for API access |
-| `contacts` | array | No | default contact | Alert contacts to notify |
-| `sourceRef` | object | No | - | Optional source object reference (kind/name/apiGroup) |
-| `monitor` | MonitorValues | Yes | - | Monitor configuration (see below) |
+| `syncInterval` | duration | No | `24h` | Reconciliation frequency |
+| `prune` | boolean | No | `true` | Delete from UptimeRobot when CR deleted |
+| `account.name` | string | No | default | Account to use |
+| `contacts[]` | array | No | default contact | Alert contacts |
+| `contacts[].name` | string | Yes | - | Contact resource name |
+| `contacts[].threshold` | duration | No | `1m` | Wait before first alert |
+| `contacts[].recurrence` | duration | No | `0` | Repeat interval (0 = no repeat) |
+| `sourceRef` | object | No | - | Optional source reference |
+| `monitor` | MonitorValues | Yes | - | Monitor configuration |
 
 ### MonitorValues
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `name` | string | Yes | - | Display name in UptimeRobot |
-| `url` | string | Conditional | - | URL or IP to monitor (not required for Heartbeat monitors) |
-| `type` | string | No | `HTTPS` | Monitor type (see Monitor Types) |
+| `name` | string | Yes | - | Display name |
+| `url` | string | Conditional | - | URL or IP (not required for Heartbeat) |
+| `type` | string | No | `HTTPS` | `HTTPS`, `Keyword`, `Ping`, `Port`, `Heartbeat`, `DNS` |
 | `interval` | duration | No | `60s` | Check interval |
 | `timeout` | duration | No | `30s` | Request timeout |
-| `gracePeriod` | duration | No | `60s` | Wait time before alerting (max 24h) |
-| `status` | integer | No | `1` | 0 = paused, 1 = running |
-| `method` | string | No | `HEAD` | HTTP method (HEAD, GET, POST, etc.) |
+| `gracePeriod` | duration | No | `60s` | Wait before alerting (max 24h) |
+| `status` | integer | No | `1` | 0=paused, 1=running |
+| `method` | string | No | `HEAD` | HTTP method |
 | `keyword` | object | No | - | Keyword monitor config |
 | `dns` | object | No | - | DNS monitor config |
 | `heartbeat` | object | No | - | Heartbeat monitor config |
 | `port` | object | No | - | Port monitor config |
-| `auth` | object | No | - | HTTP authentication config |
-| `post` | object | No | - | POST request body config |
-| `tags` | []string | No | - | Tags to assign in UptimeRobot |
-| `customHttpHeaders` | map[string]string | No | - | Custom HTTP headers |
-| `successHttpResponseCodes` | []string | No | - | Success HTTP codes (e.g. `2xx`, `200`) |
-| `checkSSLErrors` | boolean | No | - | Enable SSL/domain error checks |
-| `sslExpirationReminder` | boolean | No | - | Notify before SSL cert expiry |
+| `auth` | object | No | - | HTTP auth config |
+| `post` | object | No | - | POST body config |
+| `tags` | []string | No | - | Tags |
+| `customHttpHeaders` | map[string]string | No | - | Custom headers |
+| `successHttpResponseCodes` | []string | No | - | Success codes (e.g. `2xx`, `200`) |
+| `checkSSLErrors` | boolean | No | - | Enable SSL/domain checks |
+| `sslExpirationReminder` | boolean | No | - | Notify before SSL expiry |
 | `domainExpirationReminder` | boolean | No | - | Notify before domain expiry |
-| `followRedirections` | boolean | No | - | Follow HTTP redirects |
-| `responseTimeThreshold` | integer | No | - | Response time threshold in ms (0-60000) |
+| `followRedirections` | boolean | No | - | Follow redirects |
+| `responseTimeThreshold` | integer | No | - | Response time threshold (ms, 0-60000) |
 | `region` | string | No | - | Region: `na`, `eu`, `as`, `oc` |
-| `groupId` | integer | No | - | UptimeRobot group ID (0 = none) |
-| `maintenanceWindowIds` | []integer | No | - | Maintenance window IDs to assign |
+| `groupId` | integer | No | - | UptimeRobot group ID (0=none) |
+| `maintenanceWindowIds` | []integer | No | - | Maintenance window IDs |
 
 ### Auth
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `auth.type` | string | Yes | `Basic` or `Digest` |
-| `auth.username` | string | No | Username for HTTP auth |
-| `auth.password` | string | No | Password for HTTP auth |
-| `auth.secretName` | string | No | Secret containing credentials |
-| `auth.usernameKey` | string | No | Secret key for username |
-| `auth.passwordKey` | string | No | Secret key for password |
-
-```yaml
-spec:
-  monitor:
-    name: Authenticated Endpoint
-    url: https://secure.example.com/health
-    type: HTTPS
-    auth:
-      type: Basic
-      secretName: http-auth
-      usernameKey: username
-      passwordKey: password
-```
+| `type` | string | Yes | `Basic` or `Digest` |
+| `username` | string | No | Username |
+| `password` | string | No | Password |
+| `secretName` | string | No | Secret containing credentials |
+| `usernameKey` | string | No | Secret key for username |
+| `passwordKey` | string | No | Secret key for password |
 
 ### POST
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `post.postType` | string | No | `KeyValue` or `RawData` |
-| `post.contentType` | string | No | `text/html` or `application/json` |
-| `post.value` | string | No | Request body content |
+| `postType` | string | No | `KeyValue` or `RawData` |
+| `contentType` | string | No | `text/html` or `application/json` |
+| `value` | string | No | Request body |
 
-```yaml
-spec:
-  monitor:
-    name: POST Endpoint
-    url: https://api.example.com/submit
-    type: HTTPS
-    method: POST
-    post:
-      postType: RawData
-      contentType: application/json
-      value: '{"status":"ok"}'
-```
-
-### Monitor Types
-
-#### HTTPS
-
-Standard HTTP/HTTPS endpoint monitoring.
-
-```yaml
-spec:
-  monitor:
-    name: My API
-    url: https://api.example.com/health
-    type: HTTPS
-    interval: 5m
-    method: GET
-    tags:
-      - production
-      - public-api
-```
-
-#### Keyword
-
-Check for specific text in page content.
+### Keyword
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `keyword.type` | string | Yes | `Exists` or `NotExists` |
-| `keyword.value` | string | Yes | Text to search for |
-| `keyword.caseSensitive` | boolean | No | Case-sensitive matching (default: false) |
+| `type` | string | Yes | `Exists` or `NotExists` |
+| `value` | string | Yes | Text to search for |
+| `caseSensitive` | boolean | No | Case-sensitive matching |
 
-```yaml
-spec:
-  monitor:
-    name: Status Page
-    url: https://status.example.com
-    type: Keyword
-    interval: 5m
-    keyword:
-      type: Exists
-      value: "All Systems Operational"
-      caseSensitive: false
-```
+### DNS
 
-#### DNS
+| Field | Type | Description |
+|-------|------|-------------|
+| `a` | []string | Expected A records |
+| `aaaa` | []string | Expected AAAA records |
+| `cname` | []string | Expected CNAME records |
+| `mx` | []string | Expected MX records |
+| `ns` | []string | Expected NS records |
+| `txt` | []string | Expected TXT records |
+| `srv` | []string | Expected SRV records |
+| `ptr` | []string | Expected PTR records |
+| `soa` | []string | Expected SOA records |
+| `spf` | []string | Expected SPF records |
+| `sslExpirationPeriodDays` | []int | SSL expiry reminder offsets (0-365) |
 
-Verify DNS records resolve to expected values. For DNS monitors, set `monitor.url` to
-a hostname or IP with no scheme (e.g., `dns.google.com` or `8.8.8.8`).
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `dns.a` | []string | No | Expected A record values |
-| `dns.aaaa` | []string | No | Expected AAAA record values |
-| `dns.cname` | []string | No | Expected CNAME record values |
-| `dns.mx` | []string | No | Expected MX record values |
-| `dns.ns` | []string | No | Expected NS record values |
-| `dns.txt` | []string | No | Expected TXT record values |
-| `dns.srv` | []string | No | Expected SRV record values |
-| `dns.ptr` | []string | No | Expected PTR record values |
-| `dns.soa` | []string | No | Expected SOA record values |
-| `dns.spf` | []string | No | Expected SPF record values |
-| `dns.sslExpirationPeriodDays` | []int | No | SSL expiry reminder offsets (0-365) |
-
-```yaml
-spec:
-  monitor:
-    name: DNS Check
-    url: example.com
-    type: DNS
-    interval: 5m
-    dns:
-      a:
-        - "93.184.216.34"
-      sslExpirationPeriodDays:
-        - 7
-```
-
-#### Heartbeat
-
-Expects periodic pings from your services or cron jobs. Unlike other monitor types, Heartbeat monitors do not require a `url` field - UptimeRobot generates a unique webhook URL after creation.
+### Heartbeat
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `heartbeat.interval` | duration | No | Expected interval between pings (default: 60s) |
+| `interval` | duration | No | Expected ping interval (default: 60s) |
 
-```yaml
-spec:
-  monitor:
-    name: Backup Job
-    type: Heartbeat
-    interval: 1h
-    heartbeat:
-      interval: 1h
-```
-
-After the monitor is created, retrieve the webhook URL from the status:
-
-```bash
-kubectl get monitor backup-job -o jsonpath='{.status.heartbeatURL}'
-```
-
-The URL format is `https://heartbeat.uptimerobot.com/m{id}-{token}`. Your services or cron jobs should send HTTP requests to this URL at the specified interval to indicate they are alive.
-
-#### Port
-
-TCP port monitoring.
+### Port
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `port.number` | integer | Yes | Port number (0-65535) |
-
-```yaml
-spec:
-  monitor:
-    name: Database Port
-    url: db.example.com
-    type: Port
-    port:
-      number: 5432
-```
-
-#### Ping
-
-ICMP ping monitoring.
-
-```yaml
-spec:
-  monitor:
-    name: Server Ping
-    url: 192.168.1.1
-    type: Ping
-    interval: 5m
-```
-
-### Contact Reference
-
-| Field | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `contacts[].name` | string | Yes | - | Name of the Contact resource |
-| `contacts[].threshold` | duration | No | `1m` | Wait time before notifying |
-| `contacts[].recurrence` | duration | No | `0` | Repeat notification interval (0 = no repeat) |
-
-```yaml
-spec:
-  contacts:
-    - name: my-email
-      threshold: 5m
-      recurrence: 30m
-  monitor:
-    name: Critical Service
-    url: https://example.com
-```
-
-### Maintenance Windows
-
-Assign maintenance windows to monitors to prevent alerts during scheduled maintenance periods. Maintenance windows must be created in your UptimeRobot account first.
-
-To find maintenance window IDs:
-1. Log in to [UptimeRobot](https://uptimerobot.com)
-2. Navigate to **Maintenance Windows**
-3. The ID is visible in the URL or window details
-
-```yaml
-spec:
-  monitor:
-    name: Production API
-    url: https://api.example.com
-    maintenanceWindowIds:
-      - 12345  # Weekly maintenance window
-      - 67890  # Emergency maintenance window
-```
+| `number` | integer | Yes | Port number (0-65535) |
 
 ### Status
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `ready` | boolean | Whether the monitor exists in UptimeRobot |
+| `ready` | boolean | Monitor exists in UptimeRobot |
 | `id` | string | UptimeRobot monitor ID |
-| `heartbeatURL` | string | Webhook URL for Heartbeat monitors (only populated for type: Heartbeat) |
+| `heartbeatURL` | string | Webhook URL (Heartbeat monitors only) |
 | `type` | string | Monitor type |
 | `status` | integer | Current status code |
-
-### Full Example
-
-```yaml
-apiVersion: uptimerobot.com/v1alpha1
-kind: Monitor
-metadata:
-  name: production-api
-spec:
-  syncInterval: 5m
-  prune: true
-  contacts:
-    - name: ops-team
-      threshold: 2m
-      recurrence: 15m
-  monitor:
-    name: Production API
-    url: https://api.example.com/health
-    type: HTTPS
-    interval: 1m
-    timeout: 10s
-    gracePeriod: 2m
-    method: GET
-    tags:
-      - production
-      - api
-    maintenanceWindowIds:
-      - 12345
-```
 
 ---
 
 ## MaintenanceWindow
 
-Schedule planned downtime periods to prevent false alerts during deployments or maintenance.
+Schedule planned downtime.
 
 **Scope:** Namespaced
 
@@ -419,133 +185,50 @@ Schedule planned downtime periods to prevent false alerts during deployments or 
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `syncInterval` | duration | No | `24h` | How often to reconcile with UptimeRobot API |
-| `prune` | boolean | No | `true` | Delete maintenance window from UptimeRobot when CR is deleted |
-| `account.name` | string | No | default account | Account to use for API access |
-| `name` | string | Yes | - | Friendly name of the maintenance window (max 255 chars) |
-| `interval` | string | Yes | - | Recurrence pattern: `once`, `daily`, `weekly`, `monthly` |
-| `startDate` | string | Yes | - | Start date in YYYY-MM-DD format |
-| `startTime` | string | Yes | - | Start time in HH:mm:ss format |
-| `duration` | duration | Yes | - | Duration of the maintenance window (e.g., "30m", "1h", "2h30m") |
-| `days` | []int | Conditional | - | Days for weekly/monthly intervals (see below) |
-| `autoAddMonitors` | boolean | No | `false` | Automatically add all monitors to this window |
-| `monitorRefs` | []LocalObjectReference | No | - | List of Monitor resources to add to this window |
+| `syncInterval` | duration | No | `24h` | Reconciliation frequency |
+| `prune` | boolean | No | `true` | Delete from UptimeRobot when CR deleted |
+| `account.name` | string | No | default | Account to use |
+| `name` | string | Yes | - | Friendly name (max 255 chars) |
+| `interval` | string | Yes | - | `once`, `daily`, `weekly`, `monthly` |
+| `startDate` | string | Yes | - | Start date (YYYY-MM-DD) |
+| `startTime` | string | Yes | - | Start time (HH:mm:ss) |
+| `duration` | duration | Yes | - | Duration (e.g. `30m`, `1h`, `2h30m`) |
+| `days` | []int | Conditional | - | Days for weekly/monthly (see below) |
+| `autoAddMonitors` | boolean | No | `false` | Add all monitors automatically |
+| `monitorRefs` | []LocalObjectReference | No | - | Specific monitors to add |
 
-### Days Field
-
-The `days` field is required for `weekly` and `monthly` intervals:
-
-- **Weekly**: Day of week (0=Sunday, 1=Monday, ..., 6=Saturday)
-- **Monthly**: Day of month (1-31, or -1 for last day of month)
+**Days field:**
+- Weekly: 0=Sunday, 1=Monday, ..., 6=Saturday
+- Monthly: 1-31 for specific days, -1 for last day
 
 ### Status
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `ready` | boolean | Whether the maintenance window is successfully created |
+| `ready` | boolean | Maintenance window created |
 | `id` | string | UptimeRobot maintenance window ID |
-| `monitorCount` | integer | Number of monitors assigned to this window |
-
-### Examples
-
-#### One-time Maintenance Window
-
-```yaml
-apiVersion: uptimerobot.com/v1alpha1
-kind: MaintenanceWindow
-metadata:
-  name: emergency-maintenance
-spec:
-  name: "Emergency Database Upgrade"
-  interval: once
-  startDate: "2026-03-15"
-  startTime: "03:00:00"
-  duration: 2h
-  autoAddMonitors: true
-```
-
-#### Daily Maintenance Window
-
-```yaml
-apiVersion: uptimerobot.com/v1alpha1
-kind: MaintenanceWindow
-metadata:
-  name: daily-backup-window
-spec:
-  name: "Daily Backup Window"
-  interval: daily
-  startDate: "2026-02-01"
-  startTime: "02:00:00"
-  duration: 30m
-  monitorRefs:
-    - name: database-monitor
-    - name: storage-monitor
-```
-
-#### Weekly Deployment Window
-
-```yaml
-apiVersion: uptimerobot.com/v1alpha1
-kind: MaintenanceWindow
-metadata:
-  name: weekly-deployment-window
-spec:
-  name: "Weekly Deployment Window"
-  interval: weekly
-  startDate: "2026-02-10"
-  startTime: "02:00:00"
-  duration: 1h
-  days: [2, 4]  # Tuesday and Thursday
-  monitorRefs:
-    - name: production-api
-    - name: frontend-app
-```
-
-#### Monthly Maintenance Window
-
-```yaml
-apiVersion: uptimerobot.com/v1alpha1
-kind: MaintenanceWindow
-metadata:
-  name: monthly-maintenance
-spec:
-  name: "Monthly Maintenance"
-  interval: monthly
-  startDate: "2026-02-01"
-  startTime: "05:00:00"
-  duration: 4h
-  days: [1, 15, -1]  # 1st, 15th, and last day of month
-  autoAddMonitors: false
-  monitorRefs:
-    - name: my-website
-```
-
-### Monitor References
-
-Maintenance windows can be assigned to monitors in two ways:
-
-1. **Auto-add**: Set `autoAddMonitors: true` to include all monitors
-2. **Explicit references**: List specific monitors in `monitorRefs`
-
-Note: Monitors must be in the same namespace as the MaintenanceWindow resource.
-
-### Validation Rules
-
-- `days` is required when `interval` is `weekly` or `monthly`
-- `days` must not be set when `interval` is `once` or `daily`
-- For weekly intervals, `days` values must be 0-6
-- For monthly intervals, `days` values must be 1-31 or -1
-- `duration` must be at least 1 minute
+| `monitorCount` | integer | Number of assigned monitors |
 
 ---
 
 ## Duration Format
 
-Duration fields accept Go duration strings:
+All duration fields use Go duration format:
 
-| Unit | Example |
-|------|---------|
-| Seconds | `30s` |
-| Minutes | `5m` |
-| Hours | `24h` |
-| Combined | `1h30m` |
+| Format | Duration |
+|--------|----------|
+| `30s` | 30 seconds |
+| `5m` | 5 minutes |
+| `1h` | 1 hour |
+| `24h` | 24 hours |
+| `1h30m` | 1 hour 30 minutes |
+
+---
+
+## Examples
+
+See the how-to guides for complete examples:
+
+- [Getting Started](getting-started.md) - First monitor
+- [Monitors](monitors.md) - All monitor types
+- [Maintenance Windows](maintenance-windows.md) - Scheduling downtime

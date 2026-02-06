@@ -323,29 +323,118 @@ func ValidatePortMonitorFields(expectedPort int, actual *uptimerobot.MonitorResp
 	return errs
 }
 
-// ValidateDNSMonitorFields checks DNS config (e.g. A records) in API response.
-func ValidateDNSMonitorFields(expectedARecords []string, actual *uptimerobot.MonitorResponse) MonitorFieldErrors {
-	debugLog("Validating DNS records: want %d A records", len(expectedARecords))
+// DNSRecordExpectation contains expected DNS records for validation.
+type DNSRecordExpectation struct {
+	A     []string
+	AAAA  []string
+	CNAME []string
+	MX    []string
+	NS    []string
+	TXT   []string
+}
+
+// ValidateDNSMonitorFields checks DNS config records in API response.
+func ValidateDNSMonitorFields(expected DNSRecordExpectation, actual *uptimerobot.MonitorResponse) MonitorFieldErrors {
+	debugLog("Validating DNS records: A=%d, AAAA=%d, CNAME=%d, MX=%d, NS=%d, TXT=%d",
+		len(expected.A), len(expected.AAAA), len(expected.CNAME), len(expected.MX), len(expected.NS), len(expected.TXT))
 
 	var errs MonitorFieldErrors
 	if actual.Config == nil || actual.Config.DNSRecords == nil {
 		debugLog("DNS config or records missing in response")
-		if len(expectedARecords) > 0 {
+		if len(expected.A) > 0 || len(expected.AAAA) > 0 || len(expected.CNAME) > 0 ||
+			len(expected.MX) > 0 || len(expected.NS) > 0 || len(expected.TXT) > 0 {
 			errs = append(errs, "config.dnsRecords: missing in response")
 		}
 		return errs
 	}
-	actualA := actual.Config.DNSRecords.A
-	debugLog("Found %d A records in response", len(actualA))
 
-	if len(actualA) != len(expectedARecords) {
-		errs = append(errs, fmt.Sprintf("config.dnsRecords.A length: got %d want %d", len(actualA), len(expectedARecords)))
-		return errs
+	// Validate A records
+	if len(expected.A) > 0 {
+		actualA := actual.Config.DNSRecords.A
+		debugLog("Found %d A records in response", len(actualA))
+		if len(actualA) != len(expected.A) {
+			errs = append(errs, fmt.Sprintf("config.dnsRecords.A length: got %d want %d", len(actualA), len(expected.A)))
+		} else {
+			for i, want := range expected.A {
+				if i >= len(actualA) || actualA[i] != want {
+					errs = append(errs, fmt.Sprintf("config.dnsRecords.A[%d]: got %q want %q", i, actualA[i], want))
+				}
+			}
+		}
 	}
-	for i, want := range expectedARecords {
-		if i >= len(actualA) || actualA[i] != want {
-			errs = append(errs, fmt.Sprintf("config.dnsRecords.A[%d]: got %v want %q", i, actualA, want))
-			break
+
+	// Validate AAAA records
+	if len(expected.AAAA) > 0 {
+		actualAAAA := actual.Config.DNSRecords.AAAA
+		debugLog("Found %d AAAA records in response", len(actualAAAA))
+		if len(actualAAAA) != len(expected.AAAA) {
+			errs = append(errs, fmt.Sprintf("config.dnsRecords.AAAA length: got %d want %d", len(actualAAAA), len(expected.AAAA)))
+		} else {
+			for i, want := range expected.AAAA {
+				if i >= len(actualAAAA) || actualAAAA[i] != want {
+					errs = append(errs, fmt.Sprintf("config.dnsRecords.AAAA[%d]: got %q want %q", i, actualAAAA[i], want))
+				}
+			}
+		}
+	}
+
+	// Validate CNAME records
+	if len(expected.CNAME) > 0 {
+		actualCNAME := actual.Config.DNSRecords.CNAME
+		debugLog("Found %d CNAME records in response", len(actualCNAME))
+		if len(actualCNAME) != len(expected.CNAME) {
+			errs = append(errs, fmt.Sprintf("config.dnsRecords.CNAME length: got %d want %d", len(actualCNAME), len(expected.CNAME)))
+		} else {
+			for i, want := range expected.CNAME {
+				if i >= len(actualCNAME) || actualCNAME[i] != want {
+					errs = append(errs, fmt.Sprintf("config.dnsRecords.CNAME[%d]: got %q want %q", i, actualCNAME[i], want))
+				}
+			}
+		}
+	}
+
+	// Validate MX records
+	if len(expected.MX) > 0 {
+		actualMX := actual.Config.DNSRecords.MX
+		debugLog("Found %d MX records in response", len(actualMX))
+		if len(actualMX) != len(expected.MX) {
+			errs = append(errs, fmt.Sprintf("config.dnsRecords.MX length: got %d want %d", len(actualMX), len(expected.MX)))
+		} else {
+			for i, want := range expected.MX {
+				if i >= len(actualMX) || actualMX[i] != want {
+					errs = append(errs, fmt.Sprintf("config.dnsRecords.MX[%d]: got %q want %q", i, actualMX[i], want))
+				}
+			}
+		}
+	}
+
+	// Validate NS records
+	if len(expected.NS) > 0 {
+		actualNS := actual.Config.DNSRecords.NS
+		debugLog("Found %d NS records in response", len(actualNS))
+		if len(actualNS) != len(expected.NS) {
+			errs = append(errs, fmt.Sprintf("config.dnsRecords.NS length: got %d want %d", len(actualNS), len(expected.NS)))
+		} else {
+			for i, want := range expected.NS {
+				if i >= len(actualNS) || actualNS[i] != want {
+					errs = append(errs, fmt.Sprintf("config.dnsRecords.NS[%d]: got %q want %q", i, actualNS[i], want))
+				}
+			}
+		}
+	}
+
+	// Validate TXT records
+	if len(expected.TXT) > 0 {
+		actualTXT := actual.Config.DNSRecords.TXT
+		debugLog("Found %d TXT records in response", len(actualTXT))
+		if len(actualTXT) != len(expected.TXT) {
+			errs = append(errs, fmt.Sprintf("config.dnsRecords.TXT length: got %d want %d", len(actualTXT), len(expected.TXT)))
+		} else {
+			for i, want := range expected.TXT {
+				if i >= len(actualTXT) || actualTXT[i] != want {
+					errs = append(errs, fmt.Sprintf("config.dnsRecords.TXT[%d]: got %q want %q", i, actualTXT[i], want))
+				}
+			}
 		}
 	}
 
@@ -491,4 +580,25 @@ func ValidateMaintenanceWindowFields(
 	}
 
 	return errs
+}
+
+// monitorHasMaintenanceWindow checks if a monitor's maintenanceWindows list
+// contains a maintenance window with the given ID (as string).
+func monitorHasMaintenanceWindow(mws []uptimerobot.MaintenanceWindowSummary, mwID string) bool {
+	for _, mw := range mws {
+		if fmt.Sprintf("%d", mw.ID) == mwID {
+			return true
+		}
+	}
+	return false
+}
+
+// maintenanceWindowIDs extracts the IDs from a list of maintenance window summaries.
+// Used for debug logging.
+func maintenanceWindowIDs(mws []uptimerobot.MaintenanceWindowSummary) []int {
+	ids := make([]int, len(mws))
+	for i, mw := range mws {
+		ids[i] = mw.ID
+	}
+	return ids
 }

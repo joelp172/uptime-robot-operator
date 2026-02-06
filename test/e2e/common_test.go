@@ -99,6 +99,10 @@ func cleanupMonitors() {
 		fmt.Sprintf("e2e-port-%s", testRunID),
 		fmt.Sprintf("e2e-heartbeat-%s", testRunID),
 		fmt.Sprintf("e2e-dns-%s", testRunID),
+		fmt.Sprintf("e2e-dns-cname-%s", testRunID),
+		fmt.Sprintf("e2e-dns-mx-%s", testRunID),
+		fmt.Sprintf("e2e-dns-ns-%s", testRunID),
+		fmt.Sprintf("e2e-dns-txt-%s", testRunID),
 		fmt.Sprintf("e2e-contacts-%s", testRunID),
 	}
 
