@@ -119,4 +119,96 @@ var _ = Describe("Monitor Controller", func() {
 			Expect(monitor.Status.Status).To(Equal(uint8(1)))
 		})
 	})
+
+	Context("When adopting an existing monitor", func() {
+		const resourceName = "test-adopt-monitor"
+		const existingMonitorID = "777810874" // This ID exists in the mock server
+		ctx := context.Background()
+		namespacedName := types.NamespacedName{
+			Name:      resourceName,
+			Namespace: "default",
+		}
+		monitor := &uptimerobotv1.Monitor{}
+		var (
+			secret  *corev1.Secret
+			account *uptimerobotv1.Account
+			contact *uptimerobotv1.Contact
+		)
+
+		BeforeEach(func() {
+			By("creating the custom resource for the Kind Account")
+			account, secret = CreateAccount(ctx)
+			ReconcileAccount(ctx, account)
+
+			By("creating the custom resource for the Kind Contact")
+			contact = CreateContact(ctx, account.Name)
+			ReconcileContact(ctx, contact)
+
+			By("creating the custom resource for the Kind Monitor with adopt-id annotation")
+			err := k8sClient.Get(ctx, namespacedName, monitor)
+			if err != nil && errors.IsNotFound(err) {
+				resource := &uptimerobotv1.Monitor{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      resourceName,
+						Namespace: "default",
+						Annotations: map[string]string{
+							AdoptIDAnnotation: existingMonitorID,
+						},
+					},
+					Spec: uptimerobotv1.MonitorSpec{
+						Account: corev1.LocalObjectReference{
+							Name: account.Name,
+						},
+						Monitor: uptimerobotv1.MonitorValues{
+							Name: "Adopted Monitor",
+							URL:  "https://example.com",
+							Type: urtypes.TypeHTTPS,
+						},
+						Contacts: []uptimerobotv1.MonitorContactRef{
+							{
+								LocalObjectReference: corev1.LocalObjectReference{
+									Name: contact.Name,
+								},
+							},
+						},
+					},
+				}
+				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
+			}
+		})
+
+		AfterEach(func() {
+			resource := &uptimerobotv1.Monitor{}
+			err := k8sClient.Get(ctx, namespacedName, resource)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Cleanup the specific resource instance Monitor")
+			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
+
+			By("Cleanup the specific resource instance Contact")
+			CleanupContact(ctx, contact)
+
+			By("Cleanup the specific resource instance Account")
+			CleanupAccount(ctx, account, secret)
+		})
+
+		It("should successfully adopt the existing monitor", func() {
+			By("Reconciling the created resource with adoption annotation")
+			controllerReconciler := &MonitorReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying the monitor was adopted with the correct ID")
+			Expect(k8sClient.Get(ctx, namespacedName, monitor)).To(Succeed())
+			Expect(monitor.Status.Ready).To(Equal(true))
+			Expect(monitor.Status.ID).To(Equal(existingMonitorID))
+			Expect(monitor.Status.Type).To(Equal(urtypes.TypeHTTPS))
+		})
+	})
 })
