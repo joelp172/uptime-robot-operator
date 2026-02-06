@@ -5,77 +5,34 @@
 [![License](https://img.shields.io/github/license/joelp172/uptime-robot-operator)](LICENSE)
 [![Go Report Card](https://goreportcard.com/badge/github.com/joelp172/uptime-robot-operator)](https://goreportcard.com/report/github.com/joelp172/uptime-robot-operator)
 
-A Kubernetes operator for managing [UptimeRobot](https://uptimerobot.com/?red=joelpi) monitors declaratively. Define your uptime monitors as Kubernetes resources and let the operator handle the rest - automatic drift detection, self-healing, and GitOps-friendly workflows.
+Manage [UptimeRobot](https://uptimerobot.com/?red=joelpi) monitors as Kubernetes resources. Automatic drift detection, self-healing, and GitOps-ready.
 
 ## Features
 
-- Declarative monitor management via Kubernetes CRDs
-- Automatic drift detection and correction
-- Support for all UptimeRobot monitor types: HTTPS, Keyword, Ping, Port, Heartbeat, DNS
-- Alert contact configuration
+- Declarative monitor configuration via CRDs
+- Drift detection and automatic correction
+- All monitor types: HTTPS, Keyword, Ping, Port, Heartbeat, DNS
 - Maintenance window scheduling
-- Garbage collection of deleted monitors
+- Alert contact management
 
 ## Quick Start
 
-### Prerequisites
-
-- Kubernetes cluster v1.19+
-- kubectl configured to access your cluster
-- UptimeRobot API key ([sign up free](https://uptimerobot.com/?red=joelpi) then go to Integrations > API)
-- (Optional) Helm 3.0+ for Helm-based installation
-
-### Install
-
-#### Option 1: Using kubectl (Static Manifests)
+Install the operator:
 
 ```bash
 kubectl apply -f https://github.com/joelp172/uptime-robot-operator/releases/latest/download/install.yaml
 ```
 
-#### Option 2: Using Helm
-
-**From source:**
+Create your first monitor:
 
 ```bash
-# Clone the repository
-git clone https://github.com/joelp172/uptime-robot-operator.git
-cd uptime-robot-operator
-
-# Install the chart
-helm install uptime-robot-operator ./charts/uptime-robot-operator
-```
-
-**From OCI registry (after first release):**
-
-```bash
-helm install uptime-robot-operator oci://ghcr.io/joelp172/charts/uptime-robot-operator --version v1.2.1
-```
-
-Or install with custom values:
-
-```bash
-helm install uptime-robot-operator ./charts/uptime-robot-operator \
-  --set resources.limits.memory=1Gi
-```
-
-See the [Helm Chart README](charts/uptime-robot-operator/README.md) for all configuration options.
-
-### Configure API Key
-
-Create a Secret in the `uptime-robot-system` namespace (where the operator runs):
-
-```bash
-kubectl create secret generic uptime-robot-api-key \
+# Store your API key
+kubectl create secret generic uptimerobot-api-key \
   --namespace uptime-robot-system \
   --from-literal=apiKey=YOUR_API_KEY
-```
 
-### Create Account
-
-Account and Contact are cluster-scoped resources (no namespace required). The Secret they reference must be in `uptime-robot-system`.
-
-```yaml
+# Configure account
+kubectl apply -f - <<EOF
 apiVersion: uptimerobot.com/v1alpha1
 kind: Account
 metadata:
@@ -85,19 +42,13 @@ spec:
   apiKeySecretRef:
     name: uptimerobot-api-key
     key: apiKey
-```
+EOF
 
-### Create Contact
-
-First, find your alert contact ID from the Account status:
-
-```bash
+# Get your contact ID
 kubectl get account default -o jsonpath='{.status.alertContacts[0].id}'
-```
 
-Then create a Contact resource referencing it:
-
-```yaml
+# Create contact (replace YOUR_CONTACT_ID)
+kubectl apply -f - <<EOF
 apiVersion: uptimerobot.com/v1alpha1
 kind: Contact
 metadata:
@@ -106,11 +57,10 @@ spec:
   isDefault: true
   contact:
     id: "YOUR_CONTACT_ID"
-```
+EOF
 
-### Create Monitor
-
-```yaml
+# Create monitor
+kubectl apply -f - <<EOF
 apiVersion: uptimerobot.com/v1alpha1
 kind: Monitor
 metadata:
@@ -120,119 +70,39 @@ spec:
     name: My Website
     url: https://example.com
     interval: 5m
+EOF
 ```
 
 ## Documentation
 
-- [Getting Started Guide](docs/getting-started.md) - Full installation and configuration tutorial
-- [API Reference](docs/api-reference.md) - Complete CRD specification
-- [How to Configure Alerts](docs/configure-alerts.md) - Set up alert contacts and notifications
+| Document | Purpose |
+|----------|---------|
+| [Installation](docs/installation.md) | Install via kubectl or Helm |
+| [Getting Started](docs/getting-started.md) | Create your first monitor (tutorial) |
+| [Monitors](docs/monitors.md) | Configure monitor types and alerts |
+| [Maintenance Windows](docs/maintenance-windows.md) | Schedule planned downtime |
+| [API Reference](docs/api-reference.md) | Complete CRD field reference |
+| [Development](docs/development.md) | Contributing and testing |
 
 ## Monitor Types
 
-| Type | Description |
-|------|-------------|
-| HTTPS | HTTP/HTTPS endpoint monitoring |
-| Keyword | Check for specific text in page content |
-| Ping | ICMP ping monitoring |
-| Port | TCP port monitoring |
-| Heartbeat | Expects periodic pings from your services (URL generated automatically) |
-| DNS | DNS record verification |
-
-### Heartbeat Monitors
-
-Heartbeat monitors are ideal for cron jobs and scheduled tasks. The webhook URL is generated automatically:
-
-```yaml
-apiVersion: uptimerobot.com/v1alpha1
-kind: Monitor
-metadata:
-  name: backup-job
-spec:
-  monitor:
-    name: Daily Backup
-    type: Heartbeat
-    interval: 24h
-    heartbeat:
-      interval: 24h
-```
-
-After creation, retrieve the webhook URL from the status:
-
-```bash
-kubectl get monitor backup-job -o jsonpath='{.status.heartbeatURL}'
-```
-
-### Maintenance Windows
-
-Schedule planned downtime periods to prevent false alerts during deployments or maintenance:
-
-```yaml
-apiVersion: uptimerobot.com/v1alpha1
-kind: MaintenanceWindow
-metadata:
-  name: weekly-deployment-window
-spec:
-  name: "Weekly Deployment Window"
-  
-  # Schedule configuration
-  interval: weekly
-  startDate: "2026-02-10"
-  startTime: "02:00:00"
-  duration: 1h  # Using Go duration format
-  
-  # For weekly: days of week (0=Sunday, 1=Monday, etc.)
-  # For monthly: days of month (1-31, -1 for last day)
-  days: [2, 4]  # Tuesday and Thursday
-  
-  # Monitor selection
-  autoAddMonitors: false  # Add all monitors automatically
-  
-  # Reference specific monitors by name
-  monitorRefs:
-    - name: my-website
-```
-
-**Interval Options:**
-
-- `once` - One-time maintenance window
-- `daily` - Runs every day
-- `weekly` - Specific days of the week (requires `days` field with 0-6, where 0=Sunday)
-- `monthly` - Specific days of the month (requires `days` field with 1-31, or -1 for last day)
-
-**Example - One-time maintenance:**
-```yaml
-spec:
-  interval: once
-  startDate: "2026-03-15"
-  startTime: "03:00:00"
-  duration: 2h
-```
-
-**Example - Monthly maintenance on 1st, 15th, and last day:**
-```yaml
-spec:
-  interval: monthly
-  startDate: "2026-02-01"
-  startTime: "05:00:00"
-  duration: 4h
-  days: [1, 15, -1]
-```
+| Type | Use Case |
+|------|----------|
+| HTTPS | HTTP/HTTPS endpoints |
+| Keyword | Page content verification |
+| Ping | ICMP availability |
+| Port | TCP port connectivity |
+| Heartbeat | Cron jobs and scheduled tasks |
+| DNS | DNS record validation |
 
 ## How It Works
 
-The operator watches for Monitor custom resources and creates corresponding monitors in UptimeRobot via the API. It periodically reconciles the state to detect and correct drift (changes made outside Kubernetes).
-
-When you delete a Monitor resource with `prune: true` (the default), the operator automatically deletes the corresponding monitor in UptimeRobot.
-
-## Roadmap
-
-See the [project roadmap](https://github.com/users/joelp172/projects/1) for planned features and progress.
+The operator reconciles Monitor resources with UptimeRobot via the API. It detects drift (manual changes in UptimeRobot) and corrects them to match your Kubernetes configuration. When you delete a Monitor resource, the operator removes it from UptimeRobot (configurable via `prune` field).
 
 ## Contributing
 
-Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, testing instructions, and PR guidelines.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and PR guidelines.
 
 ## License
 
-Apache License 2.0. See [LICENSE](LICENSE) for details.
+Apache License 2.0 - see [LICENSE](LICENSE)

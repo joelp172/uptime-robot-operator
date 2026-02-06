@@ -1,18 +1,23 @@
 # Uptime Robot Operator Helm Chart
 
-This Helm chart deploys the Uptime Robot Operator on a Kubernetes cluster using the Helm package manager.
+Deploy the Uptime Robot Operator using Helm.
 
 ## Prerequisites
 
 - Kubernetes 1.19+
 - Helm 3.0+
-- UptimeRobot API key ([sign up free](https://uptimerobot.com/?red=joelpi) then go to Integrations > API)
 
-## Installing the Chart
+## Install
 
-### From source
+### From OCI Registry
 
-To install the chart with the release name `uptime-robot-operator` from the source repository:
+```bash
+helm install uptime-robot-operator \
+  oci://ghcr.io/joelp172/charts/uptime-robot-operator \
+  --version v1.2.1
+```
+
+### From Source
 
 ```bash
 git clone https://github.com/joelp172/uptime-robot-operator.git
@@ -20,32 +25,17 @@ cd uptime-robot-operator
 helm install uptime-robot-operator ./charts/uptime-robot-operator
 ```
 
-### From OCI registry
-
-To install the chart from the OCI registry (requires Helm 3.8+):
-
-```bash
-# Replace <VERSION> with the desired chart version (e.g., v1.0.0)
-helm install uptime-robot-operator oci://ghcr.io/joelp172/charts/uptime-robot-operator --version <VERSION>
-```
-
-To see available versions:
-
-```bash
-helm show chart oci://ghcr.io/joelp172/charts/uptime-robot-operator
-```
-
-The command deploys the Uptime Robot Operator on the Kubernetes cluster with default configuration. The [Parameters](#parameters) section lists the parameters that can be configured during installation.
-
-## Uninstalling the Chart
-
-To uninstall/delete the `uptime-robot-operator` deployment:
+## Uninstall
 
 ```bash
 helm uninstall uptime-robot-operator
 ```
 
-The command removes all the Kubernetes components associated with the chart. Note that CRDs are not removed by default to prevent data loss.
+CRDs are preserved to prevent data loss. To remove them:
+
+```bash
+kubectl delete crd accounts.uptimerobot.com contacts.uptimerobot.com monitors.uptimerobot.com maintenancewindows.uptimerobot.com
+```
 
 ## Parameters
 
@@ -167,56 +157,20 @@ kubectl apply -f charts/uptime-robot-operator/crds/
 | `nameOverride`                    | Override the name of the chart                   | `""`             |
 | `fullnameOverride`                | Override the full name of the chart              | `""`             |
 
-## Configuration Examples
+## Configuration
 
-### Custom Namespace
+### Custom Values
 
-```bash
-helm install uptime-robot-operator ./charts/uptime-robot-operator \
-  --set namespaceOverride=my-namespace
-```
-
-### Custom Image Tag
-
-```bash
-helm install uptime-robot-operator ./charts/uptime-robot-operator \
-  --set image.tag=v1.0.0
-```
-
-### Custom Resource Limits
-
-```bash
-helm install uptime-robot-operator ./charts/uptime-robot-operator \
-  --set resources.limits.cpu=2 \
-  --set resources.limits.memory=1Gi \
-  --set resources.requests.cpu=100m \
-  --set resources.requests.memory=128Mi
-```
-
-### Multiple Replicas (for High Availability)
-
-```bash
-helm install uptime-robot-operator ./charts/uptime-robot-operator \
-  --set replicaCount=2
-```
-
-Note: When running multiple replicas, leader election is automatically enabled to ensure only one instance is active at a time.
-
-### Using Values File
-
-Create a `custom-values.yaml` file:
+Create a `values.yaml` file:
 
 ```yaml
-image:
-  tag: v1.0.0
-
 resources:
   limits:
-    cpu: 2
-    memory: 1Gi
+    cpu: 1
+    memory: 512Mi
   requests:
-    cpu: 100m
-    memory: 128Mi
+    cpu: 10m
+    memory: 64Mi
 
 replicaCount: 2
 
@@ -224,109 +178,46 @@ nodeSelector:
   node-role.kubernetes.io/worker: "true"
 ```
 
-Install the chart with custom values:
+Install with custom values:
 
 ```bash
-helm install uptime-robot-operator ./charts/uptime-robot-operator \
-  -f custom-values.yaml
+helm install uptime-robot-operator ./charts/uptime-robot-operator -f values.yaml
 ```
 
-## Post-Installation Steps
+### Common Overrides
 
-After installing the chart, follow these steps to start monitoring your services:
+```bash
+# Custom namespace
+helm install uptime-robot-operator ./charts/uptime-robot-operator \
+  --set namespaceOverride=my-namespace
 
-1. **Create API Key Secret**
+# Custom image tag
+helm install uptime-robot-operator ./charts/uptime-robot-operator \
+  --set image.tag=v1.0.0
 
-   ```bash
-   kubectl create secret generic uptimerobot-api-key \
-     --namespace uptime-robot-system \
-     --from-literal=apiKey=YOUR_API_KEY
-   ```
+# High availability (2 replicas)
+helm install uptime-robot-operator ./charts/uptime-robot-operator \
+  --set replicaCount=2
+```
 
-2. **Create Account Resource**
-
-   ```yaml
-   apiVersion: uptimerobot.com/v1alpha1
-   kind: Account
-   metadata:
-     name: default
-   spec:
-     isDefault: true
-     apiKeySecretRef:
-       name: uptimerobot-api-key
-       key: apiKey
-   ```
-
-3. **Create Contact Resource**
-
-   First, get your contact ID:
-   ```bash
-   kubectl get account default -o jsonpath='{.status.alertContacts[0].id}'
-   ```
-
-   Then create the Contact:
-   ```yaml
-   apiVersion: uptimerobot.com/v1alpha1
-   kind: Contact
-   metadata:
-     name: default
-   spec:
-     isDefault: true
-     contact:
-       id: "YOUR_CONTACT_ID"
-   ```
-
-4. **Create Monitor Resource**
-
-   ```yaml
-   apiVersion: uptimerobot.com/v1alpha1
-   kind: Monitor
-   metadata:
-     name: my-website
-     namespace: default
-   spec:
-     monitor:
-       name: My Website
-       url: https://example.com
-       interval: 5m
-   ```
-
-## Upgrading the Chart
-
-To upgrade the `uptime-robot-operator` deployment:
+## Upgrade
 
 ```bash
 helm upgrade uptime-robot-operator ./charts/uptime-robot-operator
 ```
 
-## CRD Management
-
-By default, the chart installs CRDs and preserves them when the chart is uninstalled. This prevents accidental data loss.
-
-To completely remove CRDs (this will delete all Account, Contact, Monitor, and MaintenanceWindow resources):
+**Note:** CRDs are not upgraded automatically. To upgrade CRDs:
 
 ```bash
-kubectl delete crd accounts.uptimerobot.com
-kubectl delete crd contacts.uptimerobot.com
-kubectl delete crd monitors.uptimerobot.com
-kubectl delete crd maintenancewindows.uptimerobot.com
+kubectl apply -f https://github.com/joelp172/uptime-robot-operator/releases/latest/download/install.yaml
 ```
 
-## Troubleshooting
+## Next Steps
 
-### Verify Installation
-
-```bash
-kubectl get pods -n uptime-robot-system
-kubectl get crd | grep uptimerobot.com
-```
+After installation, see the [Getting Started Guide](https://github.com/joelp172/uptime-robot-operator/blob/main/docs/getting-started.md) to create your first monitor.
 
 ## More Information
 
-- [Project Documentation](https://github.com/joelp172/uptime-robot-operator/tree/main/docs)
+- [Documentation](https://github.com/joelp172/uptime-robot-operator/tree/main/docs)
 - [GitHub Repository](https://github.com/joelp172/uptime-robot-operator)
 - [Issue Tracker](https://github.com/joelp172/uptime-robot-operator/issues)
-
-## Licence
-
-Apache Licence 2.0 - See [LICENCE](https://github.com/joelp172/uptime-robot-operator/blob/main/LICENSE) for details.
