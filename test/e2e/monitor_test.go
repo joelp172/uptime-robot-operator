@@ -971,8 +971,9 @@ spec:
 
 		It("should fail to adopt a non-existent monitor", func() {
 			By("attempting to adopt a monitor with a non-existent ID")
-			// Use a very large random number to ensure it doesn't exist
-			nonExistentID := fmt.Sprintf("99%d", time.Now().UnixNano()%1000000000)
+			// Use a timestamp-based ID that is extremely unlikely to exist
+			// Format: 99 (prefix) + 10 digits from nanosecond timestamp = 12 digit ID
+			nonExistentID := fmt.Sprintf("99%010d", time.Now().UnixNano()%10000000000)
 			adoptMonitorYAML := fmt.Sprintf(`
 apiVersion: uptimerobot.com/v1alpha1
 kind: Monitor
