@@ -537,8 +537,26 @@ spec:
 				g.Expect(err).To(HaveOccurred(), "MaintenanceWindow CR should be deleted")
 			}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
 
-			// Note: With prune=false, the external resource persists in UptimeRobot
-			// In a real test, we would verify it still exists via API
+			By("verifying MW still exists in UptimeRobot API (prune=false)")
+			apiKey := os.Getenv("UPTIME_ROBOT_API_KEY")
+			debugLog("Verifying MW ID=%s still exists in API (prune=false test)", strings.TrimSpace(mwID))
+			pollCount := 0
+			Eventually(func(g Gomega) {
+				pollCount++
+				debugLog("Poll #%d: Checking if MW ID=%s exists in API", pollCount, strings.TrimSpace(mwID))
+				mw, err := getMaintenanceWindowFromAPI(apiKey, strings.TrimSpace(mwID))
+				if err != nil {
+					debugLog("Poll #%d: API call failed: %v", pollCount, err)
+				} else {
+					debugLog("Poll #%d: MW found in API: Name=%s", pollCount, mw.Name)
+				}
+				g.Expect(err).NotTo(HaveOccurred(), "MW should still exist in API with prune=false")
+				g.Expect(mw.Name).To(Equal("E2E Delete No Prune MW"))
+			}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
+			debugLog("MW verification complete after %d polls", pollCount)
+
+			By("cleaning up MW from API manually")
+			deleteMaintenanceWindowFromAPI(apiKey, strings.TrimSpace(mwID))
 		})
 	})
 
@@ -859,6 +877,123 @@ spec:
 			Expect(strings.TrimSpace(output)).NotTo(BeEmpty())
 		})
 	})
+
+	Context("AutoAddMonitors", func() {
+		var monitor1Name, monitor2Name string
+
+		BeforeEach(func() {
+			monitor1Name = fmt.Sprintf("e2e-mw-auto1-%s", testRunID)
+			monitor2Name = fmt.Sprintf("e2e-mw-auto2-%s", testRunID)
+		})
+
+		AfterEach(func() {
+			deleteMonitorAndWaitForAPICleanup(monitor1Name)
+			deleteMonitorAndWaitForAPICleanup(monitor2Name)
+		})
+
+		It("should automatically add all monitors when autoAddMonitors is true", func() {
+			// Create two monitors first
+			applyMonitor(fmt.Sprintf(`
+apiVersion: uptimerobot.com/v1alpha1
+kind: Monitor
+metadata:
+  name: %s
+spec:
+  syncInterval: 1m
+  prune: true
+  account:
+    name: e2e-account-%s
+  monitor:
+    name: "E2E Auto Add Monitor 1"
+    url: https://example.com/auto1
+    type: HTTPS
+`, monitor1Name, testRunID))
+
+			applyMonitor(fmt.Sprintf(`
+apiVersion: uptimerobot.com/v1alpha1
+kind: Monitor
+metadata:
+  name: %s
+spec:
+  syncInterval: 1m
+  prune: true
+  account:
+    name: e2e-account-%s
+  monitor:
+    name: "E2E Auto Add Monitor 2"
+    url: https://example.com/auto2
+    type: HTTPS
+`, monitor2Name, testRunID))
+
+			By("waiting for monitors to become ready")
+			monitor1ID := waitMonitorReadyAndGetID(monitor1Name)
+			monitor2ID := waitMonitorReadyAndGetID(monitor2Name)
+
+			mwName := fmt.Sprintf("e2e-mw-autoadd-%s", testRunID)
+			defer deleteMaintenanceWindowAndWait(mwName)
+
+			By("creating MaintenanceWindow with autoAddMonitors=true")
+			mwYAML := fmt.Sprintf(`
+apiVersion: uptimerobot.com/v1alpha1
+kind: MaintenanceWindow
+metadata:
+  name: %s
+spec:
+  prune: true
+  account:
+    name: e2e-account-%s
+  name: "E2E Auto Add MW"
+  interval: daily
+  startTime: "14:00:00"
+  duration: 1h
+  autoAddMonitors: true
+`, mwName, testRunID)
+
+			applyMaintenanceWindow(mwYAML)
+			mwID := waitMaintenanceWindowReadyAndGetID(mwName)
+
+			apiKey := os.Getenv("UPTIME_ROBOT_API_KEY")
+
+			// NOTE: Skipping autoAddMonitors verification due to UptimeRobot API v3 bug.
+			// The API accepts autoAddMonitors in POST/PUT but always returns false in GET responses.
+			// We verify the functional behaviour (monitors are added) instead.
+			By("verifying MW was created successfully")
+			mw, err := getMaintenanceWindowFromAPI(apiKey, mwID)
+			Expect(err).NotTo(HaveOccurred())
+			debugLog("MW created: Name=%s, autoAddMonitors=%v (API bug: always false, expected: true)", mw.Name, mw.AutoAddMonitors)
+
+			By("verifying both monitors contain MW ID via API")
+			Eventually(func(g Gomega) {
+				monitor1, err := getMonitorFromAPI(apiKey, monitor1ID)
+				g.Expect(err).NotTo(HaveOccurred())
+				monitor2, err := getMonitorFromAPI(apiKey, monitor2ID)
+				g.Expect(err).NotTo(HaveOccurred())
+
+				// Check that both monitors have the MW in their maintenanceWindows list
+				g.Expect(monitor1.MaintenanceWindows).NotTo(BeEmpty(), "Monitor1 should have maintenance windows")
+				g.Expect(monitor2.MaintenanceWindows).NotTo(BeEmpty(), "Monitor2 should have maintenance windows")
+
+				// Check that the MW ID is in the list
+				found1 := false
+				for _, mw := range monitor1.MaintenanceWindows {
+					if fmt.Sprintf("%d", mw.ID) == mwID {
+						found1 = true
+						break
+					}
+				}
+				g.Expect(found1).To(BeTrue(), "Monitor1 should have MW ID %s", mwID)
+
+				found2 := false
+				for _, mw := range monitor2.MaintenanceWindows {
+					if fmt.Sprintf("%d", mw.ID) == mwID {
+						found2 = true
+						break
+					}
+				}
+				g.Expect(found2).To(BeTrue(), "Monitor2 should have MW ID %s", mwID)
+			}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
+		})
+	})
 })
 
 // Helper functions for MaintenanceWindow e2e tests
@@ -891,6 +1026,7 @@ func cleanupMaintenanceWindows() {
 		fmt.Sprintf("e2e-mw-monupdate-%s", testRunID),
 		fmt.Sprintf("e2e-mw-monremove-%s", testRunID),
 		fmt.Sprintf("e2e-mw-duration-%s", testRunID),
+		fmt.Sprintf("e2e-mw-autoadd-%s", testRunID),
 	}
 
 	apiKey := os.Getenv("UPTIME_ROBOT_API_KEY")

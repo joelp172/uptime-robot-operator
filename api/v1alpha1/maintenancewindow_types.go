@@ -38,7 +38,7 @@ type MaintenanceWindowSpec struct {
 
 	// Prune enables garbage collection.
 	//+kubebuilder:default:=true
-	Prune bool `json:"prune,omitempty"`
+	Prune bool `json:"prune"`
 
 	// Account references this object's Account. If not specified, the default will be used.
 	Account corev1.LocalObjectReference `json:"account,omitempty"`

@@ -414,6 +414,7 @@ spec:
                 type: string
             required:
             - monitor
+            - prune
             type: object
           status:
             description: MonitorStatus defines the observed state of Monitor.
