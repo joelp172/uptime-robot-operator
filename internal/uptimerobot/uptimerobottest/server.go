@@ -62,6 +62,19 @@ func NewServer() *httptest.Server {
 	// DELETE /maintenance-windows/{id} - Delete maintenance window
 	mux.HandleFunc("DELETE /maintenance-windows/", handleDeleteMaintenanceWindow)
 
+	// GET /monitor-groups - List monitor groups
+	mux.HandleFunc("GET /monitor-groups", handleGetMonitorGroups)
+	mux.HandleFunc("GET /monitor-groups/", handleGetMonitorGroups)
+
+	// POST /monitor-groups - Create monitor group
+	mux.HandleFunc("POST /monitor-groups", handleCreateMonitorGroup)
+
+	// PATCH /monitor-groups/{id} - Update monitor group
+	mux.HandleFunc("PATCH /monitor-groups/", handleUpdateMonitorGroup)
+
+	// DELETE /monitor-groups/{id} - Delete monitor group
+	mux.HandleFunc("DELETE /monitor-groups/", handleDeleteMonitorGroup)
+
 	return httptest.NewServer(mux)
 }
 
@@ -122,6 +135,32 @@ func handleUpdateMaintenanceWindow(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleDeleteMaintenanceWindow(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func handleGetMonitorGroups(w http.ResponseWriter, r *http.Request) {
+	// Check for specific monitor group ID in path
+	path := strings.TrimPrefix(r.URL.Path, "/monitor-groups/")
+	if path != "" && path != r.URL.Path {
+		// Single monitor group request
+		serveJSONFile(w, "monitor_group.json")
+		return
+	}
+
+	// List monitor groups
+	serveJSONFile(w, "monitor_groups.json")
+}
+
+func handleCreateMonitorGroup(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusCreated)
+	serveJSONFile(w, "monitor_group_create.json")
+}
+
+func handleUpdateMonitorGroup(w http.ResponseWriter, r *http.Request) {
+	serveJSONFile(w, "monitor_group_update.json")
+}
+
+func handleDeleteMonitorGroup(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 

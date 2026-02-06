@@ -1,0 +1,18 @@
+apiVersion: uptimerobot.com/v1alpha1
+kind: MonitorGroup
+metadata:
+  labels:
+    app.kubernetes.io/name: uptime-robot-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: monitorgroup-sample
+spec:
+  friendlyName: "Production Services"
+  account:
+    name: uptimerobot-account
+  monitors:
+    - name: web-api-monitor
+    - name: database-monitor
+    - name: cache-monitor
+  pullFromGroups: []
+  syncInterval: 24h
+  prune: true

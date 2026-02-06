@@ -336,3 +336,32 @@ type MaintenanceWindowsListResponse struct {
 	MaintenanceWindows []MaintenanceWindowResponse `json:"data"`
 	NextLink           *string                     `json:"nextLink"`
 }
+
+// GroupCreationWireFormat structures request payload for spawning collections
+type GroupCreationWireFormat struct {
+	Name       string `json:"name"`
+	MonitorIDs []int  `json:"monitorIds,omitempty"`
+	GroupIDs   []int  `json:"groupIds,omitempty"`
+}
+
+// GroupUpdateWireFormat structures request payload for mutating collections
+type GroupUpdateWireFormat struct {
+	Name       string `json:"name,omitempty"`
+	MonitorIDs *[]int `json:"monitorIds,omitempty"`
+	GroupIDs   []int  `json:"groupIds,omitempty"`
+}
+
+// GroupWireFormat represents collection data from backend
+type GroupWireFormat struct {
+	ID         int     `json:"id"`
+	Name       string  `json:"name"`
+	CreatedAt  *string `json:"createdAt"`
+	UpdatedAt  *string `json:"updatedAt"`
+	MonitorIDs []int   `json:"monitorIds,omitempty"`
+}
+
+// GroupListWireFormat wraps multiple collections from list endpoints
+type GroupListWireFormat struct {
+	Groups   []GroupWireFormat `json:"data"`
+	NextLink *string           `json:"nextLink"`
+}
