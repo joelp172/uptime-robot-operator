@@ -906,6 +906,8 @@ spec:
 			Expect(existingMonitorID).NotTo(BeEmpty(), "Monitor should have ID in status")
 
 			By("adopting the existing monitor with a new Monitor resource")
+			// Note: prune: false prevents accidental deletion of the adopted monitor
+			// This is a recommended practice for adoption scenarios
 			adoptMonitorYAML := fmt.Sprintf(`
 apiVersion: uptimerobot.com/v1alpha1
 kind: Monitor
@@ -969,7 +971,8 @@ spec:
 
 		It("should fail to adopt a non-existent monitor", func() {
 			By("attempting to adopt a monitor with a non-existent ID")
-			nonExistentID := "999999999"
+			// Use a very large random number to ensure it doesn't exist
+			nonExistentID := fmt.Sprintf("99%d", time.Now().UnixNano()%1000000000)
 			adoptMonitorYAML := fmt.Sprintf(`
 apiVersion: uptimerobot.com/v1alpha1
 kind: Monitor
