@@ -115,6 +115,7 @@ spec:
                 type: string
             required:
             - friendlyName
+            - prune
             type: object
           status:
             description: MonitorGroupStatus defines observed state of MonitorGroup.
