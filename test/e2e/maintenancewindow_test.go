@@ -891,7 +891,7 @@ spec:
 			deleteMonitorAndWaitForAPICleanup(monitor2Name)
 		})
 
-		FIt("should automatically add all monitors when autoAddMonitors is true", func() {
+		It("should automatically add all monitors when autoAddMonitors is true", func() {
 			By("creating two test monitors")
 			applyMonitor(fmt.Sprintf(`
 apiVersion: uptimerobot.com/v1alpha1
