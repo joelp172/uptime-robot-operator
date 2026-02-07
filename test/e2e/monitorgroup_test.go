@@ -186,8 +186,7 @@ spec:
 
 		AfterEach(func() {
 			By("cleaning up MonitorGroup resource")
-			cmd := exec.Command("kubectl", "delete", "monitorgroup", monitorGroupName, "-n", namespace, "--ignore-not-found=true")
-			_, _ = utils.Run(cmd)
+			deleteMonitorGroupAndWaitForAPICleanup(monitorGroupName, namespace)
 		})
 
 		It("should create and reconcile a MonitorGroup", func() {
@@ -433,8 +432,7 @@ spec:
 			_, _ = utils.Run(cmd)
 
 			By("cleaning up MonitorGroup resource")
-			cmd = exec.Command("kubectl", "delete", "monitorgroup", monitorGroupName, "-n", namespace, "--ignore-not-found=true")
-			_, _ = utils.Run(cmd)
+			deleteMonitorGroupAndWaitForAPICleanup(monitorGroupName, namespace)
 		})
 
 		It("should create MonitorGroup with Monitor references", func() {

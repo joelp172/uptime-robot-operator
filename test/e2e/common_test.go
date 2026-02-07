@@ -17,7 +17,11 @@ limitations under the License.
 package e2e
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"strings"
@@ -32,6 +36,7 @@ import (
 const (
 	e2ePollInterval = 5 * time.Second
 	e2ePollTimeout  = 3 * time.Minute
+	defaultAPIURL   = "https://api.uptimerobot.com/v3"
 )
 
 // testRunID is a unique identifier for this test run to avoid conflicts
@@ -84,6 +89,89 @@ func deleteMonitorAndWaitForAPICleanup(monitorName string) {
 
 	apiKey := os.Getenv("UPTIME_ROBOT_API_KEY")
 	WaitForMonitorDeletedFromAPI(apiKey, monitorID)
+}
+
+// deleteMonitorGroupAndWaitForAPICleanup deletes a MonitorGroup and waits for it to be removed from the API.
+func deleteMonitorGroupAndWaitForAPICleanup(monitorGroupName, namespace string) {
+	// Try to get the monitor group ID first - if the resource doesn't exist, skip cleanup
+	cmd := exec.Command("kubectl", "get", "monitorgroup", monitorGroupName, "-n", namespace, "-o", "jsonpath={.status.id}")
+	groupID, err := utils.Run(cmd)
+	if err != nil {
+		// MonitorGroup resource doesn't exist, nothing to clean up
+		return
+	}
+
+	cmd = exec.Command("kubectl", "delete", "monitorgroup", monitorGroupName, "-n", namespace, "--ignore-not-found=true")
+	_, err = utils.Run(cmd)
+	Expect(err).NotTo(HaveOccurred())
+
+	apiKey := os.Getenv("UPTIME_ROBOT_API_KEY")
+	WaitForMonitorGroupDeletedFromAPI(apiKey, groupID)
+}
+
+// WaitForMonitorGroupDeletedFromAPI waits for a monitor group to be removed from the UptimeRobot API.
+func WaitForMonitorGroupDeletedFromAPI(apiKey, groupID string) {
+	if apiKey == "" || groupID == "" {
+		debugLog("Skipping monitor group API deletion wait: apiKey or groupID is empty")
+		return
+	}
+	By("waiting for monitor group to be removed from UptimeRobot API")
+	debugLog("Polling for monitor group deletion from API: ID=%s", groupID)
+	Eventually(func(g Gomega) {
+		_, err := getMonitorGroupFromAPI(apiKey, groupID)
+		g.Expect(err).To(HaveOccurred())
+		// Check for 404 or not found error
+		g.Expect(err.Error()).To(ContainSubstring("404"))
+	}, 90*time.Second, 5*time.Second).Should(Succeed())
+	debugLog("Monitor group successfully deleted from API: ID=%s", groupID)
+}
+
+// getMonitorGroupFromAPI retrieves a monitor group from the UptimeRobot API.
+func getMonitorGroupFromAPI(apiKey, groupID string) (map[string]interface{}, error) {
+	if apiKey == "" {
+		return nil, errors.New("API key is empty")
+	}
+
+	apiURL := os.Getenv("UPTIME_ROBOT_API")
+	if apiURL == "" {
+		apiURL = defaultAPIURL
+	}
+
+	endpoint := fmt.Sprintf("%s/monitor-groups/%s", apiURL, groupID)
+	debugLog("Calling GetMonitorGroup for ID=%s", groupID)
+	debugLog("Using API endpoint: %s", apiURL)
+
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode == http.StatusNotFound {
+		debugLog("GetMonitorGroup failed: monitor group not found")
+		return nil, errors.New("monitor group not found: 404")
+	}
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		debugLog("GetMonitorGroup failed: %s - %s", resp.Status, string(body))
+		return nil, fmt.Errorf("API error: %s - %s", resp.Status, string(body))
+	}
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	debugLog("GetMonitorGroup succeeded: %+v", result)
+	return result, nil
 }
 
 // cleanupMonitors deletes all test monitors
