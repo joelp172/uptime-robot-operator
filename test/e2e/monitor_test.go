@@ -17,6 +17,7 @@ limitations under the License.
 package e2e
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -26,6 +27,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot"
 	"github.com/joelp172/uptime-robot-operator/test/utils"
 )
 
@@ -876,11 +878,25 @@ spec:
 	Context("Monitor Adoption", func() {
 		monitorName := fmt.Sprintf("e2e-adopt-%s", testRunID)
 		adoptedMonitorName := fmt.Sprintf("e2e-adopted-%s", testRunID)
+		var sharedMonitorID string
 
 		AfterEach(func() {
-			// Clean up both the created monitor and the adopted monitor
-			deleteMonitorAndWaitForAPICleanup(monitorName)
-			deleteMonitorAndWaitForAPICleanup(adoptedMonitorName)
+			// Clean up the adopted monitor (prune: false, so won't delete from API)
+			cmd := exec.Command("kubectl", "delete", "monitor", adoptedMonitorName, "--ignore-not-found=true")
+			_, _ = utils.Run(cmd)
+
+			// Clean up the original monitor if it still exists
+			cmd = exec.Command("kubectl", "delete", "monitor", monitorName, "--ignore-not-found=true")
+			_, _ = utils.Run(cmd)
+
+			// Manually clean up the monitor from UptimeRobot API since adopted monitor has prune: false
+			if sharedMonitorID != "" {
+				apiKey := os.Getenv("UPTIME_ROBOT_API_KEY")
+				if apiKey != "" {
+					urclient := uptimerobot.NewClient(apiKey)
+					_ = urclient.DeleteMonitor(context.Background(), sharedMonitorID)
+				}
+			}
 		})
 
 		It("should adopt an existing monitor via annotation", func() {
@@ -904,6 +920,7 @@ spec:
 
 			existingMonitorID := waitMonitorReadyAndGetID(monitorName)
 			Expect(existingMonitorID).NotTo(BeEmpty(), "Monitor should have ID in status")
+			sharedMonitorID = existingMonitorID // Save for cleanup
 
 			By("adopting the existing monitor with a new Monitor resource")
 			// Note: prune: false prevents accidental deletion of the adopted monitor
@@ -1030,6 +1047,7 @@ spec:
 `, monitorName, testRunID))
 
 			existingMonitorID := waitMonitorReadyAndGetID(monitorName)
+			sharedMonitorID = existingMonitorID // Save for cleanup
 
 			By("attempting to adopt it with a Ping type specification")
 			adoptMonitorYAML := fmt.Sprintf(`
@@ -1087,6 +1105,7 @@ spec:
 `, monitorName, testRunID))
 
 			existingMonitorID := waitMonitorReadyAndGetID(monitorName)
+			sharedMonitorID = existingMonitorID // Save for cleanup (though this test deletes it)
 
 			By("adopting the monitor with prune: true")
 			adoptMonitorYAML := fmt.Sprintf(`

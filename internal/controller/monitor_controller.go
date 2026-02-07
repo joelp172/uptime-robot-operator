@@ -87,8 +87,36 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		// Object is being deleted
 		if controllerutil.ContainsFinalizer(monitor, myFinalizerName) {
 			if monitor.Spec.Prune && monitor.Status.Ready {
-				if err := urclient.DeleteMonitor(ctx, monitor.Status.ID); err != nil {
-					return ctrl.Result{}, err
+				// Check if another Monitor resource has adopted this monitor ID
+				// If so, don't delete it from UptimeRobot
+				shouldDelete := true
+				if monitor.Status.ID != "" {
+					var allMonitors uptimerobotv1.MonitorList
+					if err := r.List(ctx, &allMonitors); err != nil {
+						return ctrl.Result{}, err
+					}
+					for i := range allMonitors.Items {
+						otherMonitor := &allMonitors.Items[i]
+						// Skip the current monitor being deleted
+						if otherMonitor.UID == monitor.UID {
+							continue
+						}
+						// Check if another monitor is managing the same ID
+						if otherMonitor.Status.ID == monitor.Status.ID && otherMonitor.Status.Ready {
+							log.FromContext(ctx).Info("Monitor ID is managed by another resource, skipping deletion from UptimeRobot",
+								"monitorID", monitor.Status.ID,
+								"otherMonitor", otherMonitor.Name,
+								"otherNamespace", otherMonitor.Namespace)
+							shouldDelete = false
+							break
+						}
+					}
+				}
+
+				if shouldDelete {
+					if err := urclient.DeleteMonitor(ctx, monitor.Status.ID); err != nil {
+						return ctrl.Result{}, err
+					}
 				}
 			}
 
