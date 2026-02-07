@@ -215,7 +215,22 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				return ctrl.Result{}, err
 			}
 
-			log.FromContext(ctx).Info("Successfully adopted monitor", "monitorID", adoptID)
+			// Apply the spec to the adopted monitor immediately
+			result, err := urclient.EditMonitor(ctx, adoptID, monitor.Spec.Monitor, contacts)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			// Update status with any changes from the edit (e.g., heartbeat URL)
+			monitor.Status.ID = result.ID
+			monitor.Status.Status = monitor.Spec.Monitor.Status
+			if monitor.Spec.Monitor.Type == urtypes.TypeHeartbeat && result.URL != "" {
+				monitor.Status.HeartbeatURL = fmt.Sprintf("https://heartbeat.uptimerobot.com/%s", result.URL)
+			}
+			if err := r.updateMonitorStatus(ctx, monitor); err != nil {
+				return ctrl.Result{}, err
+			}
+
+			log.FromContext(ctx).Info("Successfully adopted and updated monitor", "monitorID", adoptID)
 		} else {
 			// Create new monitor
 			result, err := urclient.CreateMonitor(ctx, monitor.Spec.Monitor, contacts)
