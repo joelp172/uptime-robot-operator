@@ -14,6 +14,7 @@ Manage [UptimeRobot](https://uptimerobot.com/?red=joelpi) monitors as Kubernetes
 - All monitor types: HTTPS, Keyword, Ping, Port, Heartbeat, DNS
 - Maintenance window scheduling
 - Alert contact management
+- **Adopt existing monitors** - Migrate monitors created outside Kubernetes without losing history
 
 ## Quick Start
 

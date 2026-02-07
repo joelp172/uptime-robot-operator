@@ -43,6 +43,11 @@ type MonitorReconciler struct {
 	Scheme *runtime.Scheme
 }
 
+const (
+	// AdoptIDAnnotation is used to specify an existing monitor ID to adopt
+	AdoptIDAnnotation = "uptimerobot.com/adopt-id"
+)
+
 var (
 	ErrContactMissingID = errors.New("contact missing ID")
 	ErrSecretMissingKey = errors.New("secret missing key")
@@ -82,8 +87,60 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		// Object is being deleted
 		if controllerutil.ContainsFinalizer(monitor, myFinalizerName) {
 			if monitor.Spec.Prune && monitor.Status.Ready {
-				if err := urclient.DeleteMonitor(ctx, monitor.Status.ID); err != nil {
-					return ctrl.Result{}, err
+				// Check if another Monitor resource has adopted this monitor ID
+				// If so, don't delete it from UptimeRobot
+				shouldDelete := true
+				if monitor.Status.ID != "" {
+					// List monitors in the same namespace to check for adopters
+					// Scoping to namespace prevents false positives from other namespaces
+					var namespaceMonitors uptimerobotv1.MonitorList
+					if err := r.List(ctx, &namespaceMonitors, client.InNamespace(monitor.Namespace)); err != nil {
+						return ctrl.Result{}, err
+					}
+					for i := range namespaceMonitors.Items {
+						otherMonitor := &namespaceMonitors.Items[i]
+						// Skip the current monitor being deleted
+						if otherMonitor.UID == monitor.UID {
+							continue
+						}
+						// Skip monitors that are themselves being deleted
+						if !otherMonitor.DeletionTimestamp.IsZero() {
+							continue
+						}
+						// Skip monitors using a different account (different UptimeRobot accounts can have same IDs)
+						if otherMonitor.Spec.Account.Name != monitor.Spec.Account.Name {
+							continue
+						}
+
+						// Check if another monitor has adopted this ID
+						// A monitor is considered an adopter if:
+						// 1. It has the adopt-id annotation matching this monitor's ID (intent to adopt)
+						// 2. OR it has status.ready=true and status.id matching this monitor's ID (successfully adopted)
+						isAdopter := false
+						if adoptID, hasAdoptID := otherMonitor.Annotations[AdoptIDAnnotation]; hasAdoptID && adoptID == monitor.Status.ID {
+							// Has adopt-id annotation - intent to adopt
+							isAdopter = true
+						} else if otherMonitor.Status.Ready && otherMonitor.Status.ID == monitor.Status.ID {
+							// Successfully adopted (status.ready=true and same ID)
+							isAdopter = true
+						}
+
+						if isAdopter {
+							log.FromContext(ctx).Info("Monitor ID is managed by another resource, skipping deletion from UptimeRobot",
+								"monitorID", monitor.Status.ID,
+								"otherMonitor", otherMonitor.Name,
+								"otherNamespace", otherMonitor.Namespace,
+								"otherAccount", otherMonitor.Spec.Account.Name)
+							shouldDelete = false
+							break
+						}
+					}
+				}
+
+				if shouldDelete {
+					if err := urclient.DeleteMonitor(ctx, monitor.Status.ID); err != nil {
+						return ctrl.Result{}, err
+					}
 				}
 			}
 
@@ -149,26 +206,78 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	if !monitor.Status.Ready {
-		result, err := urclient.CreateMonitor(ctx, monitor.Spec.Monitor, contacts)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
+		// Check if adoption is requested via annotation
+		if adoptID, hasAdoptID := monitor.Annotations[AdoptIDAnnotation]; hasAdoptID && adoptID != "" {
+			// Adopt existing monitor
+			log.FromContext(ctx).Info("Adopting existing monitor", "monitorID", adoptID)
 
-		monitor.Status.Ready = true
-		monitor.Status.ID = result.ID
-		monitor.Status.Type = monitor.Spec.Monitor.Type
-		monitor.Status.Status = monitor.Spec.Monitor.Status
-		// Set HeartbeatURL for heartbeat monitors (API returns token, we need full URL)
-		if monitor.Spec.Monitor.Type == urtypes.TypeHeartbeat && result.URL != "" {
-			monitor.Status.HeartbeatURL = fmt.Sprintf("https://heartbeat.uptimerobot.com/%s", result.URL)
-		}
-		if err := r.updateMonitorStatus(ctx, monitor); err != nil {
-			return ctrl.Result{}, err
-		}
+			// Verify monitor exists
+			existingMonitor, err := urclient.GetMonitor(ctx, adoptID)
+			if err != nil {
+				if errors.Is(err, uptimerobot.ErrMonitorNotFound) {
+					return ctrl.Result{}, fmt.Errorf("cannot adopt monitor: monitor with ID %s not found", adoptID)
+				}
+				return ctrl.Result{}, fmt.Errorf("failed to get monitor for adoption: %w", err)
+			}
 
-		if monitor.Spec.Monitor.Status == urtypes.MonitorPaused {
-			if _, err := urclient.EditMonitor(ctx, result.ID, monitor.Spec.Monitor, contacts); err != nil {
+			// Verify monitor type matches spec
+			existingType := urtypes.MonitorTypeFromAPIString(existingMonitor.Type)
+			if existingType != monitor.Spec.Monitor.Type {
+				return ctrl.Result{}, fmt.Errorf("cannot adopt monitor: type mismatch - existing monitor is %s but spec defines %s", existingType.String(), monitor.Spec.Monitor.Type.String())
+			}
+
+			// Adopt the monitor by setting status
+			monitor.Status.Ready = true
+			monitor.Status.ID = adoptID
+			monitor.Status.Type = monitor.Spec.Monitor.Type
+			monitor.Status.Status = monitor.Spec.Monitor.Status
+			// Set HeartbeatURL for heartbeat monitors
+			if monitor.Spec.Monitor.Type == urtypes.TypeHeartbeat && existingMonitor.URL != "" {
+				monitor.Status.HeartbeatURL = fmt.Sprintf("https://heartbeat.uptimerobot.com/%s", existingMonitor.URL)
+			}
+			if err := r.updateMonitorStatus(ctx, monitor); err != nil {
 				return ctrl.Result{}, err
+			}
+
+			// Apply the spec to the adopted monitor immediately
+			result, err := urclient.EditMonitor(ctx, adoptID, monitor.Spec.Monitor, contacts)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			// Update status with any changes from the edit (e.g., heartbeat URL)
+			monitor.Status.ID = result.ID
+			monitor.Status.Status = monitor.Spec.Monitor.Status
+			if monitor.Spec.Monitor.Type == urtypes.TypeHeartbeat && result.URL != "" {
+				monitor.Status.HeartbeatURL = fmt.Sprintf("https://heartbeat.uptimerobot.com/%s", result.URL)
+			}
+			if err := r.updateMonitorStatus(ctx, monitor); err != nil {
+				return ctrl.Result{}, err
+			}
+
+			log.FromContext(ctx).Info("Successfully adopted and updated monitor", "monitorID", adoptID)
+		} else {
+			// Create new monitor
+			result, err := urclient.CreateMonitor(ctx, monitor.Spec.Monitor, contacts)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+
+			monitor.Status.Ready = true
+			monitor.Status.ID = result.ID
+			monitor.Status.Type = monitor.Spec.Monitor.Type
+			monitor.Status.Status = monitor.Spec.Monitor.Status
+			// Set HeartbeatURL for heartbeat monitors (API returns token, we need full URL)
+			if monitor.Spec.Monitor.Type == urtypes.TypeHeartbeat && result.URL != "" {
+				monitor.Status.HeartbeatURL = fmt.Sprintf("https://heartbeat.uptimerobot.com/%s", result.URL)
+			}
+			if err := r.updateMonitorStatus(ctx, monitor); err != nil {
+				return ctrl.Result{}, err
+			}
+
+			if monitor.Spec.Monitor.Status == urtypes.MonitorPaused {
+				if _, err := urclient.EditMonitor(ctx, result.ID, monitor.Spec.Monitor, contacts); err != nil {
+					return ctrl.Result{}, err
+				}
 			}
 		}
 	} else {

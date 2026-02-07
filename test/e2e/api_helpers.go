@@ -52,7 +52,7 @@ func getMonitorFromAPI(apiKey, monitorID string) (*uptimerobot.MonitorResponse, 
 	// Default to production API v3 unless already overridden in environment.
 	apiURL := os.Getenv("UPTIME_ROBOT_API")
 	if apiURL == "" {
-		apiURL = "https://api.uptimerobot.com/v3"
+		apiURL = defaultAPIURL
 		if err := os.Setenv("UPTIME_ROBOT_API", apiURL); err != nil {
 			return nil, fmt.Errorf("failed to set UPTIME_ROBOT_API env var: %w", err)
 		}
@@ -455,7 +455,7 @@ func getMaintenanceWindowFromAPI(apiKey, mwID string) (*uptimerobot.MaintenanceW
 	// Set API URL before creating client (NewClient reads UPTIME_ROBOT_API env var).
 	apiURL := os.Getenv("UPTIME_ROBOT_API")
 	if apiURL == "" {
-		apiURL = "https://api.uptimerobot.com/v3"
+		apiURL = defaultAPIURL
 		if err := os.Setenv("UPTIME_ROBOT_API", apiURL); err != nil {
 			return nil, fmt.Errorf("failed to set UPTIME_ROBOT_API env var: %w", err)
 		}
