@@ -511,5 +511,191 @@ var _ = Describe("Monitor Controller", func() {
 			})
 			Expect(err).NotTo(HaveOccurred())
 		})
+
+		It("should not delete monitor when adopter has adopt-id annotation but is not yet ready", func() {
+			// Create first monitor
+			originalMonitor := &uptimerobotv1.Monitor{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-original-for-early-adopt",
+					Namespace: "default",
+				},
+				Spec: uptimerobotv1.MonitorSpec{
+					Prune: true,
+					Account: corev1.LocalObjectReference{
+						Name: account.Name,
+					},
+					Monitor: uptimerobotv1.MonitorValues{
+						Name: "Original for Early Adopt",
+						URL:  "https://example.com",
+						Type: urtypes.TypeHTTPS,
+					},
+					Contacts: []uptimerobotv1.MonitorContactRef{
+						{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: contact.Name,
+							},
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, originalMonitor)).To(Succeed())
+
+			By("Reconciling the original monitor")
+			controllerReconciler := &MonitorReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      originalMonitor.Name,
+					Namespace: originalMonitor.Namespace,
+				},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name:      originalMonitor.Name,
+				Namespace: originalMonitor.Namespace,
+			}, originalMonitor)).To(Succeed())
+			monitorID := originalMonitor.Status.ID
+
+			By("Creating an adopting monitor with adopt-id annotation but not yet reconciled")
+			adoptingMonitor := &uptimerobotv1.Monitor{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-early-adopter",
+					Namespace: "default",
+					Annotations: map[string]string{
+						AdoptIDAnnotation: monitorID,
+					},
+				},
+				Spec: uptimerobotv1.MonitorSpec{
+					Prune: false,
+					Account: corev1.LocalObjectReference{
+						Name: account.Name,
+					},
+					Monitor: uptimerobotv1.MonitorValues{
+						Name: "Early Adopter",
+						URL:  "https://example.com",
+						Type: urtypes.TypeHTTPS,
+					},
+					Contacts: []uptimerobotv1.MonitorContactRef{
+						{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: contact.Name,
+							},
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, adoptingMonitor)).To(Succeed())
+
+			By("Deleting the original monitor before adopter becomes ready")
+			Expect(k8sClient.Delete(ctx, originalMonitor)).To(Succeed())
+
+			By("Reconciling the deletion - should not delete from API due to adopt-id annotation")
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      originalMonitor.Name,
+					Namespace: originalMonitor.Namespace,
+				},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Cleanup the adopting monitor")
+			Expect(k8sClient.Delete(ctx, adoptingMonitor)).To(Succeed())
+		})
+
+		It("should delete monitor when other monitor is being deleted", func() {
+			// Create first monitor
+			firstMonitor := &uptimerobotv1.Monitor{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-first-deleting",
+					Namespace: "default",
+				},
+				Spec: uptimerobotv1.MonitorSpec{
+					Prune: true,
+					Account: corev1.LocalObjectReference{
+						Name: account.Name,
+					},
+					Monitor: uptimerobotv1.MonitorValues{
+						Name: "First Deleting",
+						URL:  "https://example.com",
+						Type: urtypes.TypeHTTPS,
+					},
+					Contacts: []uptimerobotv1.MonitorContactRef{
+						{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: contact.Name,
+							},
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, firstMonitor)).To(Succeed())
+
+			By("Reconciling the first monitor")
+			controllerReconciler := &MonitorReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      firstMonitor.Name,
+					Namespace: firstMonitor.Namespace,
+				},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name:      firstMonitor.Name,
+				Namespace: firstMonitor.Namespace,
+			}, firstMonitor)).To(Succeed())
+			monitorID := firstMonitor.Status.ID
+
+			By("Creating a second monitor with same ID and marking it for deletion")
+			secondMonitor := &uptimerobotv1.Monitor{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-second-deleting",
+					Namespace: "default",
+					Annotations: map[string]string{
+						AdoptIDAnnotation: monitorID,
+					},
+				},
+				Spec: uptimerobotv1.MonitorSpec{
+					Prune: true,
+					Account: corev1.LocalObjectReference{
+						Name: account.Name,
+					},
+					Monitor: uptimerobotv1.MonitorValues{
+						Name: "Second Deleting",
+						URL:  "https://example.com",
+						Type: urtypes.TypeHTTPS,
+					},
+					Contacts: []uptimerobotv1.MonitorContactRef{
+						{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: contact.Name,
+							},
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, secondMonitor)).To(Succeed())
+
+			By("Marking second monitor for deletion")
+			Expect(k8sClient.Delete(ctx, secondMonitor)).To(Succeed())
+
+			By("Deleting first monitor - should delete from API since second is being deleted")
+			Expect(k8sClient.Delete(ctx, firstMonitor)).To(Succeed())
+
+			By("Reconciling first monitor deletion")
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      firstMonitor.Name,
+					Namespace: firstMonitor.Namespace,
+				},
+			})
+			Expect(err).NotTo(HaveOccurred())
+		})
 	})
 })

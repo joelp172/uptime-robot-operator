@@ -91,22 +91,46 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				// If so, don't delete it from UptimeRobot
 				shouldDelete := true
 				if monitor.Status.ID != "" {
-					var allMonitors uptimerobotv1.MonitorList
-					if err := r.List(ctx, &allMonitors); err != nil {
+					// List monitors in the same namespace to check for adopters
+					// Scoping to namespace prevents false positives from other namespaces
+					var namespaceMonitors uptimerobotv1.MonitorList
+					if err := r.List(ctx, &namespaceMonitors, client.InNamespace(monitor.Namespace)); err != nil {
 						return ctrl.Result{}, err
 					}
-					for i := range allMonitors.Items {
-						otherMonitor := &allMonitors.Items[i]
+					for i := range namespaceMonitors.Items {
+						otherMonitor := &namespaceMonitors.Items[i]
 						// Skip the current monitor being deleted
 						if otherMonitor.UID == monitor.UID {
 							continue
 						}
-						// Check if another monitor is managing the same ID
-						if otherMonitor.Status.ID == monitor.Status.ID && otherMonitor.Status.Ready {
+						// Skip monitors that are themselves being deleted
+						if !otherMonitor.DeletionTimestamp.IsZero() {
+							continue
+						}
+						// Skip monitors using a different account (different UptimeRobot accounts can have same IDs)
+						if otherMonitor.Spec.Account.Name != monitor.Spec.Account.Name {
+							continue
+						}
+
+						// Check if another monitor has adopted this ID
+						// A monitor is considered an adopter if:
+						// 1. It has the adopt-id annotation matching this monitor's ID (intent to adopt)
+						// 2. OR it has status.ready=true and status.id matching this monitor's ID (successfully adopted)
+						isAdopter := false
+						if adoptID, hasAdoptID := otherMonitor.Annotations[AdoptIDAnnotation]; hasAdoptID && adoptID == monitor.Status.ID {
+							// Has adopt-id annotation - intent to adopt
+							isAdopter = true
+						} else if otherMonitor.Status.Ready && otherMonitor.Status.ID == monitor.Status.ID {
+							// Successfully adopted (status.ready=true and same ID)
+							isAdopter = true
+						}
+
+						if isAdopter {
 							log.FromContext(ctx).Info("Monitor ID is managed by another resource, skipping deletion from UptimeRobot",
 								"monitorID", monitor.Status.ID,
 								"otherMonitor", otherMonitor.Name,
-								"otherNamespace", otherMonitor.Namespace)
+								"otherNamespace", otherMonitor.Namespace,
+								"otherAccount", otherMonitor.Spec.Account.Name)
 							shouldDelete = false
 							break
 						}
