@@ -272,6 +272,9 @@ var _ = Describe("Monitor Controller", func() {
 		)
 
 		BeforeEach(func() {
+			By("resetting mock server state")
+			serverState.Reset()
+
 			By("creating the custom resource for the Kind Account")
 			account, secret = CreateAccount(ctx)
 			ReconcileAccount(ctx, account)
@@ -389,8 +392,11 @@ var _ = Describe("Monitor Controller", func() {
 			})
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Verifying the monitor still exists in the mock API")
-			// The mock server tracks created monitors - if it was deleted, this would fail
+			By("Verifying the monitor was NOT deleted from the mock API")
+			// Check the mock server state to ensure DeleteMonitor was not called for this ID
+			Expect(serverState.IsMonitorDeleted(monitorID)).To(BeFalse(), "Monitor should not be deleted from API when another resource has adopted it")
+
+			By("Verifying the adopting monitor still has the correct ID")
 			Expect(k8sClient.Get(ctx, types.NamespacedName{
 				Name:      adoptingMonitor.Name,
 				Namespace: adoptingMonitor.Namespace,

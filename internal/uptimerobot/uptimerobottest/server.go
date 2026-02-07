@@ -22,17 +22,62 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 
 	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot/uptimerobottest/responses"
 )
 
+// ServerState tracks the state of the mock server for testing purposes.
+type ServerState struct {
+	mu              sync.RWMutex
+	deletedMonitors map[string]bool // Track deleted monitor IDs
+}
+
+// NewServerState creates a new server state tracker.
+func NewServerState() *ServerState {
+	return &ServerState{
+		deletedMonitors: make(map[string]bool),
+	}
+}
+
+// MarkMonitorDeleted marks a monitor as deleted.
+func (s *ServerState) MarkMonitorDeleted(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.deletedMonitors[id] = true
+}
+
+// IsMonitorDeleted checks if a monitor has been deleted.
+func (s *ServerState) IsMonitorDeleted(id string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.deletedMonitors[id]
+}
+
+// Reset clears all tracked state.
+func (s *ServerState) Reset() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.deletedMonitors = make(map[string]bool)
+}
+
 // NewServer creates a new test server that mimics the UptimeRobot v3 API.
 func NewServer() *httptest.Server {
+	state := NewServerState()
+	return NewServerWithState(state)
+}
+
+// NewServerWithState creates a new test server with the given state tracker.
+func NewServerWithState(state *ServerState) *httptest.Server {
 	mux := http.NewServeMux()
 
 	// GET /monitors - List monitors
-	mux.HandleFunc("GET /monitors", handleGetMonitors)
-	mux.HandleFunc("GET /monitors/", handleGetMonitors)
+	mux.HandleFunc("GET /monitors", func(w http.ResponseWriter, r *http.Request) {
+		handleGetMonitors(w, r, state)
+	})
+	mux.HandleFunc("GET /monitors/", func(w http.ResponseWriter, r *http.Request) {
+		handleGetMonitors(w, r, state)
+	})
 
 	// POST /monitors - Create monitor
 	mux.HandleFunc("POST /monitors", handleCreateMonitor)
@@ -41,7 +86,9 @@ func NewServer() *httptest.Server {
 	mux.HandleFunc("PATCH /monitors/", handleUpdateMonitor)
 
 	// DELETE /monitors/{id} - Delete monitor
-	mux.HandleFunc("DELETE /monitors/", handleDeleteMonitor)
+	mux.HandleFunc("DELETE /monitors/", func(w http.ResponseWriter, r *http.Request) {
+		handleDeleteMonitor(w, r, state)
+	})
 
 	// GET /user/me - Get user info
 	mux.HandleFunc("GET /user/me", handleGetUser)
@@ -78,11 +125,17 @@ func NewServer() *httptest.Server {
 	return httptest.NewServer(mux)
 }
 
-func handleGetMonitors(w http.ResponseWriter, r *http.Request) {
+func handleGetMonitors(w http.ResponseWriter, r *http.Request, state *ServerState) {
 	// Check for specific monitor ID in path
 	path := strings.TrimPrefix(r.URL.Path, "/monitors/")
 	if path != "" && path != r.URL.Path {
-		// Single monitor request
+		// Single monitor request - check if deleted
+		monitorID := path
+		if state.IsMonitorDeleted(monitorID) {
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "monitor not found"})
+			return
+		}
 		serveJSONFile(w, "monitor.json")
 		return
 	}
@@ -100,7 +153,13 @@ func handleUpdateMonitor(w http.ResponseWriter, r *http.Request) {
 	serveJSONFile(w, "monitor_update.json")
 }
 
-func handleDeleteMonitor(w http.ResponseWriter, r *http.Request) {
+func handleDeleteMonitor(w http.ResponseWriter, r *http.Request, state *ServerState) {
+	// Extract monitor ID from path
+	path := strings.TrimPrefix(r.URL.Path, "/monitors/")
+	if path != "" && path != r.URL.Path {
+		monitorID := path
+		state.MarkMonitorDeleted(monitorID)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
