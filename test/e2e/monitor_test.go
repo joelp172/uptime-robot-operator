@@ -880,6 +880,11 @@ spec:
 		adoptedMonitorName := fmt.Sprintf("e2e-adopted-%s", testRunID)
 		var sharedMonitorID string
 
+		BeforeEach(func() {
+			// Reset sharedMonitorID before each test to prevent cross-test contamination
+			sharedMonitorID = ""
+		})
+
 		AfterEach(func() {
 			// Clean up the adopted monitor (prune: false, so won't delete from API)
 			cmd := exec.Command("kubectl", "delete", "monitor", adoptedMonitorName, "--ignore-not-found=true")
@@ -890,12 +895,15 @@ spec:
 			_, _ = utils.Run(cmd)
 
 			// Manually clean up the monitor from UptimeRobot API since adopted monitor has prune: false
+			// Only attempt deletion if this test actually created a monitor
 			if sharedMonitorID != "" {
 				apiKey := os.Getenv("UPTIME_ROBOT_API_KEY")
 				if apiKey != "" {
 					urclient := uptimerobot.NewClient(apiKey)
 					_ = urclient.DeleteMonitor(context.Background(), sharedMonitorID)
 				}
+				// Reset after cleanup
+				sharedMonitorID = ""
 			}
 		})
 
