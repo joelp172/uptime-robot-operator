@@ -81,11 +81,6 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				}
 			}
 
-			// Refetch the resource to get the latest version before removing finalizer
-			if fetchErr := r.Get(ctx, req.NamespacedName, groupResource); fetchErr != nil {
-				return ctrl.Result{}, client.IgnoreNotFound(fetchErr)
-			}
-
 			controllerutil.RemoveFinalizer(groupResource, cleanupMarker)
 			if updateErr := r.Update(ctx, groupResource); updateErr != nil {
 				return ctrl.Result{}, updateErr
