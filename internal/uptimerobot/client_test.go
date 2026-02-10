@@ -74,6 +74,51 @@ func TestBuildCreateMonitorRequest_MaintenanceWindowIds(t *testing.T) {
 	})
 }
 
+func TestBuildCreateMonitorRequest_Region(t *testing.T) {
+	client := NewClient("test-api-key")
+
+	t.Run("includes regional data when region is set", func(t *testing.T) {
+		interval := metav1.Duration{Duration: 300000000000}   // 5m
+		timeout := metav1.Duration{Duration: 30000000000}     // 30s
+		gracePeriod := metav1.Duration{Duration: 60000000000} // 60s
+
+		monitor := uptimerobotv1.MonitorValues{
+			Name:        "Test Monitor",
+			URL:         "https://example.com",
+			Interval:    &interval,
+			Timeout:     &timeout,
+			GracePeriod: &gracePeriod,
+			Region:      "eu",
+		}
+
+		req := client.buildCreateMonitorRequest(monitor, nil)
+
+		if req.RegionalData != "eu" {
+			t.Errorf("expected RegionalData to be eu, got %q", req.RegionalData)
+		}
+	})
+
+	t.Run("omits regional data when region is empty", func(t *testing.T) {
+		interval := metav1.Duration{Duration: 300000000000}   // 5m
+		timeout := metav1.Duration{Duration: 30000000000}     // 30s
+		gracePeriod := metav1.Duration{Duration: 60000000000} // 60s
+
+		monitor := uptimerobotv1.MonitorValues{
+			Name:        "Test Monitor",
+			URL:         "https://example.com",
+			Interval:    &interval,
+			Timeout:     &timeout,
+			GracePeriod: &gracePeriod,
+		}
+
+		req := client.buildCreateMonitorRequest(monitor, nil)
+
+		if req.RegionalData != "" {
+			t.Errorf("expected RegionalData to be empty, got %q", req.RegionalData)
+		}
+	})
+}
+
 func TestBuildUpdateMonitorRequest_MaintenanceWindowIds(t *testing.T) {
 	client := NewClient("test-api-key")
 
@@ -121,6 +166,51 @@ func TestBuildUpdateMonitorRequest_MaintenanceWindowIds(t *testing.T) {
 
 		if req.MaintenanceWindowsIds != nil {
 			t.Errorf("expected MaintenanceWindowsIds to be nil, got %v", req.MaintenanceWindowsIds)
+		}
+	})
+}
+
+func TestBuildUpdateMonitorRequest_Region(t *testing.T) {
+	client := NewClient("test-api-key")
+
+	t.Run("includes regional data when region is set", func(t *testing.T) {
+		interval := metav1.Duration{Duration: 300000000000}   // 5m
+		timeout := metav1.Duration{Duration: 30000000000}     // 30s
+		gracePeriod := metav1.Duration{Duration: 60000000000} // 60s
+
+		monitor := uptimerobotv1.MonitorValues{
+			Name:        "Test Monitor",
+			URL:         "https://example.com",
+			Interval:    &interval,
+			Timeout:     &timeout,
+			GracePeriod: &gracePeriod,
+			Region:      "na",
+		}
+
+		req := client.buildUpdateMonitorRequest(monitor, nil)
+
+		if req.RegionalData != "na" {
+			t.Errorf("expected RegionalData to be na, got %q", req.RegionalData)
+		}
+	})
+
+	t.Run("omits regional data when region is empty", func(t *testing.T) {
+		interval := metav1.Duration{Duration: 300000000000}   // 5m
+		timeout := metav1.Duration{Duration: 30000000000}     // 30s
+		gracePeriod := metav1.Duration{Duration: 60000000000} // 60s
+
+		monitor := uptimerobotv1.MonitorValues{
+			Name:        "Test Monitor",
+			URL:         "https://example.com",
+			Interval:    &interval,
+			Timeout:     &timeout,
+			GracePeriod: &gracePeriod,
+		}
+
+		req := client.buildUpdateMonitorRequest(monitor, nil)
+
+		if req.RegionalData != "" {
+			t.Errorf("expected RegionalData to be empty, got %q", req.RegionalData)
 		}
 	})
 }
