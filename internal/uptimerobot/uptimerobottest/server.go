@@ -36,26 +36,31 @@ type ServerState struct {
 	nextIntegration int
 }
 
+func defaultIntegrations() (map[int]map[string]any, int) {
+	return map[int]map[string]any{
+		101: {
+			"id":                     101,
+			"friendlyName":           "Mock Slack",
+			"enableNotificationsFor": "Down",
+			"type":                   "Slack",
+			"status":                 "Active",
+			"sslExpirationReminder":  false,
+			"value":                  "https://hooks.slack.com/services/T000/B000/MOCK",
+			"customValue":            "mock",
+			"customValue2":           "",
+			"customValue3":           "",
+			"customValue4":           "",
+		},
+	}, 102
+}
+
 // NewServerState creates a new server state tracker.
 func NewServerState() *ServerState {
+	integrations, next := defaultIntegrations()
 	return &ServerState{
 		deletedMonitors: make(map[string]bool),
-		integrations: map[int]map[string]any{
-			101: {
-				"id":                     101,
-				"friendlyName":           "Mock Slack",
-				"enableNotificationsFor": "Down",
-				"type":                   "Slack",
-				"status":                 "Active",
-				"sslExpirationReminder":  false,
-				"value":                  "https://hooks.slack.com/services/T000/B000/MOCK",
-				"customValue":            "mock",
-				"customValue2":           "",
-				"customValue3":           "",
-				"customValue4":           "",
-			},
-		},
-		nextIntegration: 102,
+		integrations:    integrations,
+		nextIntegration: next,
 	}
 }
 
@@ -77,9 +82,10 @@ func (s *ServerState) IsMonitorDeleted(id string) bool {
 func (s *ServerState) Reset() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	integrations, next := defaultIntegrations()
 	s.deletedMonitors = make(map[string]bool)
-	s.integrations = make(map[int]map[string]any)
-	s.nextIntegration = 1
+	s.integrations = integrations
+	s.nextIntegration = next
 }
 
 func (s *ServerState) createIntegration(body map[string]any) map[string]any {

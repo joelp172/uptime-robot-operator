@@ -18,6 +18,8 @@ package controller
 
 import (
 	"context"
+	"fmt"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -32,14 +34,10 @@ import (
 
 var _ = Describe("SlackIntegration Controller", func() {
 	Context("When reconciling a resource", func() {
-		const resourceName = "test-slackintegration"
-
 		ctx := context.Background()
-		namespacedName := types.NamespacedName{
-			Name:      resourceName,
-			Namespace: "default",
-		}
 		var (
+			resourceName     string
+			namespacedName   types.NamespacedName
 			secret           *corev1.Secret
 			account          *uptimerobotv1.Account
 			webhookSecret    *corev1.Secret
@@ -47,12 +45,18 @@ var _ = Describe("SlackIntegration Controller", func() {
 		)
 
 		BeforeEach(func() {
+			resourceName = fmt.Sprintf("test-slackintegration-%d", time.Now().UnixNano())
+			namespacedName = types.NamespacedName{
+				Name:      resourceName,
+				Namespace: "default",
+			}
+
 			account, secret = CreateAccount(ctx)
 			ReconcileAccount(ctx, account)
 
 			webhookSecret = &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-slack-webhook",
+					Name:      fmt.Sprintf("test-slack-webhook-%d", time.Now().UnixNano()),
 					Namespace: "default",
 				},
 				Data: map[string][]byte{
@@ -106,6 +110,34 @@ var _ = Describe("SlackIntegration Controller", func() {
 			Expect(k8sClient.Get(ctx, namespacedName, slackIntegration)).To(Succeed())
 			Expect(slackIntegration.Status.Ready).To(BeTrue())
 			Expect(slackIntegration.Status.ID).NotTo(BeEmpty())
+			Expect(slackIntegration.Status.Type).To(Equal("Slack"))
+		})
+
+		It("should recreate integration when spec drifts from existing integration", func() {
+			controllerReconciler := &SlackIntegrationReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(k8sClient.Get(ctx, namespacedName, slackIntegration)).To(Succeed())
+			originalID := slackIntegration.Status.ID
+			Expect(originalID).NotTo(BeEmpty())
+
+			slackIntegration.Spec.Integration.FriendlyName = "Updated Slack Integration Name"
+			Expect(k8sClient.Update(ctx, slackIntegration)).To(Succeed())
+
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(k8sClient.Get(ctx, namespacedName, slackIntegration)).To(Succeed())
+
+			Expect(slackIntegration.Status.ID).NotTo(BeEmpty())
+			Expect(slackIntegration.Status.ID).NotTo(Equal(originalID))
 			Expect(slackIntegration.Status.Type).To(Equal("Slack"))
 		})
 	})

@@ -70,10 +70,12 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		if controllerutil.ContainsFinalizer(resource, slackIntegrationFinalizerName) {
 			if resource.Spec.Prune && resource.Status.ID != "" {
 				id, convErr := strconv.Atoi(resource.Status.ID)
-				if convErr == nil {
-					if err := urclient.DeleteIntegration(ctx, id); err != nil {
-						return ctrl.Result{}, err
-					}
+				if convErr != nil {
+					// Keep finalizer so prune is retried instead of leaking remote integrations.
+					return ctrl.Result{}, fmt.Errorf("invalid slackintegration status.id %q: %w", resource.Status.ID, convErr)
+				}
+				if err := urclient.DeleteIntegration(ctx, id); err != nil {
+					return ctrl.Result{}, err
 				}
 			}
 			controllerutil.RemoveFinalizer(resource, slackIntegrationFinalizerName)
@@ -96,46 +98,34 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		WebhookURL:             webhookURL,
 		CustomValue:            resource.Spec.Integration.CustomValue,
 	}
+	createData = normalizeSlackIntegrationData(createData)
 
 	if !resource.Status.Ready || resource.Status.ID == "" {
-		created, err := urclient.CreateSlackIntegration(ctx, createData)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		resource.Status.Ready = true
-		resource.Status.ID = strconv.Itoa(created.ID)
-		resource.Status.Type = "Slack"
-		if err := r.updateSlackIntegrationStatus(ctx, resource); err != nil {
+		if err := r.recreateSlackIntegration(ctx, urclient, resource, createData, 0); err != nil {
 			return ctrl.Result{}, err
 		}
 	} else {
-		// Ensure the integration still exists; recreate if it was removed externally.
+		// Ensure the integration exists and matches desired state; recreate on drift or missing.
 		id, convErr := strconv.Atoi(resource.Status.ID)
 		if convErr != nil {
 			return ctrl.Result{}, fmt.Errorf("invalid status.id %q: %w", resource.Status.ID, convErr)
 		}
 
-		exists := false
 		integrations, err := urclient.ListIntegrations(ctx)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
+		var existing *uptimerobot.IntegrationResponse
 		for _, integration := range integrations {
 			if integration.ID == id {
-				exists = true
+				integrationCopy := integration
+				existing = &integrationCopy
 				break
 			}
 		}
 
-		if !exists {
-			created, createErr := urclient.CreateSlackIntegration(ctx, createData)
-			if createErr != nil {
-				return ctrl.Result{}, createErr
-			}
-			resource.Status.Ready = true
-			resource.Status.ID = strconv.Itoa(created.ID)
-			resource.Status.Type = "Slack"
-			if err := r.updateSlackIntegrationStatus(ctx, resource); err != nil {
+		if existing == nil || !slackIntegrationMatchesDesired(existing, createData) {
+			if err := r.recreateSlackIntegration(ctx, urclient, resource, createData, id); err != nil {
 				return ctrl.Result{}, err
 			}
 		}
@@ -192,6 +182,68 @@ func (r *SlackIntegrationReconciler) updateSlackIntegrationStatus(ctx context.Co
 	latest.Status.ID = resource.Status.ID
 	latest.Status.Type = resource.Status.Type
 	return r.Status().Update(ctx, latest)
+}
+
+func (r *SlackIntegrationReconciler) recreateSlackIntegration(
+	ctx context.Context,
+	urclient uptimerobot.Client,
+	resource *uptimerobotv1.SlackIntegration,
+	createData uptimerobot.SlackIntegrationData,
+	deleteID int,
+) error {
+	if deleteID > 0 {
+		if err := urclient.DeleteIntegration(ctx, deleteID); err != nil {
+			return err
+		}
+	}
+
+	created, err := urclient.CreateSlackIntegration(ctx, createData)
+	if err != nil {
+		return err
+	}
+	resource.Status.Ready = true
+	resource.Status.ID = strconv.Itoa(created.ID)
+	resource.Status.Type = "Slack"
+	return r.updateSlackIntegrationStatus(ctx, resource)
+}
+
+func normalizeSlackIntegrationData(data uptimerobot.SlackIntegrationData) uptimerobot.SlackIntegrationData {
+	if data.EnableNotificationsFor == "" {
+		data.EnableNotificationsFor = "UpAndDown"
+	}
+	return data
+}
+
+func slackIntegrationMatchesDesired(existing *uptimerobot.IntegrationResponse, desired uptimerobot.SlackIntegrationData) bool {
+	if existing == nil {
+		return false
+	}
+	if stringPointerValue(existing.Type) != "Slack" {
+		return false
+	}
+	if stringPointerValue(existing.FriendlyName) != desired.FriendlyName {
+		return false
+	}
+	if stringPointerValue(existing.EnableNotificationsFor) != desired.EnableNotificationsFor {
+		return false
+	}
+	if existing.SSLExpirationReminder != desired.SSLExpirationReminder {
+		return false
+	}
+	if existing.Value != desired.WebhookURL {
+		return false
+	}
+	if existing.CustomValue != desired.CustomValue {
+		return false
+	}
+	return true
+}
+
+func stringPointerValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 // SetupWithManager sets up the controller with the Manager.

@@ -51,11 +51,12 @@ type Client struct {
 }
 
 var (
-	ErrStatus          = errors.New("error code from Uptime Robot API")
-	ErrResponse        = errors.New("received fail from Uptime Robot API")
-	ErrMonitorNotFound = errors.New("monitor not found")
-	ErrContactNotFound = errors.New("contact not found")
-	ErrNotFound        = errors.New("resource not found")
+	ErrStatus              = errors.New("error code from Uptime Robot API")
+	ErrResponse            = errors.New("received fail from Uptime Robot API")
+	ErrMonitorNotFound     = errors.New("monitor not found")
+	ErrContactNotFound     = errors.New("contact not found")
+	ErrIntegrationNotFound = errors.New("integration not found")
+	ErrNotFound            = errors.New("resource not found")
 )
 
 // IsNotFound checks if an error indicates a resource was not found (404).
@@ -67,7 +68,8 @@ func IsNotFound(err error) bool {
 	return strings.Contains(err.Error(), "404") ||
 		errors.Is(err, ErrNotFound) ||
 		errors.Is(err, ErrMonitorNotFound) ||
-		errors.Is(err, ErrContactNotFound)
+		errors.Is(err, ErrContactNotFound) ||
+		errors.Is(err, ErrIntegrationNotFound)
 }
 
 // newRequest creates a new HTTP request with v3 API authentication.
@@ -819,7 +821,7 @@ func (c Client) ListIntegrations(ctx context.Context) ([]IntegrationResponse, er
 func (c Client) DeleteIntegration(ctx context.Context, id int) error {
 	endpoint := fmt.Sprintf("integrations/%d", id)
 	err := c.doJSON(ctx, http.MethodDelete, endpoint, nil, nil)
-	if err != nil && strings.Contains(err.Error(), "404") {
+	if err != nil && IsNotFound(err) {
 		return nil
 	}
 	return err

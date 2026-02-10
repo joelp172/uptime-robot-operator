@@ -131,7 +131,7 @@ func getIntegrationFromAPI(apiKey, integrationID string) (*uptimerobot.Integrati
 		}
 	}
 
-	return nil, errors.New("integration not found: 404")
+	return nil, uptimerobot.ErrIntegrationNotFound
 }
 
 // WaitForIntegrationDeletedFromAPI polls the API until the integration is gone.
@@ -144,7 +144,7 @@ func WaitForIntegrationDeletedFromAPI(apiKey, integrationID string) {
 	Eventually(func(g Gomega) {
 		_, err := getIntegrationFromAPI(apiKey, integrationID)
 		g.Expect(err).To(HaveOccurred())
-		g.Expect(err.Error()).To(ContainSubstring("404"))
+		g.Expect(errors.Is(err, uptimerobot.ErrIntegrationNotFound) || uptimerobot.IsNotFound(err)).To(BeTrue())
 	}, 90*time.Second, 5*time.Second).Should(Succeed())
 }
 
