@@ -102,7 +102,7 @@ func (v *AccountCustomValidator) validateUniqueDefault(ctx context.Context, acco
 		field.ErrorList{
 			field.Forbidden(
 				field.NewPath("spec", "isDefault"),
-				"exactly one Account can have spec.isDefault=true",
+				"at most one Account can have spec.isDefault=true",
 			),
 		},
 	)
