@@ -102,7 +102,7 @@ func (v *ContactCustomValidator) validateUniqueDefault(ctx context.Context, cont
 		field.ErrorList{
 			field.Forbidden(
 				field.NewPath("spec", "isDefault"),
-				"exactly one Contact can have spec.isDefault=true",
+				"at most one Contact can have spec.isDefault=true",
 			),
 		},
 	)
