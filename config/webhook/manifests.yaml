@@ -1,0 +1,46 @@
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: validating-webhook-configuration
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-uptimerobot-com-v1alpha1-account
+  failurePolicy: Fail
+  name: vaccount.uptimerobot.com
+  rules:
+  - apiGroups:
+    - uptimerobot.com
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - accounts
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-uptimerobot-com-v1alpha1-contact
+  failurePolicy: Fail
+  name: vcontact.uptimerobot.com
+  rules:
+  - apiGroups:
+    - uptimerobot.com
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - contacts
+  sideEffects: None

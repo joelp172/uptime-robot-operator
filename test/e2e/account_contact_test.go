@@ -147,6 +147,48 @@ spec:
 			Expect(err).NotTo(HaveOccurred())
 			Expect(contactID).NotTo(BeEmpty(), "Account should have at least one alert contact")
 		})
+
+		It("should reject creating a second default Account", func() {
+			By("creating a baseline default Account")
+			accountYAML := fmt.Sprintf(`
+apiVersion: uptimerobot.com/v1alpha1
+kind: Account
+metadata:
+  name: e2e-account-%s
+spec:
+  isDefault: true
+  apiKeySecretRef:
+    name: uptime-robot-e2e
+    key: apiKey
+`, testRunID)
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(accountYAML)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("attempting to create a second default Account")
+			secondDefaultYAML := fmt.Sprintf(`
+apiVersion: uptimerobot.com/v1alpha1
+kind: Account
+metadata:
+  name: e2e-account-second-default-%s
+spec:
+  isDefault: true
+  apiKeySecretRef:
+    name: uptime-robot-e2e
+    key: apiKey
+`, testRunID)
+
+			cmd = exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(secondDefaultYAML)
+			out, err := utils.Run(cmd)
+			Expect(err).To(HaveOccurred(), "Expected second default Account apply to fail")
+			Expect(out).To(ContainSubstring("spec.isDefault: Forbidden"))
+			Expect(out).To(SatisfyAny(
+				ContainSubstring("exactly one Account can have spec.isDefault=true"),
+				ContainSubstring("at most one Account can have spec.isDefault=true"),
+			))
+		})
 	})
 
 	Context("Contact Setup", func() {
@@ -185,6 +227,71 @@ spec:
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(output).To(Equal("true"))
 			}, 1*time.Minute, 5*time.Second).Should(Succeed())
+		})
+
+		It("should reject creating a second default Contact", func() {
+			By("creating a baseline default Account")
+			accountYAML := fmt.Sprintf(`
+apiVersion: uptimerobot.com/v1alpha1
+kind: Account
+metadata:
+  name: e2e-account-%s
+spec:
+  isDefault: true
+  apiKeySecretRef:
+    name: uptime-robot-e2e
+    key: apiKey
+`, testRunID)
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(accountYAML)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("getting a contact ID from Account status")
+			cmd = exec.Command("kubectl", "get", "account",
+				fmt.Sprintf("e2e-account-%s", testRunID),
+				"-o", "jsonpath={.status.alertContacts[0].id}")
+			contactID, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(contactID).NotTo(BeEmpty(), "Account should have at least one alert contact")
+
+			By("creating a baseline default Contact")
+			contactYAML := fmt.Sprintf(`
+apiVersion: uptimerobot.com/v1alpha1
+kind: Contact
+metadata:
+  name: e2e-default-contact-%s
+spec:
+  isDefault: true
+  contact:
+    id: "%s"
+`, testRunID, contactID)
+			cmd = exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(contactYAML)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("attempting to create a second default Contact")
+			secondDefaultContactYAML := fmt.Sprintf(`
+apiVersion: uptimerobot.com/v1alpha1
+kind: Contact
+metadata:
+  name: e2e-contact-second-default-%s
+spec:
+  isDefault: true
+  contact:
+    id: "%s"
+`, testRunID, contactID)
+
+			cmd = exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(secondDefaultContactYAML)
+			out, err := utils.Run(cmd)
+			Expect(err).To(HaveOccurred(), "Expected second default Contact apply to fail")
+			Expect(out).To(ContainSubstring("spec.isDefault: Forbidden"))
+			Expect(out).To(SatisfyAny(
+				ContainSubstring("exactly one Contact can have spec.isDefault=true"),
+				ContainSubstring("at most one Contact can have spec.isDefault=true"),
+			))
 		})
 	})
 })

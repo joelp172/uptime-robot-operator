@@ -68,7 +68,7 @@ spec:
                 type: object
                 x-kubernetes-map-type: atomic
               contact:
-                description: Contact configures the Uptime Robot monitor.
+                description: Contact configures the Uptime Robot alert contact reference.
                 properties:
                   id:
                     description: |-
@@ -82,6 +82,13 @@ spec:
                       Either ID or Name must be specified, but not both.
                     type: string
                 type: object
+                x-kubernetes-validations:
+                - message: either id or name must be specified
+                  rule: (has(self.id) && self.id != "") || (has(self.name) && self.name
+                    != "")
+                - message: specify only one of id or name
+                  rule: '!(has(self.id) && self.id != "" && has(self.name) && self.name
+                    != "")'
               isDefault:
                 default: false
                 type: boolean

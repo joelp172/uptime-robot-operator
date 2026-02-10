@@ -43,6 +43,8 @@ make lint-fix
 ### E2E Tests
 
 E2E tests require a Kind cluster named `kind`.
+The local test flow installs pinned cert-manager (`v1.16.2` by default) for webhook TLS.
+Override the version with `CERT_MANAGER_VERSION=<version>`.
 
 #### Basic Tests (No API Key Required)
 
@@ -51,6 +53,9 @@ Tests operator deployment and metrics only:
 ```bash
 make dev-cluster
 make test-e2e
+
+# Optional manual install/update of the pinned cert-manager release
+make cert-manager-install
 ```
 
 #### Full Tests (Requires API Key)

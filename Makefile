@@ -69,6 +69,9 @@ test: manifests generate fmt vet setup-envtest ## Run tests.
 
 # Kind cluster name for e2e tests. Override when using a named cluster, e.g. kind create cluster --name e2e-test
 KIND_CLUSTER ?= kind
+# Pinned cert-manager version for local/dev testing and webhook TLS.
+CERT_MANAGER_VERSION ?= v1.16.2
+CERT_MANAGER_MANIFEST ?= https://github.com/cert-manager/cert-manager/releases/download/$(CERT_MANAGER_VERSION)/cert-manager.yaml
 
 # Run basic e2e tests (without real UptimeRobot API).
 # The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.
@@ -83,6 +86,8 @@ test-e2e: manifests generate fmt vet ## Run the e2e tests. Expected an isolated 
 		echo "  or use a named cluster: KIND_CLUSTER=e2e-test make test-e2e"; \
 		exit 1; \
 	}
+	@echo "Ensuring cert-manager $(CERT_MANAGER_VERSION) is installed"
+	@$(MAKE) cert-manager-install
 	@echo "Using Kind cluster: $(KIND_CLUSTER). Ensure kubectl context is set: kubectl config use-context kind-$(KIND_CLUSTER)"
 	@echo "NOTE: Skipping real API tests (monitor, maintenancewindow, account, contact, monitorgroup, slackintegration, integration). Use 'make test-e2e-real' to run with real UptimeRobot API."
 	KIND_CLUSTER=$(KIND_CLUSTER) go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="!monitor && !maintenancewindow && !account && !contact && !monitorgroup && !slackintegration && !integration"
@@ -99,6 +104,8 @@ test-e2e-real: manifests generate fmt vet ## Run e2e tests against real UptimeRo
 		echo "  or use a named cluster: KIND_CLUSTER=e2e-test make test-e2e-real"; \
 		exit 1; \
 	}
+	@echo "Ensuring cert-manager $(CERT_MANAGER_VERSION) is installed"
+	@$(MAKE) cert-manager-install
 	@echo "Using Kind cluster: $(KIND_CLUSTER). Ensure kubectl context is set: kubectl config use-context kind-$(KIND_CLUSTER)"
 	@[ -n "$$UPTIME_ROBOT_API_KEY" ] || { \
 		echo "UPTIME_ROBOT_API_KEY is not set. Please set it to run real API tests."; \
@@ -118,6 +125,8 @@ test-e2e-all: manifests generate fmt vet ## Run all e2e tests including real API
 		echo "  or use a named cluster: KIND_CLUSTER=e2e-test make test-e2e-all"; \
 		exit 1; \
 	}
+	@echo "Ensuring cert-manager $(CERT_MANAGER_VERSION) is installed"
+	@$(MAKE) cert-manager-install
 	@echo "Using Kind cluster: $(KIND_CLUSTER). Ensure kubectl context is set: kubectl config use-context kind-$(KIND_CLUSTER)"
 	KIND_CLUSTER=$(KIND_CLUSTER) go test ./test/e2e/ -v -ginkgo.v -timeout 20m
 
@@ -200,13 +209,54 @@ uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified 
 	$(KUSTOMIZE) build config/crd | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
 
 .PHONY: deploy
-deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
+deploy: cert-manager-check manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	$(KUSTOMIZE) build config/default | $(KUBECTL) apply -f -
+	$(MAKE) webhook-cert-wait
+
+.PHONY: deploy-with-cert-manager
+deploy-with-cert-manager: cert-manager-install deploy ## Deploy controller and install pinned cert-manager first.
 
 .PHONY: undeploy
 undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
 	$(KUSTOMIZE) build config/default | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
+
+.PHONY: cert-manager-install
+cert-manager-install: ## Install pinned cert-manager version and wait until ready.
+	$(KUBECTL) apply -f $(CERT_MANAGER_MANIFEST)
+	$(MAKE) cert-manager-wait
+
+.PHONY: cert-manager-check
+cert-manager-check: ## Verify cert-manager is already installed (no install side effects).
+	@$(KUBECTL) get deployment cert-manager -n cert-manager >/dev/null 2>&1 || { \
+		echo "cert-manager is not installed in this cluster."; \
+		echo "Install it with: make cert-manager-install"; \
+		echo "Or use: make deploy-with-cert-manager IMG=$(IMG)"; \
+		exit 1; \
+	}
+
+.PHONY: cert-manager-wait
+cert-manager-wait: ## Wait for cert-manager deployments to become Available.
+	$(KUBECTL) wait --for=condition=Available deployment/cert-manager -n cert-manager --timeout=180s
+	$(KUBECTL) wait --for=condition=Available deployment/cert-manager-webhook -n cert-manager --timeout=180s
+	$(KUBECTL) wait --for=condition=Available deployment/cert-manager-cainjector -n cert-manager --timeout=180s
+
+.PHONY: cert-manager-uninstall
+cert-manager-uninstall: ## Uninstall pinned cert-manager resources.
+	$(KUBECTL) delete -f $(CERT_MANAGER_MANIFEST) --ignore-not-found=true
+
+.PHONY: webhook-cert-wait
+webhook-cert-wait: ## Wait for webhook serving certificate/secret to be ready after deploy.
+	$(KUBECTL) wait --for=condition=Ready certificate/uptime-robot-serving-cert -n uptime-robot-system --timeout=180s
+	@for i in $$(seq 1 36); do \
+		if $(KUBECTL) get secret webhook-server-cert -n uptime-robot-system >/dev/null 2>&1; then \
+			echo "webhook-server-cert is present"; \
+			exit 0; \
+		fi; \
+		sleep 5; \
+	done; \
+	echo "Timed out waiting for secret/webhook-server-cert in uptime-robot-system"; \
+	exit 1
 
 ##@ Dependencies
 
