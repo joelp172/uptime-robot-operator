@@ -1,0 +1,13 @@
+{
+    "id": 0,
+    "friendlyName": "string",
+    "enableNotificationsFor": null,
+    "type": null,
+    "status": null,
+    "sslExpirationReminder": false,
+    "value": "string",
+    "customValue": "string",
+    "customValue2": "string",
+    "customValue3": "string",
+    "customValue4": "string"
+}

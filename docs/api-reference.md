@@ -211,6 +211,46 @@ Schedule planned downtime.
 
 ---
 
+## SlackIntegration
+
+Creates and manages a Slack integration in UptimeRobot.
+
+**Scope:** Namespaced
+
+### Spec
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `syncInterval` | duration | No | `24h` | Reconciliation frequency |
+| `prune` | boolean | No | `true` | Delete integration from UptimeRobot when CR is deleted |
+| `account.name` | string | No | default | Account to use |
+| `integration` | object | Yes | - | Slack integration configuration |
+
+### Integration
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `friendlyName` | string | No | - | Display name (max 60) |
+| `enableNotificationsFor` | string | No | `UpAndDown` | `UpAndDown`, `Down`, `Up`, `None` |
+| `sslExpirationReminder` | boolean | No | `false` | Notify for SSL/domain expiration |
+| `webhookURL` | string | Conditional | - | Slack webhook URL (max 1500) |
+| `secretName` | string | Conditional | - | Secret name containing webhook URL |
+| `webhookURLKey` | string | No | `webhookURL` | Secret key containing webhook URL |
+| `customValue` | string | No | - | Extra message text (max 5000) |
+
+Validation:
+- Specify exactly one of `webhookURL` or `secretName`.
+
+### Status
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `ready` | boolean | Integration exists in UptimeRobot |
+| `id` | string | UptimeRobot integration ID |
+| `type` | string | Integration type (`Slack`) |
+
+---
+
 ## Duration Format
 
 All duration fields use Go duration format:

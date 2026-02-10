@@ -21,6 +21,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -31,12 +32,30 @@ import (
 type ServerState struct {
 	mu              sync.RWMutex
 	deletedMonitors map[string]bool // Track deleted monitor IDs
+	integrations    map[int]map[string]any
+	nextIntegration int
 }
 
 // NewServerState creates a new server state tracker.
 func NewServerState() *ServerState {
 	return &ServerState{
 		deletedMonitors: make(map[string]bool),
+		integrations: map[int]map[string]any{
+			101: {
+				"id":                     101,
+				"friendlyName":           "Mock Slack",
+				"enableNotificationsFor": "Down",
+				"type":                   "Slack",
+				"status":                 "Active",
+				"sslExpirationReminder":  false,
+				"value":                  "https://hooks.slack.com/services/T000/B000/MOCK",
+				"customValue":            "mock",
+				"customValue2":           "",
+				"customValue3":           "",
+				"customValue4":           "",
+			},
+		},
+		nextIntegration: 102,
 	}
 }
 
@@ -59,6 +78,54 @@ func (s *ServerState) Reset() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.deletedMonitors = make(map[string]bool)
+	s.integrations = make(map[int]map[string]any)
+	s.nextIntegration = 1
+}
+
+func (s *ServerState) createIntegration(body map[string]any) map[string]any {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	id := s.nextIntegration
+	s.nextIntegration++
+
+	data, _ := body["data"].(map[string]any)
+	friendlyName, _ := data["friendlyName"].(string)
+	enable, _ := data["enableNotificationsFor"].(string)
+	webhook, _ := data["webhookURL"].(string)
+	customValue, _ := data["customValue"].(string)
+	ssl, _ := data["sslExpirationReminder"].(bool)
+
+	record := map[string]any{
+		"id":                     id,
+		"friendlyName":           friendlyName,
+		"enableNotificationsFor": enable,
+		"type":                   "Slack",
+		"status":                 "Active",
+		"sslExpirationReminder":  ssl,
+		"value":                  webhook,
+		"customValue":            customValue,
+		"customValue2":           "",
+		"customValue3":           "",
+		"customValue4":           "",
+	}
+	s.integrations[id] = record
+	return record
+}
+
+func (s *ServerState) listIntegrations() []map[string]any {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]map[string]any, 0, len(s.integrations))
+	for _, integration := range s.integrations {
+		out = append(out, integration)
+	}
+	return out
+}
+
+func (s *ServerState) deleteIntegration(id int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.integrations, id)
 }
 
 // NewServer creates a new test server that mimics the UptimeRobot v3 API.
@@ -121,6 +188,17 @@ func NewServerWithState(state *ServerState) *httptest.Server {
 
 	// DELETE /monitor-groups/{id} - Delete monitor group
 	mux.HandleFunc("DELETE /monitor-groups/", handleDeleteMonitorGroup)
+
+	// Integrations endpoints
+	mux.HandleFunc("GET /integrations", func(w http.ResponseWriter, r *http.Request) {
+		handleGetIntegrations(w, state)
+	})
+	mux.HandleFunc("POST /integrations", func(w http.ResponseWriter, r *http.Request) {
+		handleCreateIntegration(w, r, state)
+	})
+	mux.HandleFunc("DELETE /integrations/", func(w http.ResponseWriter, r *http.Request) {
+		handleDeleteIntegration(w, r, state)
+	})
 
 	return httptest.NewServer(mux)
 }
@@ -220,6 +298,37 @@ func handleUpdateMonitorGroup(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleDeleteMonitorGroup(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func handleGetIntegrations(w http.ResponseWriter, state *ServerState) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"nextLink": nil,
+		"data":     state.listIntegrations(),
+	})
+}
+
+func handleCreateIntegration(w http.ResponseWriter, r *http.Request, state *ServerState) {
+	var body map[string]any
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid json"})
+		return
+	}
+	record := state.createIntegration(body)
+	w.WriteHeader(http.StatusCreated)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(record)
+}
+
+func handleDeleteIntegration(w http.ResponseWriter, r *http.Request, state *ServerState) {
+	path := strings.TrimPrefix(r.URL.Path, "/integrations/")
+	if path != "" && path != r.URL.Path {
+		if id, err := strconv.Atoi(path); err == nil {
+			state.deleteIntegration(id)
+		}
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

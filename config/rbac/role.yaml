@@ -53,6 +53,7 @@ rules:
   - maintenancewindows
   - monitorgroups
   - monitors
+  - slackintegrations
   verbs:
   - create
   - delete
@@ -69,6 +70,7 @@ rules:
   - maintenancewindows/finalizers
   - monitorgroups/finalizers
   - monitors/finalizers
+  - slackintegrations/finalizers
   verbs:
   - update
 - apiGroups:
@@ -79,6 +81,7 @@ rules:
   - maintenancewindows/status
   - monitorgroups/status
   - monitors/status
+  - slackintegrations/status
   verbs:
   - get
   - patch

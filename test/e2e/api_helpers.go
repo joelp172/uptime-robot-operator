@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -96,6 +97,55 @@ func WaitForMonitorDeletedFromAPI(apiKey, monitorID string) {
 		g.Expect(errors.Is(err, uptimerobot.ErrMonitorNotFound)).To(BeTrue())
 	}, 90*time.Second, 5*time.Second).Should(Succeed())
 	debugLog("Monitor successfully deleted from API: ID=%s", monitorID)
+}
+
+// getIntegrationFromAPI fetches an integration by ID from the UptimeRobot API.
+func getIntegrationFromAPI(apiKey, integrationID string) (*uptimerobot.IntegrationResponse, error) {
+	debugLog("Calling ListIntegrations to find ID=%s", integrationID)
+
+	apiURL := os.Getenv("UPTIME_ROBOT_API")
+	if apiURL == "" {
+		apiURL = defaultAPIURL
+		if err := os.Setenv("UPTIME_ROBOT_API", apiURL); err != nil {
+			return nil, fmt.Errorf("failed to set UPTIME_ROBOT_API env var: %w", err)
+		}
+	}
+
+	client := uptimerobot.NewClient(apiKey)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	integrations, err := client.ListIntegrations(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	id, err := strconv.Atoi(strings.TrimSpace(integrationID))
+	if err != nil {
+		return nil, fmt.Errorf("invalid integration id %q: %w", integrationID, err)
+	}
+
+	for i := range integrations {
+		if integrations[i].ID == id {
+			return &integrations[i], nil
+		}
+	}
+
+	return nil, errors.New("integration not found: 404")
+}
+
+// WaitForIntegrationDeletedFromAPI polls the API until the integration is gone.
+func WaitForIntegrationDeletedFromAPI(apiKey, integrationID string) {
+	if apiKey == "" || integrationID == "" {
+		debugLog("Skipping integration API deletion wait: apiKey or integrationID is empty")
+		return
+	}
+	By("waiting for integration to be removed from UptimeRobot API")
+	Eventually(func(g Gomega) {
+		_, err := getIntegrationFromAPI(apiKey, integrationID)
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(err.Error()).To(ContainSubstring("404"))
+	}, 90*time.Second, 5*time.Second).Should(Succeed())
 }
 
 // MonitorFieldErrors collects validation errors for API response vs expected spec.
