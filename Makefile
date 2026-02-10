@@ -209,10 +209,13 @@ uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified 
 	$(KUSTOMIZE) build config/crd | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
 
 .PHONY: deploy
-deploy: cert-manager-install manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
+deploy: cert-manager-check manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	$(KUSTOMIZE) build config/default | $(KUBECTL) apply -f -
 	$(MAKE) webhook-cert-wait
+
+.PHONY: deploy-with-cert-manager
+deploy-with-cert-manager: cert-manager-install deploy ## Deploy controller and install pinned cert-manager first.
 
 .PHONY: undeploy
 undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
@@ -222,6 +225,15 @@ undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.
 cert-manager-install: ## Install pinned cert-manager version and wait until ready.
 	$(KUBECTL) apply -f $(CERT_MANAGER_MANIFEST)
 	$(MAKE) cert-manager-wait
+
+.PHONY: cert-manager-check
+cert-manager-check: ## Verify cert-manager is already installed (no install side effects).
+	@$(KUBECTL) get deployment cert-manager -n cert-manager >/dev/null 2>&1 || { \
+		echo "cert-manager is not installed in this cluster."; \
+		echo "Install it with: make cert-manager-install"; \
+		echo "Or use: make deploy-with-cert-manager IMG=$(IMG)"; \
+		exit 1; \
+	}
 
 .PHONY: cert-manager-wait
 cert-manager-wait: ## Wait for cert-manager deployments to become Available.
