@@ -53,11 +53,6 @@ var _ = Describe("Monitor Resources", Ordered, Label("monitor"), func() {
 		out, err := utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to label namespace: %s", out)
 
-		By("installing pinned cert-manager")
-		cmd = exec.Command("make", "cert-manager-install")
-		out, err = utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to install cert-manager: %s", out)
-
 		By("installing CRDs")
 		cmd = exec.Command("make", "install")
 		out, err = utils.Run(cmd)
