@@ -78,7 +78,7 @@ func (v *AccountCustomValidator) validateUniqueDefault(ctx context.Context, acco
 
 	list := &AccountList{}
 	if err := v.Client.List(ctx, list); err != nil {
-		return err
+		return fmt.Errorf("listing accounts for default validation: %w", err)
 	}
 
 	defaultCount := 0

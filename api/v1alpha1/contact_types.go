@@ -65,6 +65,9 @@ type ContactList struct {
 	Items           []Contact `json:"items"`
 }
 
+// ContactValues identifies an existing UptimeRobot alert contact.
+// +kubebuilder:validation:XValidation:rule="(has(self.id) && self.id != \"\") || (has(self.name) && self.name != \"\")",message="either id or name must be specified"
+// +kubebuilder:validation:XValidation:rule="!(has(self.id) && self.id != \"\" && has(self.name) && self.name != \"\")",message="specify only one of id or name"
 type ContactValues struct {
 	// ID is the UptimeRobot alert contact ID. Use this when the contact has no friendlyName set.
 	// Get contact IDs via: curl -H "Authorization: Bearer YOUR_API_KEY" https://api.uptimerobot.com/v3/user/alert-contacts

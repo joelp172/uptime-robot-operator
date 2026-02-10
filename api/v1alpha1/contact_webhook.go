@@ -78,7 +78,7 @@ func (v *ContactCustomValidator) validateUniqueDefault(ctx context.Context, cont
 
 	list := &ContactList{}
 	if err := v.Client.List(ctx, list); err != nil {
-		return err
+		return fmt.Errorf("listing contacts for default validation: %w", err)
 	}
 
 	defaultCount := 0

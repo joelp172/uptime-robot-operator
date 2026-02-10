@@ -95,3 +95,39 @@ func TestContactValidatorAllowsUpdateOfCurrentDefault(t *testing.T) {
 		t.Fatalf("expected no validation error on updating existing default: %v", err)
 	}
 }
+
+func TestContactValidatorRejectsUpdateToDefaultWhenAnotherExists(t *testing.T) {
+	t.Parallel()
+
+	scheme := runtime.NewScheme()
+	if err := AddToScheme(scheme); err != nil {
+		t.Fatalf("failed to build scheme: %v", err)
+	}
+
+	existingDefault := &Contact{
+		ObjectMeta: metav1.ObjectMeta{Name: "default-a"},
+		Spec: ContactSpec{
+			IsDefault: true,
+			Contact:   ContactValues{ID: "1"},
+		},
+	}
+	other := &Contact{
+		ObjectMeta: metav1.ObjectMeta{Name: "other"},
+		Spec: ContactSpec{
+			IsDefault: false,
+			Contact:   ContactValues{ID: "2"},
+		},
+	}
+
+	validator := &ContactCustomValidator{
+		Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(existingDefault, other).Build(),
+	}
+
+	oldObj := other.DeepCopy()
+	newObj := other.DeepCopy()
+	newObj.Spec.IsDefault = true
+
+	if _, err := validator.ValidateUpdate(context.Background(), oldObj, newObj); err == nil {
+		t.Fatalf("expected validation error when updating second contact to default")
+	}
+}

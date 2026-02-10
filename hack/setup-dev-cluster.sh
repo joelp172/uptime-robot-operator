@@ -14,6 +14,8 @@ set -euo pipefail
 # Defaults
 DELETE_FIRST=false
 CLUSTER_NAME="kind"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 
 # Colours
 RED='\033[0;31m'
@@ -65,6 +67,14 @@ check_prerequisites() {
     log_info "Prerequisites check passed"
 }
 
+ensure_repo_root() {
+    if [[ ! -f "${REPO_ROOT}/Makefile" ]]; then
+        log_error "Makefile not found at repo root: ${REPO_ROOT}"
+        exit 1
+    fi
+    cd "${REPO_ROOT}"
+}
+
 # Delete existing cluster
 delete_cluster() {
     log_info "Deleting existing cluster..."
@@ -95,34 +105,19 @@ wait_for_cluster() {
 # Install CRDs
 install_crds() {
     log_info "Installing uptime-robot-operator CRDs..."
-    
-    if [[ -f "Makefile" ]]; then
-        make install
-    else
-        log_warn "Makefile not found, skipping CRD installation"
-    fi
+    make install
 }
 
 # Install cert-manager (required for webhook TLS certificates)
 install_cert_manager() {
     log_info "Installing pinned cert-manager version..."
-
-    if [[ -f "Makefile" ]]; then
-        make cert-manager-install
-    else
-        log_warn "Makefile not found, skipping cert-manager installation"
-    fi
+    make cert-manager-install
 }
 
 # Build and deploy operator
 build_and_deploy_operator() {
     log_info "Building operator image..."
-    
-    if [[ ! -f "Makefile" ]]; then
-        log_warn "Makefile not found, skipping operator build and deployment"
-        return 0
-    fi
-    
+
     # Build the operator image
     make docker-build IMG=uptime-robot-operator:dev
     
@@ -177,6 +172,7 @@ print_next_steps() {
 # Main
 main() {
     check_prerequisites
+    ensure_repo_root
     
     if [[ "$DELETE_FIRST" == "true" ]]; then
         delete_cluster
