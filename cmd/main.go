@@ -257,6 +257,10 @@ func main() {
 		setupLog.Error(err, "unable to create webhook", "webhook", "Account")
 		os.Exit(1)
 	}
+	if err = (&uptimerobotv1.Contact{}).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "Contact")
+		os.Exit(1)
+	}
 	//+kubebuilder:scaffold:builder
 
 	if metricsCertWatcher != nil {

@@ -24,3 +24,23 @@ webhooks:
     resources:
     - accounts
   sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-uptimerobot-com-v1alpha1-contact
+  failurePolicy: Fail
+  name: vcontact.uptimerobot.com
+  rules:
+  - apiGroups:
+    - uptimerobot.com
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - contacts
+  sideEffects: None
