@@ -253,6 +253,10 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "SlackIntegration")
 		os.Exit(1)
 	}
+	if err = (&uptimerobotv1.Account{}).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "Account")
+		os.Exit(1)
+	}
 	//+kubebuilder:scaffold:builder
 
 	if metricsCertWatcher != nil {
