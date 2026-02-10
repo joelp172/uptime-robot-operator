@@ -38,6 +38,7 @@ apiVersion: uptimerobot.com/v1alpha1
 kind: Account
 metadata:
   name: default
+  namespace: uptime-robot-system
 spec:
   isDefault: true
   apiKeySecretRef:
@@ -54,6 +55,7 @@ apiVersion: uptimerobot.com/v1alpha1
 kind: Contact
 metadata:
   name: default
+  namespace: uptime-robot-system
 spec:
   isDefault: true
   contact:
@@ -66,6 +68,7 @@ apiVersion: uptimerobot.com/v1alpha1
 kind: Monitor
 metadata:
   name: my-website
+  namespace: uptime-robot-system
 spec:
   monitor:
     name: My Website
