@@ -103,6 +103,17 @@ install_crds() {
     fi
 }
 
+# Install cert-manager (required for webhook TLS certificates)
+install_cert_manager() {
+    log_info "Installing pinned cert-manager version..."
+
+    if [[ -f "Makefile" ]]; then
+        make cert-manager-install
+    else
+        log_warn "Makefile not found, skipping cert-manager installation"
+    fi
+}
+
 # Build and deploy operator
 build_and_deploy_operator() {
     log_info "Building operator image..."
@@ -175,6 +186,7 @@ main() {
     
     create_cluster
     wait_for_cluster
+    install_cert_manager
     install_crds
     build_and_deploy_operator
     print_next_steps

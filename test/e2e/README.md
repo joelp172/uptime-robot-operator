@@ -11,6 +11,9 @@ Tests operator deployment and metrics only:
 ```bash
 make dev-cluster
 make test-e2e
+
+# Optional manual install/update of pinned cert-manager
+make cert-manager-install
 ```
 
 ### Full Tests (Requires API Key)
@@ -99,6 +102,7 @@ Each test:
 ## Configuration
 
 - **Cluster:** Kind cluster named `kind`
+- **cert-manager:** pinned to `v1.16.2` by default (`CERT_MANAGER_VERSION` to override)
 - **API endpoint:** `https://api.uptimerobot.com/v3` (override with `UPTIME_ROBOT_API`)
 - **Poll timeout:** 3 minutes
 - **Poll interval:** 5 seconds
