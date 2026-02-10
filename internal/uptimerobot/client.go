@@ -51,11 +51,12 @@ type Client struct {
 }
 
 var (
-	ErrStatus          = errors.New("error code from Uptime Robot API")
-	ErrResponse        = errors.New("received fail from Uptime Robot API")
-	ErrMonitorNotFound = errors.New("monitor not found")
-	ErrContactNotFound = errors.New("contact not found")
-	ErrNotFound        = errors.New("resource not found")
+	ErrStatus              = errors.New("error code from Uptime Robot API")
+	ErrResponse            = errors.New("received fail from Uptime Robot API")
+	ErrMonitorNotFound     = errors.New("monitor not found")
+	ErrContactNotFound     = errors.New("contact not found")
+	ErrIntegrationNotFound = errors.New("integration not found")
+	ErrNotFound            = errors.New("resource not found")
 )
 
 // IsNotFound checks if an error indicates a resource was not found (404).
@@ -67,7 +68,8 @@ func IsNotFound(err error) bool {
 	return strings.Contains(err.Error(), "404") ||
 		errors.Is(err, ErrNotFound) ||
 		errors.Is(err, ErrMonitorNotFound) ||
-		errors.Is(err, ErrContactNotFound)
+		errors.Is(err, ErrContactNotFound) ||
+		errors.Is(err, ErrIntegrationNotFound)
 }
 
 // newRequest creates a new HTTP request with v3 API authentication.
@@ -789,6 +791,40 @@ func keywordTypeToString(t urtypes.KeywordType) string {
 	default:
 		return "ALERT_EXISTS"
 	}
+}
+
+// CreateSlackIntegration creates a Slack integration using the v3 API.
+// POST /integrations
+func (c Client) CreateSlackIntegration(ctx context.Context, data SlackIntegrationData) (IntegrationResponse, error) {
+	var result IntegrationResponse
+	req := CreateSlackIntegrationRequest{
+		Type: "Slack",
+		Data: data,
+	}
+	err := c.doJSON(ctx, http.MethodPost, "integrations", req, &result)
+	return result, err
+}
+
+// ListIntegrations lists integrations using the v3 API.
+// GET /integrations
+func (c Client) ListIntegrations(ctx context.Context) ([]IntegrationResponse, error) {
+	var result IntegrationsListResponse
+	err := c.doJSON(ctx, http.MethodGet, "integrations", nil, &result)
+	if err != nil {
+		return nil, err
+	}
+	return result.Integrations, nil
+}
+
+// DeleteIntegration deletes an integration by ID using the v3 API.
+// DELETE /integrations/{id}
+func (c Client) DeleteIntegration(ctx context.Context, id int) error {
+	endpoint := fmt.Sprintf("integrations/%d", id)
+	err := c.doJSON(ctx, http.MethodDelete, endpoint, nil, nil)
+	if err != nil && IsNotFound(err) {
+		return nil
+	}
+	return err
 }
 
 // CreateMaintenanceWindow creates a new maintenance window using the v3 API.

@@ -51,7 +51,10 @@ rules:
   resources:
   - accounts
   - contacts
+  - maintenancewindows
+  - monitorgroups
   - monitors
+  - slackintegrations
   verbs:
   - create
   - delete
@@ -65,7 +68,10 @@ rules:
   resources:
   - accounts/finalizers
   - contacts/finalizers
+  - maintenancewindows/finalizers
+  - monitorgroups/finalizers
   - monitors/finalizers
+  - slackintegrations/finalizers
   verbs:
   - update
 - apiGroups:
@@ -73,7 +79,10 @@ rules:
   resources:
   - accounts/status
   - contacts/status
+  - maintenancewindows/status
+  - monitorgroups/status
   - monitors/status
+  - slackintegrations/status
   verbs:
   - get
   - patch

@@ -291,6 +291,42 @@ type APIError struct {
 	Message string `json:"message"`
 }
 
+// SlackIntegrationData represents the "data" payload for Slack integration creation.
+type SlackIntegrationData struct {
+	FriendlyName           string `json:"friendlyName,omitempty"`
+	EnableNotificationsFor string `json:"enableNotificationsFor,omitempty"` // UpAndDown, Down, Up, None
+	SSLExpirationReminder  bool   `json:"sslExpirationReminder,omitempty"`
+	WebhookURL             string `json:"webhookURL"`
+	CustomValue            string `json:"customValue"`
+}
+
+// CreateSlackIntegrationRequest represents POST /integrations request payload for Slack.
+type CreateSlackIntegrationRequest struct {
+	Type string               `json:"type"` // Slack
+	Data SlackIntegrationData `json:"data"`
+}
+
+// IntegrationResponse represents an integration object returned by the v3 API.
+type IntegrationResponse struct {
+	ID                     int     `json:"id"`
+	FriendlyName           *string `json:"friendlyName"` // Nullable in API responses
+	EnableNotificationsFor *string `json:"enableNotificationsFor"`
+	Type                   *string `json:"type"`
+	Status                 *string `json:"status"`
+	SSLExpirationReminder  bool    `json:"sslExpirationReminder"`
+	Value                  string  `json:"value"`
+	CustomValue            string  `json:"customValue"`
+	CustomValue2           string  `json:"customValue2"`
+	CustomValue3           string  `json:"customValue3"`
+	CustomValue4           string  `json:"customValue4"`
+}
+
+// IntegrationsListResponse represents GET /integrations response payload.
+type IntegrationsListResponse struct {
+	NextLink     *string               `json:"nextLink"`
+	Integrations []IntegrationResponse `json:"data"`
+}
+
 // CreateMaintenanceWindowRequest represents the v3 API request payload for creating a maintenance window.
 type CreateMaintenanceWindowRequest struct {
 	Name            string `json:"name"`

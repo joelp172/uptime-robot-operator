@@ -34,4 +34,6 @@ resources:
 - maintenancewindow_admin_role.yaml
 - maintenancewindow_editor_role.yaml
 - maintenancewindow_viewer_role.yaml
-
+- slackintegration_admin_role.yaml
+- slackintegration_editor_role.yaml
+- slackintegration_viewer_role.yaml
