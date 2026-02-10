@@ -68,7 +68,7 @@ spec:
                 type: object
                 x-kubernetes-map-type: atomic
               contact:
-                description: Contact configures the Uptime Robot monitor.
+                description: Contact configures the Uptime Robot alert contact reference.
                 properties:
                   id:
                     description: |-

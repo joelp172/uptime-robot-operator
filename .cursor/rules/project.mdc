@@ -42,8 +42,10 @@ Kubernetes operator for managing UptimeRobot monitors via CRDs.
 
 ## Dependencies
 
+This operator requires:
+- cert-manager (for webhook TLS/cert injection in deployed manifests)
+
 This operator does NOT require:
-- cert-manager
 - prometheus-operator
 
 It only needs a Kubernetes cluster with the CRDs installed.

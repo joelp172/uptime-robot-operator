@@ -29,7 +29,7 @@ type ContactSpec struct {
 	// Account references this object's Account. If not specified, the default will be used.
 	Account corev1.LocalObjectReference `json:"account,omitempty"`
 
-	// Contact configures the Uptime Robot monitor.
+	// Contact configures the Uptime Robot alert contact reference.
 	Contact ContactValues `json:"contact"`
 }
 

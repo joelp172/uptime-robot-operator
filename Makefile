@@ -212,6 +212,7 @@ uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified 
 deploy: cert-manager-install manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	$(KUSTOMIZE) build config/default | $(KUBECTL) apply -f -
+	$(MAKE) webhook-cert-wait
 
 .PHONY: undeploy
 undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
@@ -231,6 +232,19 @@ cert-manager-wait: ## Wait for cert-manager deployments to become Available.
 .PHONY: cert-manager-uninstall
 cert-manager-uninstall: ## Uninstall pinned cert-manager resources.
 	$(KUBECTL) delete -f $(CERT_MANAGER_MANIFEST) --ignore-not-found=true
+
+.PHONY: webhook-cert-wait
+webhook-cert-wait: ## Wait for webhook serving certificate/secret to be ready after deploy.
+	$(KUBECTL) wait --for=condition=Ready certificate/uptime-robot-serving-cert -n uptime-robot-system --timeout=180s
+	@for i in $$(seq 1 36); do \
+		if $(KUBECTL) get secret webhook-server-cert -n uptime-robot-system >/dev/null 2>&1; then \
+			echo "webhook-server-cert is present"; \
+			exit 0; \
+		fi; \
+		sleep 5; \
+	done; \
+	echo "Timed out waiting for secret/webhook-server-cert in uptime-robot-system"; \
+	exit 1
 
 ##@ Dependencies
 
