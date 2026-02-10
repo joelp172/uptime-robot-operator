@@ -382,6 +382,53 @@ spec:
 		})
 	})
 
+	Context("Regional Monitoring", func() {
+		monitorName := fmt.Sprintf("e2e-region-%s", testRunID)
+
+		AfterEach(func() {
+			deleteMonitorAndWaitForAPICleanup(monitorName)
+		})
+
+		It("should create monitor in the specified region", func() {
+			applyMonitor(fmt.Sprintf(`
+apiVersion: uptimerobot.com/v1alpha1
+kind: Monitor
+metadata:
+  name: %s
+spec:
+  syncInterval: 1m
+  prune: true
+  account:
+    name: e2e-account-%s
+  monitor:
+    name: "E2E Regional Monitor"
+    url: https://example.com
+    type: HTTPS
+    interval: 5m
+    region: eu
+`, monitorName, testRunID))
+
+			monitorID := waitMonitorReadyAndGetID(monitorName)
+			apiKey := os.Getenv("UPTIME_ROBOT_API_KEY")
+
+			Eventually(func(g Gomega) {
+				monitor, err := getMonitorFromAPI(apiKey, monitorID)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(monitor.RegionalData).NotTo(BeNil(), "regionalData should be returned by API")
+				g.Expect(monitor.RegionalData.Region).NotTo(BeEmpty(), "regionalData.REGION should not be empty")
+
+				foundEU := false
+				for _, region := range monitor.RegionalData.Region {
+					if strings.EqualFold(region, "eu") {
+						foundEU = true
+						break
+					}
+				}
+				g.Expect(foundEU).To(BeTrue(), "expected region list %v to contain eu", monitor.RegionalData.Region)
+			}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
+		})
+	})
+
 	Context("HTTPS Auth", func() {
 		monitorName := fmt.Sprintf("e2e-https-auth-%s", testRunID)
 

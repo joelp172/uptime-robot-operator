@@ -179,6 +179,7 @@ func cleanupMonitors() {
 	monitorNames := []string{
 		fmt.Sprintf("e2e-http-%s", testRunID),
 		fmt.Sprintf("e2e-https-full-%s", testRunID),
+		fmt.Sprintf("e2e-region-%s", testRunID),
 		fmt.Sprintf("e2e-https-auth-%s", testRunID),
 		fmt.Sprintf("e2e-https-post-%s", testRunID),
 		fmt.Sprintf("e2e-keyword-%s", testRunID),

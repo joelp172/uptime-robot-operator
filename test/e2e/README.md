@@ -36,6 +36,9 @@ go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="monitorgroup" -timeout 20
 # Run only Monitor tests
 go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="monitor" -timeout 20m
 
+# Run specific monitor tests
+go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="monitor" -ginkgo.focus="Regional Monitoring|specified region" -timeout 20m
+
 # Run only MaintenanceWindow tests
 go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="maintenancewindow" -timeout 20m
 

@@ -357,6 +357,18 @@ spec:
     responseTimeThreshold: 1000  # milliseconds
 ```
 
+### Regional Monitoring
+
+Select a specific monitoring region:
+
+```yaml
+spec:
+  monitor:
+    name: Regional API
+    url: https://api.example.com
+    region: eu  # na, eu, as, oc
+```
+
 ### Tags
 
 Organise monitors with tags:
