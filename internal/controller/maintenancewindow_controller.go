@@ -63,13 +63,28 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// Update observedGeneration
+	mw.Status.ObservedGeneration = mw.Generation
+
 	account := &uptimerobotv1.Account{}
 	if err := GetAccount(ctx, r.Client, account, mw.Spec.Account.Name); err != nil {
+		mw.Status.Ready = false
+		SetReadyCondition(&mw.Status.Conditions, false, ReasonReconcileError, fmt.Sprintf("Failed to get account: %v", err), mw.Generation)
+		SetErrorCondition(&mw.Status.Conditions, true, ReasonReconcileError, fmt.Sprintf("Failed to get account: %v", err), mw.Generation)
+		if updateErr := r.Status().Update(ctx, mw); updateErr != nil {
+			return ctrl.Result{}, updateErr
+		}
 		return ctrl.Result{}, err
 	}
 
 	apiKey, err := GetApiKey(ctx, r.Client, account)
 	if err != nil {
+		mw.Status.Ready = false
+		SetReadyCondition(&mw.Status.Conditions, false, ReasonSecretNotFound, fmt.Sprintf("Failed to get API key: %v", err), mw.Generation)
+		SetErrorCondition(&mw.Status.Conditions, true, ReasonSecretNotFound, fmt.Sprintf("Failed to get API key: %v", err), mw.Generation)
+		if updateErr := r.Status().Update(ctx, mw); updateErr != nil {
+			return ctrl.Result{}, updateErr
+		}
 		return ctrl.Result{}, err
 	}
 	urclient := uptimerobot.NewClient(apiKey)
@@ -170,12 +185,23 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 
 		result, err := urclient.CreateMaintenanceWindow(ctx, createReq)
 		if err != nil {
+			mw.Status.Ready = false
+			msg := fmt.Sprintf("Failed to create maintenance window: %v", err)
+			SetReadyCondition(&mw.Status.Conditions, false, ReasonAPIError, msg, mw.Generation)
+			SetSyncedCondition(&mw.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to sync with UptimeRobot: %v", err), mw.Generation)
+			SetErrorCondition(&mw.Status.Conditions, true, ReasonAPIError, msg, mw.Generation)
+			if updateErr := r.Status().Update(ctx, mw); updateErr != nil {
+				return ctrl.Result{}, updateErr
+			}
 			return ctrl.Result{}, fmt.Errorf("failed to create maintenance window: %w", err)
 		}
 
 		mw.Status.Ready = true
 		mw.Status.ID = strconv.Itoa(result.ID)
 		mw.Status.MonitorCount = len(result.MonitorIDs)
+		SetReadyCondition(&mw.Status.Conditions, true, ReasonReconcileSuccess, "MaintenanceWindow reconciled successfully", mw.Generation)
+		SetSyncedCondition(&mw.Status.Conditions, true, ReasonSyncSuccess, "Successfully synced with UptimeRobot", mw.Generation)
+		SetErrorCondition(&mw.Status.Conditions, false, ReasonReconcileSuccess, "", mw.Generation)
 		if err := r.Status().Update(ctx, mw); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -235,20 +261,42 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 
 				result, err := urclient.CreateMaintenanceWindow(ctx, createReq)
 				if err != nil {
+					mw.Status.Ready = false
+					msg := fmt.Sprintf("Failed to recreate maintenance window: %v", err)
+					SetReadyCondition(&mw.Status.Conditions, false, ReasonAPIError, msg, mw.Generation)
+					SetSyncedCondition(&mw.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to sync with UptimeRobot: %v", err), mw.Generation)
+					SetErrorCondition(&mw.Status.Conditions, true, ReasonAPIError, msg, mw.Generation)
+					if updateErr := r.Status().Update(ctx, mw); updateErr != nil {
+						return ctrl.Result{}, updateErr
+					}
 					return ctrl.Result{}, fmt.Errorf("failed to recreate maintenance window: %w", err)
 				}
 
 				mw.Status.ID = strconv.Itoa(result.ID)
 				mw.Status.MonitorCount = len(result.MonitorIDs)
+				SetReadyCondition(&mw.Status.Conditions, true, ReasonReconcileSuccess, "MaintenanceWindow reconciled successfully", mw.Generation)
+				SetSyncedCondition(&mw.Status.Conditions, true, ReasonSyncSuccess, "Successfully synced with UptimeRobot", mw.Generation)
+				SetErrorCondition(&mw.Status.Conditions, false, ReasonReconcileSuccess, "", mw.Generation)
 				if err := r.Status().Update(ctx, mw); err != nil {
 					return ctrl.Result{}, err
 				}
 				return ctrl.Result{RequeueAfter: mw.Spec.SyncInterval.Duration}, nil
 			}
+			mw.Status.Ready = false
+			msg := fmt.Sprintf("Failed to update maintenance window: %v", err)
+			SetReadyCondition(&mw.Status.Conditions, false, ReasonAPIError, msg, mw.Generation)
+			SetSyncedCondition(&mw.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to sync with UptimeRobot: %v", err), mw.Generation)
+			SetErrorCondition(&mw.Status.Conditions, true, ReasonAPIError, msg, mw.Generation)
+			if updateErr := r.Status().Update(ctx, mw); updateErr != nil {
+				return ctrl.Result{}, updateErr
+			}
 			return ctrl.Result{}, fmt.Errorf("failed to update maintenance window: %w", err)
 		}
 
 		mw.Status.MonitorCount = len(result.MonitorIDs)
+		SetReadyCondition(&mw.Status.Conditions, true, ReasonReconcileSuccess, "MaintenanceWindow reconciled successfully", mw.Generation)
+		SetSyncedCondition(&mw.Status.Conditions, true, ReasonSyncSuccess, "Successfully synced with UptimeRobot", mw.Generation)
+		SetErrorCondition(&mw.Status.Conditions, false, ReasonReconcileSuccess, "", mw.Generation)
 		if err := r.Status().Update(ctx, mw); err != nil {
 			return ctrl.Result{}, err
 		}
