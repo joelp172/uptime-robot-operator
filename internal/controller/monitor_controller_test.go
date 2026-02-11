@@ -1071,6 +1071,69 @@ var _ = Describe("Monitor Controller", func() {
 			Expect(monitor.Status.HeartbeatURLPublishTargetName).To(Equal("heartbeat-switch-publish-target-cm"))
 			Expect(monitor.Status.HeartbeatURLPublishTargetKey).To(Equal("url"))
 		})
+
+		It("updates managed Secret in place when only publish key changes", func() {
+			monitor := &uptimerobotv1.Monitor{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "heartbeat-switch-publish-key-monitor",
+					Namespace: "default",
+				},
+				Spec: uptimerobotv1.MonitorSpec{
+					Account: corev1.LocalObjectReference{Name: account.Name},
+					Contacts: []uptimerobotv1.MonitorContactRef{
+						{
+							LocalObjectReference: corev1.LocalObjectReference{Name: contact.Name},
+						},
+					},
+					Monitor: uptimerobotv1.MonitorValues{
+						Name: "Heartbeat Switch Publish Key Monitor",
+						Type: urtypes.TypeHeartbeat,
+						Heartbeat: &uptimerobotv1.MonitorHeartbeat{
+							Interval: &metav1.Duration{Duration: 5 * time.Minute},
+						},
+					},
+					HeartbeatURLPublish: &uptimerobotv1.HeartbeatURLPublish{
+						Type: uptimerobotv1.HeartbeatURLPublishTypeSecret,
+						Name: "heartbeat-switch-key-secret",
+						Key:  "oldKey",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, monitor)).To(Succeed())
+
+			controllerReconciler := &MonitorReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: monitor.Name, Namespace: monitor.Namespace},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			secret := &corev1.Secret{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "heartbeat-switch-key-secret", Namespace: monitor.Namespace}, secret)).To(Succeed())
+			originalUID := secret.UID
+			secret.Data["other"] = []byte("keep")
+			Expect(k8sClient.Update(ctx, secret)).To(Succeed())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: monitor.Name, Namespace: monitor.Namespace}, monitor)).To(Succeed())
+			monitor.Spec.HeartbeatURLPublish.Key = "newKey"
+			Expect(k8sClient.Update(ctx, monitor)).To(Succeed())
+
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: monitor.Name, Namespace: monitor.Namespace},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "heartbeat-switch-key-secret", Namespace: monitor.Namespace}, secret)).To(Succeed())
+			Expect(secret.UID).To(Equal(originalUID))
+			Expect(string(secret.Data["other"])).To(Equal("keep"))
+			_, oldKeyExists := secret.Data["oldKey"]
+			Expect(oldKeyExists).To(BeFalse())
+			Expect(string(secret.Data["newKey"])).To(Equal(monitor.Status.HeartbeatURL))
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: monitor.Name, Namespace: monitor.Namespace}, monitor)).To(Succeed())
+			Expect(monitor.Status.HeartbeatURLPublishTargetType).To(Equal(uptimerobotv1.HeartbeatURLPublishTypeSecret))
+			Expect(monitor.Status.HeartbeatURLPublishTargetName).To(Equal("heartbeat-switch-key-secret"))
+			Expect(monitor.Status.HeartbeatURLPublishTargetKey).To(Equal("newKey"))
+		})
 	})
 
 	Context("buildHeartbeatURL", func() {

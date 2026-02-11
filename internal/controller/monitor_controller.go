@@ -398,10 +398,9 @@ func (r *MonitorReconciler) reconcileHeartbeatURLPublishTarget(ctx context.Conte
 		targetKey = "heartbeatURL"
 	}
 
-	targetChanged := currentTargetType != targetType ||
-		currentTargetName != targetName ||
-		currentTargetKey != targetKey
-	if targetChanged && currentTargetName != "" {
+	targetObjectChanged := currentTargetType != targetType ||
+		currentTargetName != targetName
+	if targetObjectChanged && currentTargetName != "" {
 		if err := r.cleanupHeartbeatURLPublishTargetObject(ctx, monitor, currentTargetType, currentTargetName); err != nil {
 			return err
 		}
@@ -409,11 +408,11 @@ func (r *MonitorReconciler) reconcileHeartbeatURLPublishTarget(ctx context.Conte
 
 	switch targetType {
 	case uptimerobotv1.HeartbeatURLPublishTypeConfigMap:
-		if err := r.reconcileHeartbeatURLConfigMap(ctx, monitor, targetName, targetKey, heartbeatURL); err != nil {
+		if err := r.reconcileHeartbeatURLConfigMap(ctx, monitor, targetName, targetKey, currentTargetKey, heartbeatURL); err != nil {
 			return err
 		}
 	case uptimerobotv1.HeartbeatURLPublishTypeSecret:
-		if err := r.reconcileHeartbeatURLSecret(ctx, monitor, targetName, targetKey, heartbeatURL); err != nil {
+		if err := r.reconcileHeartbeatURLSecret(ctx, monitor, targetName, targetKey, currentTargetKey, heartbeatURL); err != nil {
 			return err
 		}
 	default:
@@ -488,7 +487,7 @@ func (r *MonitorReconciler) cleanupHeartbeatURLPublishTargetObject(ctx context.C
 	return nil
 }
 
-func (r *MonitorReconciler) reconcileHeartbeatURLSecret(ctx context.Context, monitor *uptimerobotv1.Monitor, name, key, heartbeatURL string) error {
+func (r *MonitorReconciler) reconcileHeartbeatURLSecret(ctx context.Context, monitor *uptimerobotv1.Monitor, name, key, previousKey, heartbeatURL string) error {
 	logger := log.FromContext(ctx)
 	secret := &corev1.Secret{}
 	objKey := client.ObjectKey{Name: name, Namespace: monitor.Namespace}
@@ -534,6 +533,13 @@ func (r *MonitorReconciler) reconcileHeartbeatURLSecret(ctx context.Context, mon
 		secret.Data[key] = []byte(heartbeatURL)
 		needsUpdate = true
 	}
+	// If key changed on the same managed Secret, remove the previously managed key.
+	if previousKey != "" && previousKey != key {
+		if _, exists := secret.Data[previousKey]; exists {
+			delete(secret.Data, previousKey)
+			needsUpdate = true
+		}
+	}
 	if !needsUpdate {
 		return nil
 	}
@@ -548,7 +554,7 @@ func (r *MonitorReconciler) reconcileHeartbeatURLSecret(ctx context.Context, mon
 	return nil
 }
 
-func (r *MonitorReconciler) reconcileHeartbeatURLConfigMap(ctx context.Context, monitor *uptimerobotv1.Monitor, name, key, heartbeatURL string) error {
+func (r *MonitorReconciler) reconcileHeartbeatURLConfigMap(ctx context.Context, monitor *uptimerobotv1.Monitor, name, key, previousKey, heartbeatURL string) error {
 	logger := log.FromContext(ctx)
 	configMap := &corev1.ConfigMap{}
 	objKey := client.ObjectKey{Name: name, Namespace: monitor.Namespace}
@@ -592,6 +598,13 @@ func (r *MonitorReconciler) reconcileHeartbeatURLConfigMap(ctx context.Context, 
 	if configMap.Data[key] != heartbeatURL {
 		configMap.Data[key] = heartbeatURL
 		needsUpdate = true
+	}
+	// If key changed on the same managed ConfigMap, remove the previously managed key.
+	if previousKey != "" && previousKey != key {
+		if _, exists := configMap.Data[previousKey]; exists {
+			delete(configMap.Data, previousKey)
+			needsUpdate = true
+		}
 	}
 	if !needsUpdate {
 		return nil
