@@ -83,6 +83,8 @@ EOF
 | [Monitors](docs/monitors.md) | Configure monitor types and alerts |
 | [Migration Guide](docs/migration-guide.md) | Adopt existing UptimeRobot resources |
 | [Maintenance Windows](docs/maintenance-windows.md) | Schedule planned downtime |
+| [Architecture](docs/architecture.md) | System architecture and data flows |
+| [Troubleshooting](docs/troubleshooting.md) | Diagnose and fix common issues |
 | [API Reference](docs/api-reference.md) | Complete CRD field reference |
 | [Development](docs/development.md) | Contributing and testing |
 
