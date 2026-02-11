@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"os"
 	"time"
 
 	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot/urtypes"
@@ -959,15 +960,46 @@ var _ = Describe("Monitor Controller", func() {
 
 	Context("buildHeartbeatURL", func() {
 		It("handles empty and already-full URLs correctly", func() {
-			Expect(buildHeartbeatURL("1", "")).To(Equal(""))
-			Expect(buildHeartbeatURL("1", "https://heartbeat.uptimerobot.com/m1-token")).To(Equal("https://heartbeat.uptimerobot.com/m1-token"))
+			Expect(buildHeartbeatURL("", "1", "")).To(Equal(""))
+			Expect(buildHeartbeatURL("", "1", "https://heartbeat.uptimerobot.com/m1-token")).To(Equal("https://heartbeat.uptimerobot.com/m1-token"))
 		})
 
 		It("expands token paths", func() {
-			Expect(buildHeartbeatURL("1", "m1-token")).To(Equal("https://heartbeat.uptimerobot.com/m1-token"))
-			Expect(buildHeartbeatURL("1", "u1-token")).To(Equal("https://heartbeat.uptimerobot.com/u1-token"))
-			Expect(buildHeartbeatURL("123456789", "abcdef0123456789deadbeefcafebabe")).To(Equal("https://heartbeat.uptimerobot.com/m123456789-abcdef0123456789deadbeefcafebabe"))
-			Expect(buildHeartbeatURL("123456789", "mabc-token-part")).To(Equal("https://heartbeat.uptimerobot.com/m123456789-mabc-token-part"))
+			Expect(buildHeartbeatURL("", "1", "m1-token")).To(Equal("https://heartbeat.uptimerobot.com/m1-token"))
+			Expect(buildHeartbeatURL("", "123456789", "abcdef0123456789deadbeefcafebabe")).To(Equal("https://heartbeat.uptimerobot.com/m123456789-abcdef0123456789deadbeefcafebabe"))
+			Expect(buildHeartbeatURL("", "123456789", "mabc-token-part")).To(Equal("https://heartbeat.uptimerobot.com/m123456789-mabc-token-part"))
+		})
+
+		It("supports a custom heartbeat base URL", func() {
+			Expect(buildHeartbeatURL("https://heartbeat.example.internal", "42", "token-value")).To(Equal("https://heartbeat.example.internal/m42-token-value"))
+			Expect(buildHeartbeatURL("heartbeat.example.internal/", "42", "m42-token")).To(Equal("https://heartbeat.example.internal/m42-token"))
+		})
+	})
+
+	Context("normalizeHeartbeatBaseURL", func() {
+		It("normalizes empty, host-only, and slash-suffixed values", func() {
+			Expect(normalizeHeartbeatBaseURL("")).To(Equal(defaultHeartbeatBaseURL))
+			Expect(normalizeHeartbeatBaseURL("heartbeat.example.internal")).To(Equal("https://heartbeat.example.internal"))
+			Expect(normalizeHeartbeatBaseURL("https://heartbeat.example.internal/")).To(Equal("https://heartbeat.example.internal"))
+		})
+	})
+
+	Context("configuredHeartbeatBaseURL", func() {
+		It("reads and normalizes env var, defaulting when unset", func() {
+			originalValue, hadOriginal := os.LookupEnv(heartbeatBaseURLEnvVar)
+			DeferCleanup(func() {
+				if hadOriginal {
+					_ = os.Setenv(heartbeatBaseURLEnvVar, originalValue)
+					return
+				}
+				_ = os.Unsetenv(heartbeatBaseURLEnvVar)
+			})
+
+			_ = os.Unsetenv(heartbeatBaseURLEnvVar)
+			Expect(configuredHeartbeatBaseURL()).To(Equal(defaultHeartbeatBaseURL))
+
+			_ = os.Setenv(heartbeatBaseURLEnvVar, "heartbeat.example.internal/")
+			Expect(configuredHeartbeatBaseURL()).To(Equal("https://heartbeat.example.internal"))
 		})
 	})
 })

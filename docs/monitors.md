@@ -107,6 +107,9 @@ kubectl get secret backup-job-heartbeat -o jsonpath='{.data.url}' | base64 -d
 Use one Secret/ConfigMap per heartbeat monitor (default naming is `<monitor-name>-heartbeat-url`).
 This avoids key collisions when multiple heartbeat monitors exist in the same namespace.
 
+Operator-wide heartbeat base URL can be overridden with environment variable
+`UPTIMEROBOT_HEARTBEAT_BASE_URL` (default: `https://heartbeat.uptimerobot.com`).
+
 ### Port
 
 Monitor TCP port connectivity:

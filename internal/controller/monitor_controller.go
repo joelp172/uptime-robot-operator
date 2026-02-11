@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -47,7 +48,9 @@ type MonitorReconciler struct {
 
 const (
 	// AdoptIDAnnotation is used to specify an existing monitor ID to adopt
-	AdoptIDAnnotation = "uptimerobot.com/adopt-id"
+	AdoptIDAnnotation       = "uptimerobot.com/adopt-id"
+	defaultHeartbeatBaseURL = "https://heartbeat.uptimerobot.com"
+	heartbeatBaseURLEnvVar  = "UPTIMEROBOT_HEARTBEAT_BASE_URL"
 )
 
 var (
@@ -236,7 +239,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			monitor.Status.Status = monitor.Spec.Monitor.Status
 			// Set HeartbeatURL for heartbeat monitors
 			if monitor.Spec.Monitor.Type == urtypes.TypeHeartbeat && existingMonitor.URL != "" {
-				monitor.Status.HeartbeatURL = buildHeartbeatURL(monitor.Status.ID, existingMonitor.URL)
+				monitor.Status.HeartbeatURL = buildHeartbeatURL(configuredHeartbeatBaseURL(), monitor.Status.ID, existingMonitor.URL)
 			}
 			if err := r.updateMonitorStatus(ctx, monitor); err != nil {
 				return ctrl.Result{}, err
@@ -251,7 +254,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			monitor.Status.ID = result.ID
 			monitor.Status.Status = monitor.Spec.Monitor.Status
 			if monitor.Spec.Monitor.Type == urtypes.TypeHeartbeat && result.URL != "" {
-				monitor.Status.HeartbeatURL = buildHeartbeatURL(monitor.Status.ID, result.URL)
+				monitor.Status.HeartbeatURL = buildHeartbeatURL(configuredHeartbeatBaseURL(), monitor.Status.ID, result.URL)
 			}
 			if err := r.updateMonitorStatus(ctx, monitor); err != nil {
 				return ctrl.Result{}, err
@@ -271,7 +274,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			monitor.Status.Status = monitor.Spec.Monitor.Status
 			// Set HeartbeatURL for heartbeat monitors (API returns token, we need full URL)
 			if monitor.Spec.Monitor.Type == urtypes.TypeHeartbeat && result.URL != "" {
-				monitor.Status.HeartbeatURL = buildHeartbeatURL(monitor.Status.ID, result.URL)
+				monitor.Status.HeartbeatURL = buildHeartbeatURL(configuredHeartbeatBaseURL(), monitor.Status.ID, result.URL)
 			}
 			if err := r.updateMonitorStatus(ctx, monitor); err != nil {
 				return ctrl.Result{}, err
@@ -293,7 +296,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		monitor.Status.Status = monitor.Spec.Monitor.Status
 		// Update HeartbeatURL for heartbeat monitors (API returns token, we need full URL)
 		if monitor.Spec.Monitor.Type == urtypes.TypeHeartbeat && result.URL != "" {
-			monitor.Status.HeartbeatURL = buildHeartbeatURL(monitor.Status.ID, result.URL)
+			monitor.Status.HeartbeatURL = buildHeartbeatURL(configuredHeartbeatBaseURL(), monitor.Status.ID, result.URL)
 		}
 		if err := r.updateMonitorStatus(ctx, monitor); err != nil {
 			return ctrl.Result{}, err
@@ -314,7 +317,22 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	return ctrl.Result{RequeueAfter: monitor.Spec.SyncInterval.Duration}, nil
 }
 
-func buildHeartbeatURL(monitorID, apiURL string) string {
+func configuredHeartbeatBaseURL() string {
+	return normalizeHeartbeatBaseURL(os.Getenv(heartbeatBaseURLEnvVar))
+}
+
+func normalizeHeartbeatBaseURL(baseURL string) string {
+	trimmed := strings.TrimSpace(baseURL)
+	if trimmed == "" {
+		return defaultHeartbeatBaseURL
+	}
+	if !strings.HasPrefix(trimmed, "http://") && !strings.HasPrefix(trimmed, "https://") {
+		trimmed = "https://" + trimmed
+	}
+	return strings.TrimSuffix(trimmed, "/")
+}
+
+func buildHeartbeatURL(baseURL, monitorID, apiURL string) string {
 	trimmed := strings.TrimSpace(apiURL)
 	if trimmed == "" {
 		return ""
@@ -322,21 +340,21 @@ func buildHeartbeatURL(monitorID, apiURL string) string {
 	if strings.HasPrefix(trimmed, "http://") || strings.HasPrefix(trimmed, "https://") {
 		return trimmed
 	}
+	normalizedBaseURL := normalizeHeartbeatBaseURL(baseURL)
 	if isPrefixedHeartbeatKey(trimmed) {
-		return fmt.Sprintf("https://heartbeat.uptimerobot.com/%s", trimmed)
+		return fmt.Sprintf("%s/%s", normalizedBaseURL, trimmed)
 	}
 	if monitorID != "" {
-		return fmt.Sprintf("https://heartbeat.uptimerobot.com/m%s-%s", monitorID, trimmed)
+		return fmt.Sprintf("%s/m%s-%s", normalizedBaseURL, monitorID, trimmed)
 	}
-	return fmt.Sprintf("https://heartbeat.uptimerobot.com/%s", trimmed)
+	return fmt.Sprintf("%s/%s", normalizedBaseURL, trimmed)
 }
 
 func isPrefixedHeartbeatKey(value string) bool {
 	if len(value) < 3 {
 		return false
 	}
-	prefix := value[0]
-	if prefix != 'm' && prefix != 'u' {
+	if value[0] != 'm' {
 		return false
 	}
 	rest := value[1:]
@@ -371,7 +389,7 @@ func (r *MonitorReconciler) reconcileHeartbeatURLPublishTarget(ctx context.Conte
 		targetKey = "heartbeatURL"
 	}
 
-	heartbeatURL := buildHeartbeatURL(monitor.Status.ID, monitor.Status.HeartbeatURL)
+	heartbeatURL := buildHeartbeatURL(configuredHeartbeatBaseURL(), monitor.Status.ID, monitor.Status.HeartbeatURL)
 	shouldPublish := monitor.Spec.Monitor.Type == urtypes.TypeHeartbeat && heartbeatURL != ""
 	if !shouldPublish {
 		return nil
