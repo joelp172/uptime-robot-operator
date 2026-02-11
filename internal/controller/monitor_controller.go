@@ -176,6 +176,9 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, fmt.Sprintf("Failed to delete monitor for type change: %v", err), monitor.Generation)
 			SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to delete monitor for type change: %v", err), monitor.Generation)
 			SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, err.Error(), monitor.Generation)
+			if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
+				return ctrl.Result{}, updateErr
+			}
 			return ctrl.Result{}, err
 		}
 		monitor.Status.Ready = false
@@ -240,12 +243,18 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
 					SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
 					SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, msg, monitor.Generation)
+					if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
+						return ctrl.Result{}, updateErr
+					}
 					return ctrl.Result{}, fmt.Errorf("%s", msg)
 				}
 				msg := fmt.Sprintf("failed to get monitor for adoption: %v", err)
 				SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
 				SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
 				SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, err.Error(), monitor.Generation)
+				if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
+					return ctrl.Result{}, updateErr
+				}
 				return ctrl.Result{}, fmt.Errorf("failed to get monitor for adoption: %w", err)
 			}
 
@@ -257,6 +266,9 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				SetReadyCondition(&monitor.Status.Conditions, false, ReasonReconcileError, msg, monitor.Generation)
 				SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
 				SetErrorCondition(&monitor.Status.Conditions, true, ReasonReconcileError, msg, monitor.Generation)
+				if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
+					return ctrl.Result{}, updateErr
+				}
 				return ctrl.Result{}, fmt.Errorf("%s", msg)
 			}
 
@@ -280,6 +292,9 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, fmt.Sprintf("Failed to edit adopted monitor: %v", err), monitor.Generation)
 				SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to edit adopted monitor: %v", err), monitor.Generation)
 				SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, err.Error(), monitor.Generation)
+				if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
+					return ctrl.Result{}, updateErr
+				}
 				return ctrl.Result{}, err
 			}
 			// Update status with any changes from the edit (e.g., heartbeat URL)
@@ -301,6 +316,9 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, fmt.Sprintf("Failed to create monitor: %v", err), monitor.Generation)
 				SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to create monitor: %v", err), monitor.Generation)
 				SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, err.Error(), monitor.Generation)
+				if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
+					return ctrl.Result{}, updateErr
+				}
 				return ctrl.Result{}, err
 			}
 
@@ -322,6 +340,9 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, fmt.Sprintf("Failed to pause monitor: %v", err), monitor.Generation)
 					SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to pause monitor: %v", err), monitor.Generation)
 					SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, err.Error(), monitor.Generation)
+					if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
+						return ctrl.Result{}, updateErr
+					}
 					return ctrl.Result{}, err
 				}
 			}
@@ -333,6 +354,9 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, fmt.Sprintf("Failed to edit monitor: %v", err), monitor.Generation)
 			SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to edit monitor: %v", err), monitor.Generation)
 			SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, err.Error(), monitor.Generation)
+			if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
+				return ctrl.Result{}, updateErr
+			}
 			return ctrl.Result{}, err
 		}
 
@@ -352,6 +376,9 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		SetReadyCondition(&monitor.Status.Conditions, false, ReasonReconcileError, fmt.Sprintf("Failed to reconcile heartbeat URL publish target: %v", err), monitor.Generation)
 		SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, "Monitor synced but heartbeat URL publish failed", monitor.Generation)
 		SetErrorCondition(&monitor.Status.Conditions, true, ReasonReconcileError, err.Error(), monitor.Generation)
+		if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
+			return ctrl.Result{}, updateErr
+		}
 		return ctrl.Result{}, err
 	}
 
