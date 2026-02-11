@@ -45,6 +45,12 @@ type SlackIntegrationStatus struct {
 	ID string `json:"id,omitempty"`
 	// Type is the UptimeRobot integration type (e.g. Slack).
 	Type string `json:"type,omitempty"`
+
+	// Conditions represent the latest available observations of the resource's state
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// ObservedGeneration is the most recent generation observed by the controller
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
 
 // SlackIntegrationValues defines the desired Slack integration settings.

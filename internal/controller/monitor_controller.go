@@ -77,6 +77,9 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// Update observedGeneration
+	monitor.Status.ObservedGeneration = monitor.Generation
+
 	account := &uptimerobotv1.Account{}
 	if err := GetAccount(ctx, r.Client, account, monitor.Spec.Account.Name); err != nil {
 		return ctrl.Result{}, err
@@ -169,6 +172,10 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if monitor.Status.Ready && monitor.Status.Type != monitor.Spec.Monitor.Type {
 		// Type change requires recreate
 		if err := urclient.DeleteMonitor(ctx, monitor.Status.ID); err != nil {
+			monitor.Status.Ready = false
+			SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, fmt.Sprintf("Failed to delete monitor for type change: %v", err), monitor.Generation)
+			SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to delete monitor for type change: %v", err), monitor.Generation)
+			SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, err.Error(), monitor.Generation)
 			return ctrl.Result{}, err
 		}
 		monitor.Status.Ready = false
@@ -227,16 +234,30 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			// Verify monitor exists
 			existingMonitor, err := urclient.GetMonitor(ctx, adoptID)
 			if err != nil {
+				monitor.Status.Ready = false
 				if errors.Is(err, uptimerobot.ErrMonitorNotFound) {
-					return ctrl.Result{}, fmt.Errorf("cannot adopt monitor: monitor with ID %s not found", adoptID)
+					msg := fmt.Sprintf("cannot adopt monitor: monitor with ID %s not found", adoptID)
+					SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
+					SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
+					SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, msg, monitor.Generation)
+					return ctrl.Result{}, fmt.Errorf("%s", msg)
 				}
+				msg := fmt.Sprintf("failed to get monitor for adoption: %v", err)
+				SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
+				SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
+				SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, err.Error(), monitor.Generation)
 				return ctrl.Result{}, fmt.Errorf("failed to get monitor for adoption: %w", err)
 			}
 
 			// Verify monitor type matches spec
 			existingType := urtypes.MonitorTypeFromAPIString(existingMonitor.Type)
 			if existingType != monitor.Spec.Monitor.Type {
-				return ctrl.Result{}, fmt.Errorf("cannot adopt monitor: type mismatch - existing monitor is %s but spec defines %s", existingType.String(), monitor.Spec.Monitor.Type.String())
+				monitor.Status.Ready = false
+				msg := fmt.Sprintf("cannot adopt monitor: type mismatch - existing monitor is %s but spec defines %s", existingType.String(), monitor.Spec.Monitor.Type.String())
+				SetReadyCondition(&monitor.Status.Conditions, false, ReasonReconcileError, msg, monitor.Generation)
+				SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
+				SetErrorCondition(&monitor.Status.Conditions, true, ReasonReconcileError, msg, monitor.Generation)
+				return ctrl.Result{}, fmt.Errorf("%s", msg)
 			}
 
 			// Adopt the monitor by setting status
@@ -255,6 +276,10 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			// Apply the spec to the adopted monitor immediately
 			result, err := urclient.EditMonitor(ctx, adoptID, monitor.Spec.Monitor, contacts)
 			if err != nil {
+				monitor.Status.Ready = false
+				SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, fmt.Sprintf("Failed to edit adopted monitor: %v", err), monitor.Generation)
+				SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to edit adopted monitor: %v", err), monitor.Generation)
+				SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, err.Error(), monitor.Generation)
 				return ctrl.Result{}, err
 			}
 			// Update status with any changes from the edit (e.g., heartbeat URL)
@@ -272,6 +297,10 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			// Create new monitor
 			result, err := urclient.CreateMonitor(ctx, monitor.Spec.Monitor, contacts)
 			if err != nil {
+				monitor.Status.Ready = false
+				SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, fmt.Sprintf("Failed to create monitor: %v", err), monitor.Generation)
+				SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to create monitor: %v", err), monitor.Generation)
+				SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, err.Error(), monitor.Generation)
 				return ctrl.Result{}, err
 			}
 
@@ -289,6 +318,10 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 			if monitor.Spec.Monitor.Status == urtypes.MonitorPaused {
 				if _, err := urclient.EditMonitor(ctx, result.ID, monitor.Spec.Monitor, contacts); err != nil {
+					monitor.Status.Ready = false
+					SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, fmt.Sprintf("Failed to pause monitor: %v", err), monitor.Generation)
+					SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to pause monitor: %v", err), monitor.Generation)
+					SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, err.Error(), monitor.Generation)
 					return ctrl.Result{}, err
 				}
 			}
@@ -296,6 +329,10 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	} else {
 		result, err := urclient.EditMonitor(ctx, monitor.Status.ID, monitor.Spec.Monitor, contacts)
 		if err != nil {
+			monitor.Status.Ready = false
+			SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, fmt.Sprintf("Failed to edit monitor: %v", err), monitor.Generation)
+			SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to edit monitor: %v", err), monitor.Generation)
+			SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, err.Error(), monitor.Generation)
 			return ctrl.Result{}, err
 		}
 
@@ -311,8 +348,16 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	if err := r.reconcileHeartbeatURLPublishTarget(ctx, monitor); err != nil {
+		monitor.Status.Ready = false
+		SetReadyCondition(&monitor.Status.Conditions, false, ReasonReconcileError, fmt.Sprintf("Failed to reconcile heartbeat URL publish target: %v", err), monitor.Generation)
+		SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, "Monitor synced but heartbeat URL publish failed", monitor.Generation)
+		SetErrorCondition(&monitor.Status.Conditions, true, ReasonReconcileError, err.Error(), monitor.Generation)
 		return ctrl.Result{}, err
 	}
+
+	SetReadyCondition(&monitor.Status.Conditions, true, ReasonReconcileSuccess, "Monitor reconciled successfully", monitor.Generation)
+	SetSyncedCondition(&monitor.Status.Conditions, true, ReasonSyncSuccess, "Successfully synced with UptimeRobot", monitor.Generation)
+	SetErrorCondition(&monitor.Status.Conditions, false, ReasonReconcileSuccess, "", monitor.Generation)
 
 	return ctrl.Result{RequeueAfter: monitor.Spec.SyncInterval.Duration}, nil
 }
@@ -643,6 +688,8 @@ func (r *MonitorReconciler) updateMonitorStatus(ctx context.Context, monitor *up
 	latest.Status.HeartbeatURLPublishTargetType = monitor.Status.HeartbeatURLPublishTargetType
 	latest.Status.HeartbeatURLPublishTargetName = monitor.Status.HeartbeatURLPublishTargetName
 	latest.Status.HeartbeatURLPublishTargetKey = monitor.Status.HeartbeatURLPublishTargetKey
+	latest.Status.ObservedGeneration = monitor.Status.ObservedGeneration
+	latest.Status.Conditions = monitor.Status.Conditions
 	return r.Status().Update(ctx, latest)
 }
 

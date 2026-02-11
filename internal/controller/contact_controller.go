@@ -55,13 +55,30 @@ func (r *ContactReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// Update observedGeneration
+	contact.Status.ObservedGeneration = contact.Generation
+
 	account := &uptimerobotv1.Account{}
 	if err := GetAccount(ctx, r.Client, account, contact.Spec.Account.Name); err != nil {
+		contact.Status.Ready = false
+		SetReadyCondition(&contact.Status.Conditions, false, ReasonReconcileError, "Failed to get account: "+err.Error(), contact.Generation)
+		SetSyncedCondition(&contact.Status.Conditions, false, ReasonReconcileError, "Failed to get account: "+err.Error(), contact.Generation)
+		SetErrorCondition(&contact.Status.Conditions, true, ReasonReconcileError, "Failed to get account: "+err.Error(), contact.Generation)
+		if updateErr := r.Status().Update(ctx, contact); updateErr != nil {
+			return ctrl.Result{}, updateErr
+		}
 		return ctrl.Result{}, err
 	}
 
 	apiKey, err := GetApiKey(ctx, r.Client, account)
 	if err != nil {
+		contact.Status.Ready = false
+		SetReadyCondition(&contact.Status.Conditions, false, ReasonSecretNotFound, "Failed to get API key: "+err.Error(), contact.Generation)
+		SetSyncedCondition(&contact.Status.Conditions, false, ReasonSecretNotFound, "Failed to get API key: "+err.Error(), contact.Generation)
+		SetErrorCondition(&contact.Status.Conditions, true, ReasonSecretNotFound, "Failed to get API key: "+err.Error(), contact.Generation)
+		if updateErr := r.Status().Update(ctx, contact); updateErr != nil {
+			return ctrl.Result{}, updateErr
+		}
 		return ctrl.Result{}, err
 	}
 
@@ -77,14 +94,32 @@ func (r *ContactReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			var err error
 			id, err = urclient.FindContactID(ctx, contact.Spec.Contact.Name)
 			if err != nil {
+				contact.Status.Ready = false
+				SetReadyCondition(&contact.Status.Conditions, false, ReasonAPIError, "Failed to find contact: "+err.Error(), contact.Generation)
+				SetSyncedCondition(&contact.Status.Conditions, false, ReasonSyncError, "Failed to find contact: "+err.Error(), contact.Generation)
+				SetErrorCondition(&contact.Status.Conditions, true, ReasonAPIError, "Failed to find contact: "+err.Error(), contact.Generation)
+				if updateErr := r.Status().Update(ctx, contact); updateErr != nil {
+					return ctrl.Result{}, updateErr
+				}
 				return ctrl.Result{}, err
 			}
 		} else {
-			return ctrl.Result{}, errors.New("contact must specify either id or name")
+			err := errors.New("contact must specify either id or name")
+			contact.Status.Ready = false
+			SetReadyCondition(&contact.Status.Conditions, false, ReasonReconcileError, err.Error(), contact.Generation)
+			SetSyncedCondition(&contact.Status.Conditions, false, ReasonReconcileError, err.Error(), contact.Generation)
+			SetErrorCondition(&contact.Status.Conditions, true, ReasonReconcileError, err.Error(), contact.Generation)
+			if updateErr := r.Status().Update(ctx, contact); updateErr != nil {
+				return ctrl.Result{}, updateErr
+			}
+			return ctrl.Result{}, err
 		}
 
 		contact.Status.Ready = true
 		contact.Status.ID = id
+		SetReadyCondition(&contact.Status.Conditions, true, ReasonReconcileSuccess, "Contact reconciled successfully", contact.Generation)
+		SetSyncedCondition(&contact.Status.Conditions, true, ReasonSyncSuccess, "Successfully synced with UptimeRobot", contact.Generation)
+		SetErrorCondition(&contact.Status.Conditions, false, ReasonReconcileSuccess, "", contact.Generation)
 		if err := r.Status().Update(ctx, contact); err != nil {
 			return ctrl.Result{}, err
 		}

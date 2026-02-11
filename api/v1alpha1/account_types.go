@@ -37,6 +37,12 @@ type AccountStatus struct {
 	// AlertContacts lists all available alert contacts for this account.
 	// Use the ID field when creating Contact resources.
 	AlertContacts []AlertContactInfo `json:"alertContacts,omitempty"`
+
+	// Conditions represent the latest available observations of the resource's state
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// ObservedGeneration is the most recent generation observed by the controller
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
 
 // AlertContactInfo represents an alert contact available in UptimeRobot.
