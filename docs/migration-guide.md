@@ -59,13 +59,14 @@ Notes:
 
 ## Step 3: Validate Adoption
 
-Set your target cluster context and confirm reconciliation succeeded:
+Set your target cluster context and namespace, then confirm reconciliation succeeded:
 
 ```bash
 export KUBE_CONTEXT=<cluster-context>
-kubectl --context="$KUBE_CONTEXT" wait --for=jsonpath='{.status.ready}'=true monitor/existing-api-monitor --timeout=120s
-kubectl --context="$KUBE_CONTEXT" get monitor existing-api-monitor -o jsonpath='{.status.ready}{"\n"}'
-kubectl --context="$KUBE_CONTEXT" get monitor existing-api-monitor -o jsonpath='{.status.id}{"\n"}'
+export NAMESPACE=<namespace>
+kubectl --context="$KUBE_CONTEXT" wait --for=jsonpath='{.status.ready}'=true monitor/existing-api-monitor -n "$NAMESPACE" --timeout=120s
+kubectl --context="$KUBE_CONTEXT" get monitor existing-api-monitor -n "$NAMESPACE" -o jsonpath='{.status.ready}{"\n"}'
+kubectl --context="$KUBE_CONTEXT" get monitor existing-api-monitor -n "$NAMESPACE" -o jsonpath='{.status.id}{"\n"}'
 ```
 
 Expected:
@@ -76,7 +77,7 @@ Expected:
 Optional checks:
 
 ```bash
-kubectl --context="$KUBE_CONTEXT" describe monitor existing-api-monitor
+kubectl --context="$KUBE_CONTEXT" describe monitor existing-api-monitor -n "$NAMESPACE"
 kubectl --context="$KUBE_CONTEXT" logs -n uptime-robot-system deployment/uptime-robot-controller-manager
 ```
 
@@ -94,13 +95,13 @@ To stop managing an adopted monitor while preserving it in UptimeRobot:
 1. Ensure `spec.prune=false`:
 
 ```bash
-kubectl --context="$KUBE_CONTEXT" patch monitor existing-api-monitor --type merge -p '{"spec":{"prune":false}}'
+kubectl --context="$KUBE_CONTEXT" patch monitor existing-api-monitor -n "$NAMESPACE" --type merge -p '{"spec":{"prune":false}}'
 ```
 
 2. Delete the Kubernetes resource:
 
 ```bash
-kubectl --context="$KUBE_CONTEXT" delete monitor existing-api-monitor
+kubectl --context="$KUBE_CONTEXT" delete monitor existing-api-monitor -n "$NAMESPACE"
 ```
 
 Result: the monitor resource is removed from Kubernetes, and the upstream UptimeRobot monitor remains.
