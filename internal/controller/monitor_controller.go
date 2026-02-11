@@ -385,6 +385,9 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	SetReadyCondition(&monitor.Status.Conditions, true, ReasonReconcileSuccess, "Monitor reconciled successfully", monitor.Generation)
 	SetSyncedCondition(&monitor.Status.Conditions, true, ReasonSyncSuccess, "Successfully synced with UptimeRobot", monitor.Generation)
 	SetErrorCondition(&monitor.Status.Conditions, false, ReasonReconcileSuccess, "", monitor.Generation)
+	if err := r.updateMonitorStatus(ctx, monitor); err != nil {
+		return ctrl.Result{}, err
+	}
 
 	return ctrl.Result{RequeueAfter: monitor.Spec.SyncInterval.Duration}, nil
 }

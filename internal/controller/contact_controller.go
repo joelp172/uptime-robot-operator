@@ -116,7 +116,7 @@ func (r *ContactReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		contact.Status.ID = id
 		contact.Status.ObservedGeneration = contact.Generation
 		SetReadyCondition(&contact.Status.Conditions, true, ReasonReconcileSuccess, "Contact reconciled successfully", contact.Generation)
-		SetSyncedCondition(&contact.Status.Conditions, true, ReasonSyncSuccess, "Successfully synced with UptimeRobot", contact.Generation)
+		SetSyncedCondition(&contact.Status.Conditions, true, ReasonSyncSuccess, "Successfully validated contact reference", contact.Generation)
 		SetErrorCondition(&contact.Status.Conditions, false, ReasonReconcileSuccess, "", contact.Generation)
 		if err := r.Status().Update(ctx, contact); err != nil {
 			return ctrl.Result{}, err
