@@ -9,12 +9,11 @@ graph TB
     subgraph "Kubernetes Cluster"
         subgraph "Custom Resources"
             Account[Account<br/>Cluster-scoped]
-            Contact[Contact]
+            Contact[Contact<br/>Cluster-scoped]
             Monitor[Monitor]
             MW[MaintenanceWindow]
             MG[MonitorGroup]
             SI[SlackIntegration]
-            Ingress[Ingress]
         end
         
         subgraph "Controllers"
@@ -31,6 +30,7 @@ graph TB
             Secret[Secret<br/>API Keys]
             CM[ConfigMap]
             Events[Events]
+            K8sIngress[Ingress<br/>networking.k8s.io]
         end
     end
     
@@ -51,7 +51,7 @@ graph TB
     MWC -->|watches| MW
     MGC -->|watches| MG
     SIC -->|watches| SI
-    IC -->|watches| Ingress
+    IC -->|watches| K8sIngress
     
     AC -->|reconciles| URAPI
     CC -->|reconciles| URAPI
@@ -68,11 +68,10 @@ graph TB
     CC -->|updates status| Contact
     MC -->|updates status| Monitor
     MWC -->|updates status| MW
-    
-    AC -->|creates| Events
-    CC -->|creates| Events
-    MC -->|creates| Events
-    MWC -->|creates| Events
+    MGC -->|updates status| MG
+    SIC -->|updates status| SI
+
+    IC -->|emits warning events| Events
 ```
 
 ## CRD Dependency Graph
@@ -80,11 +79,11 @@ graph TB
 ```mermaid
 graph LR
     subgraph "Core Resources"
-        Account["Account<br/>(Cluster-scoped)<br/>Stores API Key"]
+        Account[Account<br/>Cluster-scoped<br/>Stores API Key]
     end
     
     subgraph "Alert Configuration"
-        Contact[Contact<br/>References Account<br/>Uses existing contact ID]
+        Contact[Contact<br/>Cluster-scoped<br/>References Account<br/>Uses existing contact ID]
     end
     
     subgraph "Monitoring"
@@ -98,7 +97,10 @@ graph LR
     
     subgraph "Integrations"
         SI[SlackIntegration<br/>References Account<br/>Webhook configuration]
-        Ingress[Ingress<br/>Auto-creates Monitors<br/>from Kubernetes Ingress]
+    end
+    
+    subgraph "Kubernetes Native Resources"
+        K8sIngress[Ingress<br/>networking.k8s.io<br/>Watched by IngressController]
     end
     
     Monitor --> Account
@@ -108,8 +110,8 @@ graph LR
     MW --> Monitor
     MG --> Account
     SI --> Account
-    Ingress --> Monitor
-    Monitor --> MG
+    K8sIngress -.triggers creation of.-> Monitor
+    MG -.references.-> Monitor
     
     style Account fill:#e1f5ff
     style Monitor fill:#fff4e1
@@ -119,11 +121,11 @@ graph LR
 
 ### Dependency Rules
 
-1. **Account** must be ready before dependent resources can sync
-2. **Contact** requires a ready Account and must reference an existing contact ID from the Account status
-3. **Monitor** requires a ready Account; Contacts are optional but must be ready if referenced
-4. **MaintenanceWindow** requires a ready Account; referenced Monitors must exist (but don't need to be ready)
-5. **Ingress** controller auto-creates Monitor resources
+1. **Account** and **Contact** are cluster-scoped; other managed CRDs are namespaced.
+2. **Contact** reconciliation requires a resolvable Account/API key and either `spec.contact.id` or `spec.contact.name`.
+3. **Monitor** reconciliation requires a resolvable Account/API key; referenced Contacts must resolve to a `status.id`.
+4. **MaintenanceWindow** and **MonitorGroup** resolve monitor references in the same namespace; unresolved or not-ready monitors are skipped.
+5. **IngressController** creates/updates/deletes `Monitor` resources only when ingress annotations (prefix `uptimerobot.com/`, configurable) include `enabled=true`.
 
 ## Reconciliation Flow
 
@@ -131,73 +133,39 @@ graph LR
 sequenceDiagram
     participant K8s as Kubernetes API
     participant Ctrl as Controller
-    participant Cache as Controller Cache
     participant UR as UptimeRobot API
     
     K8s->>Ctrl: Resource created/updated
-    Ctrl->>Cache: Get resource
-    Ctrl->>Ctrl: Check dependencies<br/>(Account ready, Contacts ready)
+    Ctrl->>Ctrl: Get resource + resolve refs/credentials
     
-    alt Dependencies not ready
-        Ctrl->>K8s: Update status: not ready<br/>Requeue after 30s
-    else Dependencies ready
-        Ctrl->>Ctrl: Get API key from Secret
-        Ctrl->>UR: List monitors (if ID unknown)
-        
-        alt Resource has adopt-id annotation
-            Ctrl->>UR: Get existing monitor by ID
-            Ctrl->>Ctrl: Store ID in status
-        end
-        
-        alt Monitor exists in UptimeRobot
-            Ctrl->>UR: Get current state
-            Ctrl->>Ctrl: Compare desired vs current state
-            
-            alt Drift detected
-                Ctrl->>UR: Update monitor
-                Ctrl->>K8s: Update status + create Event
-            else No drift
-                Ctrl->>K8s: Update status (ready=true)
-            end
-        else Monitor does not exist
-            Ctrl->>UR: Create monitor
-            Ctrl->>K8s: Update status with ID
-            Ctrl->>K8s: Create Event (monitor created)
-        end
-        
-        Ctrl->>K8s: Requeue after syncInterval<br/>(default: 24h)
+    alt Resource is deleting and finalizer exists
+        Ctrl->>Ctrl: Check prune + cleanup external resource
+        Ctrl->>K8s: Remove finalizer
+    else Normal reconcile
+        Ctrl->>UR: Create/Update/Verify external state
+        Ctrl->>K8s: Update status fields (Ready/ID/etc.)
+        Ctrl->>K8s: Requeue after syncInterval (where applicable)
+    end
+
+    alt Reconcile returns error
+        Ctrl->>Ctrl: controller-runtime retries with rate-limited backoff
     end
 ```
 
 ## Drift Detection
 
-The operator continuously monitors for configuration drift between Kubernetes and UptimeRobot:
-
-```mermaid
-graph TD
-    Start[Reconcile Trigger] --> GetK8s[Get Kubernetes Spec]
-    GetK8s --> GetUR[Get UptimeRobot State]
-    GetUR --> Compare{Drift Detected?}
-    
-    Compare -->|No| UpdateStatus[Update Status: Ready]
-    Compare -->|Yes| LogDrift[Log Drift Details]
-    LogDrift --> UpdateUR[Update UptimeRobot]
-    UpdateUR --> CreateEvent[Create Event]
-    CreateEvent --> UpdateStatus
-    
-    UpdateStatus --> Schedule[Schedule Next Reconcile<br/>After syncInterval]
-    
-    style Compare fill:#ffe1e1
-    style UpdateUR fill:#e1ffe1
-```
+Drift handling is implemented as periodic reconciliation, and behavior varies by controller:
+- **Monitor**, **MaintenanceWindow**, and **MonitorGroup** reconcile desired state to UptimeRobot on each sync interval.
+- **SlackIntegration** lists integrations and recreates the Slack integration if missing or different from desired state.
+- **MaintenanceWindow** and **MonitorGroup** explicitly recreate resources when backend IDs are not found.
 
 ### Drift Detection Frequency
 
-Controlled by the `syncInterval` field (default: 24h):
+Controlled by `syncInterval` fields (default `24h` where defined):
 - Lower values = faster drift detection, more API calls
 - Higher values = less API load, slower drift detection
 
-## Finalizer and Deletion Flow
+## Finalizer and Deletion Flow (Monitor)
 
 ```mermaid
 sequenceDiagram
@@ -216,11 +184,11 @@ sequenceDiagram
         Ctrl->>Ctrl: Check prune setting
         
         alt prune=true
-            Ctrl->>K8s: List monitors with same ID<br/>(check for adoption)
+            Ctrl->>K8s: List monitors in same namespace<br/>and account
             
-            alt No other Monitor adopts this ID
+            alt No other Monitor adopts/manages same ID
                 Ctrl->>UR: Delete monitor
-            else Another Monitor adopted this ID
+            else Another Monitor has adopt-id or same ready status.id
                 Ctrl->>Ctrl: Skip deletion (adopted)
             end
         else prune=false
@@ -254,9 +222,17 @@ graph LR
     subgraph "MaintenanceWindowController"
         MWC[Watches: MaintenanceWindow<br/>Reads: Account, Monitor<br/>Updates: MaintenanceWindow.Status]
     end
+
+    subgraph "MonitorGroupController"
+        MGC[Watches: MonitorGroup and Monitor<br/>Reads: Account, Monitor<br/>Updates: MonitorGroup.Status]
+    end
+
+    subgraph "SlackIntegrationController"
+        SIC[Watches: SlackIntegration<br/>Reads: Account, Secret<br/>Updates: SlackIntegration.Status]
+    end
     
     subgraph "IngressController"
-        IC[Watches: Ingress<br/>Creates: Monitor<br/>No Status Updates]
+        IC[Watches: Ingress<br/>networking.k8s.io<br/>Creates: Monitor CRD<br/>No Status Updates]
     end
 ```
 
@@ -272,15 +248,15 @@ graph LR
     
     URAPI -->|validates| Key{Valid Key?}
     Key -->|Yes| Success[API Operations]
-    Key -->|No| Error[401 Unauthorized<br/>Account not ready]
+    Key -->|No| Error[Reconcile error<br/>Account controller sets Ready=false]
 ```
 
 ### Rate Limiting
 
 UptimeRobot API has rate limits:
-- Controllers respect rate limits automatically
+- Controllers do not implement custom client-side throttling logic in this repo
 - `syncInterval` controls reconciliation frequency
-- Failed requests trigger exponential backoff
+- Failed reconciliations are retried with controller-runtime rate-limited backoff
 - Check controller logs for rate limit errors
 
 ## Component Interactions
@@ -326,18 +302,20 @@ graph TD
 
 ## Webhook Configuration
 
-The operator uses webhooks for validation and defaulting:
+The operator currently uses validating webhooks (no mutating/defaulting webhook):
 
 ```mermaid
 graph LR
-    K8s[Kubernetes API] -->|validates| Webhook[ValidatingWebhook]
-    Webhook -->|cert-manager| Cert[TLS Certificate]
-    
-    Cert -->|auto-renewed| CM[cert-manager]
-    Webhook -->|enforces| Rules[Validation Rules:<br/>- Account reference valid<br/>- Contact has ID<br/>- Monitor type valid]
-    
-    K8s -->|defaults| MutatingWebhook[MutatingWebhook]
-    MutatingWebhook -->|sets defaults| Defaults[- syncInterval: 24h<br/>- prune: true<br/>- isDefault: false]
+    K8s[Kubernetes API] -->|validates create/update| VWC[ValidatingWebhookConfiguration]
+    VWC --> AccountWH[Account validating webhook]
+    VWC --> ContactWH[Contact validating webhook]
+
+    AccountWH -->|enforces| AccountRule[Only one default Account]
+    ContactWH -->|enforces| ContactRule[Only one default Contact]
+
+    CertMgr[cert-manager] --> Cert[TLS certificate]
+    Cert --> WebhookSvc[webhook-service]
+    WebhookSvc --> VWC
 ```
 
 ### Certificate Management
@@ -353,62 +331,62 @@ graph LR
 graph TB
     subgraph "Cluster Scope"
         Account[Account<br/>Cluster-scoped]
+        Contact[Contact<br/>Cluster-scoped]
     end
     
     subgraph "Namespace A"
         MonitorA[Monitor]
-        ContactA[Contact]
         MWA[MaintenanceWindow]
+        MGA[MonitorGroup]
+        SIA[SlackIntegration]
     end
     
     subgraph "Namespace B"
         MonitorB[Monitor]
-        ContactB[Contact]
         MWB[MaintenanceWindow]
+        MGB[MonitorGroup]
+        SIB[SlackIntegration]
     end
     
     MonitorA --> Account
-    ContactA --> Account
+    MonitorA --> Contact
     MWA --> Account
+    MGA --> Account
+    SIA --> Account
     MonitorB --> Account
-    ContactB --> Account
+    MonitorB --> Contact
     MWB --> Account
+    MGB --> Account
+    SIB --> Account
     
     MWA -.references.-> MonitorA
     MWB -.references.-> MonitorB
     
-    MonitorA -.cannot reference.-> ContactB
-    MonitorB -.cannot reference.-> ContactA
+    MWA -.cannot reference.-> MonitorB
+    MWB -.cannot reference.-> MonitorA
     
     style Account fill:#e1f5ff
 ```
 
 **Key Points:**
-- Account is cluster-scoped (shared across namespaces)
-- Monitor, Contact, MaintenanceWindow are namespace-scoped
-- Cross-namespace references are not supported (except to Account)
+- Account and Contact are cluster-scoped (shared across namespaces)
+- Monitor, MaintenanceWindow, MonitorGroup, and SlackIntegration are namespace-scoped
+- Cross-namespace references are not supported for namespaced resources
 - MaintenanceWindow can only reference Monitors in the same namespace
 
-## Status Conditions
+## Status Fields
 
 ```mermaid
 graph TD
-    Start[Reconciliation Start] --> CheckAccount{Account Ready?}
-    
-    CheckAccount -->|No| NotReady1[Status: Ready=false<br/>Condition: AccountNotReady]
-    CheckAccount -->|Yes| CheckContacts{Contacts Ready?}
-    
-    CheckContacts -->|No| NotReady2[Status: Ready=false<br/>Condition: ContactsNotReady]
-    CheckContacts -->|Yes| CheckAPI{API Call Success?}
-    
-    CheckAPI -->|No| NotReady3[Status: Ready=false<br/>Condition: APIError]
-    CheckAPI -->|Yes| Ready[Status: Ready=true<br/>ID populated]
-    
-    style NotReady1 fill:#ffe1e1
-    style NotReady2 fill:#ffe1e1
-    style NotReady3 fill:#ffe1e1
-    style Ready fill:#e1ffe1
+    Account[Account.Status<br/>ready, email, alertContacts]
+    Contact[Contact.Status<br/>ready, id]
+    Monitor[Monitor.Status<br/>ready, id, type, status,<br/>heartbeatURL + publish target fields]
+    MW[MaintenanceWindow.Status<br/>ready, id, monitorCount]
+    MG[MonitorGroup.Status<br/>ready, id, monitorCount, lastReconciled]
+    SI[SlackIntegration.Status<br/>ready, id, type]
 ```
+
+This project does **not** define a `status.conditions` array on these CRDs; status is represented by resource-specific fields (primarily `ready` and IDs).
 
 ## See Also
 
