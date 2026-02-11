@@ -58,8 +58,8 @@ func (r *ContactReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	account := &uptimerobotv1.Account{}
 	if err := GetAccount(ctx, r.Client, account, contact.Spec.Account.Name); err != nil {
 		contact.Status.Ready = false
+		// Don't set Synced here since we haven't attempted sync with UptimeRobot yet
 		SetReadyCondition(&contact.Status.Conditions, false, ReasonReconcileError, "Failed to get account: "+err.Error(), contact.Generation)
-		SetSyncedCondition(&contact.Status.Conditions, false, ReasonReconcileError, "Failed to get account: "+err.Error(), contact.Generation)
 		SetErrorCondition(&contact.Status.Conditions, true, ReasonReconcileError, "Failed to get account: "+err.Error(), contact.Generation)
 		if updateErr := r.Status().Update(ctx, contact); updateErr != nil {
 			return ctrl.Result{}, updateErr
@@ -70,8 +70,8 @@ func (r *ContactReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	apiKey, err := GetApiKey(ctx, r.Client, account)
 	if err != nil {
 		contact.Status.Ready = false
+		// Don't set Synced here since we haven't attempted sync with UptimeRobot yet
 		SetReadyCondition(&contact.Status.Conditions, false, ReasonSecretNotFound, "Failed to get API key: "+err.Error(), contact.Generation)
-		SetSyncedCondition(&contact.Status.Conditions, false, ReasonSecretNotFound, "Failed to get API key: "+err.Error(), contact.Generation)
 		SetErrorCondition(&contact.Status.Conditions, true, ReasonSecretNotFound, "Failed to get API key: "+err.Error(), contact.Generation)
 		if updateErr := r.Status().Update(ctx, contact); updateErr != nil {
 			return ctrl.Result{}, updateErr
@@ -103,8 +103,8 @@ func (r *ContactReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		} else {
 			err := errors.New("contact must specify either id or name")
 			contact.Status.Ready = false
+			// Don't set Synced here since this is a validation error before sync attempt
 			SetReadyCondition(&contact.Status.Conditions, false, ReasonReconcileError, err.Error(), contact.Generation)
-			SetSyncedCondition(&contact.Status.Conditions, false, ReasonReconcileError, err.Error(), contact.Generation)
 			SetErrorCondition(&contact.Status.Conditions, true, ReasonReconcileError, err.Error(), contact.Generation)
 			if updateErr := r.Status().Update(ctx, contact); updateErr != nil {
 				return ctrl.Result{}, updateErr

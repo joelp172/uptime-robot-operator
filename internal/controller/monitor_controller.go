@@ -370,6 +370,8 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	if err := r.reconcileHeartbeatURLPublishTarget(ctx, monitor); err != nil {
 		monitor.Status.Ready = false
+		// Note: We don't set Synced=false here because the monitor successfully synced with UptimeRobot.
+		// Only the local heartbeat URL publishing failed, which doesn't affect the sync status.
 		SetReadyCondition(&monitor.Status.Conditions, false, ReasonReconcileError, fmt.Sprintf("Failed to reconcile heartbeat URL publish target: %v", err), monitor.Generation)
 		SetErrorCondition(&monitor.Status.Conditions, true, ReasonReconcileError, err.Error(), monitor.Generation)
 		if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
