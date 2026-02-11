@@ -62,9 +62,6 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// Update observedGeneration
-	account.Status.ObservedGeneration = account.Generation
-
 	apiKey, err := GetApiKey(ctx, r.Client, account)
 	if err != nil {
 		account.Status.Ready = false
@@ -114,6 +111,7 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	account.Status.Ready = true
 	account.Status.Email = email
 	account.Status.AlertContacts = alertContacts
+	account.Status.ObservedGeneration = account.Generation
 	SetReadyCondition(&account.Status.Conditions, true, ReasonReconcileSuccess, "Account reconciled successfully", account.Generation)
 	SetSyncedCondition(&account.Status.Conditions, true, ReasonSyncSuccess, "Successfully synced with UptimeRobot", account.Generation)
 	SetErrorCondition(&account.Status.Conditions, false, ReasonReconcileSuccess, "", account.Generation)

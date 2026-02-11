@@ -77,9 +77,6 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// Update observedGeneration
-	monitor.Status.ObservedGeneration = monitor.Generation
-
 	account := &uptimerobotv1.Account{}
 	if err := GetAccount(ctx, r.Client, account, monitor.Spec.Account.Name); err != nil {
 		return ctrl.Result{}, err
@@ -374,7 +371,6 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if err := r.reconcileHeartbeatURLPublishTarget(ctx, monitor); err != nil {
 		monitor.Status.Ready = false
 		SetReadyCondition(&monitor.Status.Conditions, false, ReasonReconcileError, fmt.Sprintf("Failed to reconcile heartbeat URL publish target: %v", err), monitor.Generation)
-		SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, "Monitor synced but heartbeat URL publish failed", monitor.Generation)
 		SetErrorCondition(&monitor.Status.Conditions, true, ReasonReconcileError, err.Error(), monitor.Generation)
 		if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
 			return ctrl.Result{}, updateErr
@@ -382,6 +378,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
+	monitor.Status.ObservedGeneration = monitor.Generation
 	SetReadyCondition(&monitor.Status.Conditions, true, ReasonReconcileSuccess, "Monitor reconciled successfully", monitor.Generation)
 	SetSyncedCondition(&monitor.Status.Conditions, true, ReasonSyncSuccess, "Successfully synced with UptimeRobot", monitor.Generation)
 	SetErrorCondition(&monitor.Status.Conditions, false, ReasonReconcileSuccess, "", monitor.Generation)
