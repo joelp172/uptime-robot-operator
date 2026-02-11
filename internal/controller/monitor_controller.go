@@ -170,9 +170,10 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		// Type change requires recreate
 		if err := urclient.DeleteMonitor(ctx, monitor.Status.ID); err != nil {
 			monitor.Status.Ready = false
-			SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, fmt.Sprintf("Failed to delete monitor for type change: %v", err), monitor.Generation)
-			SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to delete monitor for type change: %v", err), monitor.Generation)
-			SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, err.Error(), monitor.Generation)
+			msg := fmt.Sprintf("Failed to delete monitor for type change: %v", err)
+			SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
+			SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
+			SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, msg, monitor.Generation)
 			if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
 				return ctrl.Result{}, updateErr
 			}
