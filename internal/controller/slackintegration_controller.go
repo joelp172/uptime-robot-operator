@@ -54,13 +54,28 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// Update observedGeneration
+	resource.Status.ObservedGeneration = resource.Generation
+
 	account := &uptimerobotv1.Account{}
 	if err := GetAccount(ctx, r.Client, account, resource.Spec.Account.Name); err != nil {
+		resource.Status.Ready = false
+		SetReadyCondition(&resource.Status.Conditions, false, ReasonReconcileError, fmt.Sprintf("Failed to get account: %v", err), resource.Generation)
+		SetErrorCondition(&resource.Status.Conditions, true, ReasonReconcileError, fmt.Sprintf("Failed to get account: %v", err), resource.Generation)
+		if updateErr := r.updateSlackIntegrationStatus(ctx, resource); updateErr != nil {
+			return ctrl.Result{}, updateErr
+		}
 		return ctrl.Result{}, err
 	}
 
 	apiKey, err := GetApiKey(ctx, r.Client, account)
 	if err != nil {
+		resource.Status.Ready = false
+		SetReadyCondition(&resource.Status.Conditions, false, ReasonSecretNotFound, fmt.Sprintf("Failed to get API key: %v", err), resource.Generation)
+		SetErrorCondition(&resource.Status.Conditions, true, ReasonSecretNotFound, fmt.Sprintf("Failed to get API key: %v", err), resource.Generation)
+		if updateErr := r.updateSlackIntegrationStatus(ctx, resource); updateErr != nil {
+			return ctrl.Result{}, updateErr
+		}
 		return ctrl.Result{}, err
 	}
 
@@ -88,6 +103,12 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	webhookURL, err := r.resolveWebhookURL(ctx, resource)
 	if err != nil {
+		resource.Status.Ready = false
+		SetReadyCondition(&resource.Status.Conditions, false, ReasonReconcileError, fmt.Sprintf("Failed to resolve webhook URL: %v", err), resource.Generation)
+		SetErrorCondition(&resource.Status.Conditions, true, ReasonReconcileError, fmt.Sprintf("Failed to resolve webhook URL: %v", err), resource.Generation)
+		if updateErr := r.updateSlackIntegrationStatus(ctx, resource); updateErr != nil {
+			return ctrl.Result{}, updateErr
+		}
 		return ctrl.Result{}, err
 	}
 
@@ -102,17 +123,37 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	if !resource.Status.Ready || resource.Status.ID == "" {
 		if err := r.recreateSlackIntegration(ctx, urclient, resource, createData, 0); err != nil {
+			resource.Status.Ready = false
+			SetReadyCondition(&resource.Status.Conditions, false, ReasonAPIError, fmt.Sprintf("Failed to create integration: %v", err), resource.Generation)
+			SetSyncedCondition(&resource.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to sync with UptimeRobot: %v", err), resource.Generation)
+			SetErrorCondition(&resource.Status.Conditions, true, ReasonAPIError, fmt.Sprintf("Failed to create integration: %v", err), resource.Generation)
+			if updateErr := r.updateSlackIntegrationStatus(ctx, resource); updateErr != nil {
+				return ctrl.Result{}, updateErr
+			}
 			return ctrl.Result{}, err
 		}
 	} else {
 		// Ensure the integration exists and matches desired state; recreate on drift or missing.
 		id, convErr := strconv.Atoi(resource.Status.ID)
 		if convErr != nil {
+			resource.Status.Ready = false
+			SetReadyCondition(&resource.Status.Conditions, false, ReasonReconcileError, fmt.Sprintf("Invalid status.id %q: %v", resource.Status.ID, convErr), resource.Generation)
+			SetErrorCondition(&resource.Status.Conditions, true, ReasonReconcileError, fmt.Sprintf("Invalid status.id %q: %v", resource.Status.ID, convErr), resource.Generation)
+			if updateErr := r.updateSlackIntegrationStatus(ctx, resource); updateErr != nil {
+				return ctrl.Result{}, updateErr
+			}
 			return ctrl.Result{}, fmt.Errorf("invalid status.id %q: %w", resource.Status.ID, convErr)
 		}
 
 		integrations, err := urclient.ListIntegrations(ctx)
 		if err != nil {
+			resource.Status.Ready = false
+			SetReadyCondition(&resource.Status.Conditions, false, ReasonAPIError, fmt.Sprintf("Failed to list integrations: %v", err), resource.Generation)
+			SetSyncedCondition(&resource.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to sync with UptimeRobot: %v", err), resource.Generation)
+			SetErrorCondition(&resource.Status.Conditions, true, ReasonAPIError, fmt.Sprintf("Failed to list integrations: %v", err), resource.Generation)
+			if updateErr := r.updateSlackIntegrationStatus(ctx, resource); updateErr != nil {
+				return ctrl.Result{}, updateErr
+			}
 			return ctrl.Result{}, err
 		}
 		var existing *uptimerobot.IntegrationResponse
@@ -126,9 +167,23 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 		if existing == nil || !slackIntegrationMatchesDesired(existing, createData) {
 			if err := r.recreateSlackIntegration(ctx, urclient, resource, createData, id); err != nil {
+				resource.Status.Ready = false
+				SetReadyCondition(&resource.Status.Conditions, false, ReasonAPIError, fmt.Sprintf("Failed to recreate integration: %v", err), resource.Generation)
+				SetSyncedCondition(&resource.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to sync with UptimeRobot: %v", err), resource.Generation)
+				SetErrorCondition(&resource.Status.Conditions, true, ReasonAPIError, fmt.Sprintf("Failed to recreate integration: %v", err), resource.Generation)
+				if updateErr := r.updateSlackIntegrationStatus(ctx, resource); updateErr != nil {
+					return ctrl.Result{}, updateErr
+				}
 				return ctrl.Result{}, err
 			}
 		}
+	}
+
+	SetReadyCondition(&resource.Status.Conditions, true, ReasonReconcileSuccess, "SlackIntegration reconciled successfully", resource.Generation)
+	SetSyncedCondition(&resource.Status.Conditions, true, ReasonSyncSuccess, "Successfully synced with UptimeRobot", resource.Generation)
+	SetErrorCondition(&resource.Status.Conditions, false, ReasonReconcileSuccess, "", resource.Generation)
+	if err := r.updateSlackIntegrationStatus(ctx, resource); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	if !controllerutil.ContainsFinalizer(resource, slackIntegrationFinalizerName) {
@@ -181,6 +236,8 @@ func (r *SlackIntegrationReconciler) updateSlackIntegrationStatus(ctx context.Co
 	latest.Status.Ready = resource.Status.Ready
 	latest.Status.ID = resource.Status.ID
 	latest.Status.Type = resource.Status.Type
+	latest.Status.ObservedGeneration = resource.Status.ObservedGeneration
+	latest.Status.Conditions = resource.Status.Conditions
 	return r.Status().Update(ctx, latest)
 }
 
