@@ -267,6 +267,8 @@ kubectl create secret generic http-auth \
 
 The operator can adopt and manage existing UptimeRobot monitors that were created outside of Kubernetes (via the UptimeRobot UI, API, or other tooling). This enables migration to the operator without recreating monitors and losing historical data.
 
+For a full migration workflow (prerequisites, validation, gotchas, rollback, and resource coverage), see the [Migration Guide](migration-guide.md).
+
 To adopt an existing monitor, use the `uptimerobot.com/adopt-id` annotation with the monitor's ID:
 
 ```yaml
