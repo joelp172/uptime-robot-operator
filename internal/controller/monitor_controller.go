@@ -237,14 +237,13 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				monitor.Status.Ready = false
 				if errors.Is(err, uptimerobot.ErrMonitorNotFound) {
 					msg := fmt.Sprintf("cannot adopt monitor: monitor with ID %s not found", adoptID)
-					// This is validation during adoption - the API call succeeded but the monitor doesn't exist
+					// This is validation during adoption - treat same as type mismatch validation
 					SetReadyCondition(&monitor.Status.Conditions, false, ReasonReconcileError, msg, monitor.Generation)
-					SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
 					SetErrorCondition(&monitor.Status.Conditions, true, ReasonReconcileError, msg, monitor.Generation)
 					if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
 						return ctrl.Result{}, updateErr
 					}
-					return ctrl.Result{}, fmt.Errorf("%s", msg)
+					return ctrl.Result{}, errors.New(msg)
 				}
 				msg := fmt.Sprintf("failed to get monitor for adoption: %v", err)
 				SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
@@ -267,7 +266,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
 					return ctrl.Result{}, updateErr
 				}
-				return ctrl.Result{}, fmt.Errorf("%s", msg)
+				return ctrl.Result{}, errors.New(msg)
 			}
 
 			// Adopt the monitor by setting status
