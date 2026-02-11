@@ -364,7 +364,7 @@ spec:
 			}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
 		})
 
-		It("updates an existing Secret with the heartbeat URL", func() {
+		It("rejects publishing to an existing Secret that is not managed by the monitor", func() {
 			monitorName := fmt.Sprintf("e2e-heartbeat-secret-update-%s", testRunID)
 			secretName := fmt.Sprintf("e2e-heartbeat-published-secret-%s", testRunID)
 			oldURL := "https://old.example.invalid"
@@ -404,10 +404,7 @@ spec:
 
 			_ = waitMonitorReadyAndGetID(monitorName)
 
-			Eventually(func(g Gomega) {
-				heartbeatURL := getMonitorHeartbeatURL(monitorName)
-				g.Expect(heartbeatURL).NotTo(BeEmpty())
-
+			Consistently(func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "secret", secretName, "-o", "jsonpath={.data.url}")
 				encoded, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
@@ -415,12 +412,11 @@ spec:
 
 				decoded, decodeErr := base64.StdEncoding.DecodeString(strings.TrimSpace(encoded))
 				g.Expect(decodeErr).NotTo(HaveOccurred())
-				g.Expect(string(decoded)).To(Equal(heartbeatURL))
-				g.Expect(string(decoded)).NotTo(Equal(oldURL))
-			}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
+				g.Expect(string(decoded)).To(Equal(oldURL))
+			}, 30*time.Second, 5*time.Second).Should(Succeed())
 		})
 
-		It("updates an existing ConfigMap with the heartbeat URL", func() {
+		It("rejects publishing to an existing ConfigMap that is not managed by the monitor", func() {
 			monitorName := fmt.Sprintf("e2e-heartbeat-configmap-update-%s", testRunID)
 			configMapName := fmt.Sprintf("e2e-heartbeat-published-cm-%s", testRunID)
 			oldURL := "https://old.example.invalid"
@@ -460,16 +456,12 @@ spec:
 
 			_ = waitMonitorReadyAndGetID(monitorName)
 
-			Eventually(func(g Gomega) {
-				heartbeatURL := getMonitorHeartbeatURL(monitorName)
-				g.Expect(heartbeatURL).NotTo(BeEmpty())
-
+			Consistently(func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "configmap", configMapName, "-o", "jsonpath={.data.url}")
 				value, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(strings.TrimSpace(value)).To(Equal(heartbeatURL))
-				g.Expect(strings.TrimSpace(value)).NotTo(Equal(oldURL))
-			}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
+				g.Expect(strings.TrimSpace(value)).To(Equal(oldURL))
+			}, 30*time.Second, 5*time.Second).Should(Succeed())
 		})
 
 		It("does not publish heartbeat URL when monitor type is not Heartbeat", func() {
@@ -510,6 +502,11 @@ spec:
 				_, err := utils.Run(cmd)
 				return err
 			}, 30*time.Second, 5*time.Second).Should(HaveOccurred())
+
+			cmd := exec.Command("kubectl", "get", "monitor", monitorName, "-o", "jsonpath={.status.heartbeatURL}")
+			heartbeatURL, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(strings.TrimSpace(heartbeatURL)).To(BeEmpty())
 		})
 	})
 

@@ -76,7 +76,7 @@ Defines an UptimeRobot monitor.
 | `contacts[].threshold` | duration | No | `1m` | Wait before first alert |
 | `contacts[].recurrence` | duration | No | `0` | Repeat interval (0 = no repeat) |
 | `sourceRef` | object | No | - | Optional source reference |
-| `heartbeatURLPublish` | object | No | - | Publish heartbeat URL to Secret/ConfigMap |
+| `heartbeatURLPublish` | object | No | - | Publish heartbeat URL to Secret/ConfigMap (Heartbeat monitors only) |
 | `monitor` | MonitorValues | Yes | - | Monitor configuration |
 
 ### MonitorValues
@@ -166,6 +166,11 @@ Defines an UptimeRobot monitor.
 | `name` | string | No | `<monitor-name>-heartbeat-url` | Target object name |
 | `key` | string | No | `heartbeatURL` | Data key containing the URL |
 
+Notes:
+- The operator creates and manages the target object with a controller reference to the Monitor.
+- Existing Secrets/ConfigMaps that are not already managed by the Monitor are rejected.
+- When publishing is disabled (or monitor type changes away from Heartbeat), the previously managed target is deleted.
+
 ### Port
 
 | Field | Type | Required | Description |
@@ -179,6 +184,9 @@ Defines an UptimeRobot monitor.
 | `ready` | boolean | Monitor exists in UptimeRobot |
 | `id` | string | UptimeRobot monitor ID |
 | `heartbeatURL` | string | Webhook URL (Heartbeat monitors only) |
+| `heartbeatURLPublishTargetType` | string | Current publish target type (`Secret` or `ConfigMap`) |
+| `heartbeatURLPublishTargetName` | string | Current publish target name managed by the operator |
+| `heartbeatURLPublishTargetKey` | string | Current publish target key managed by the operator |
 | `type` | string | Monitor type |
 | `status` | integer | Current status code |
 

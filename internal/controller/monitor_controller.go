@@ -159,6 +159,13 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, nil
 	}
 
+	if !controllerutil.ContainsFinalizer(monitor, myFinalizerName) {
+		controllerutil.AddFinalizer(monitor, myFinalizerName)
+		if err := r.Update(ctx, monitor); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
 	if monitor.Status.Ready && monitor.Status.Type != monitor.Spec.Monitor.Type {
 		// Type change requires recreate
 		if err := urclient.DeleteMonitor(ctx, monitor.Status.ID); err != nil {
@@ -307,13 +314,6 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
-	if !controllerutil.ContainsFinalizer(monitor, myFinalizerName) {
-		controllerutil.AddFinalizer(monitor, myFinalizerName)
-		if err := r.Update(ctx, monitor); err != nil {
-			return ctrl.Result{}, err
-		}
-	}
-
 	return ctrl.Result{RequeueAfter: monitor.Spec.SyncInterval.Duration}, nil
 }
 
@@ -372,8 +372,13 @@ func isPrefixedHeartbeatKey(value string) bool {
 
 func (r *MonitorReconciler) reconcileHeartbeatURLPublishTarget(ctx context.Context, monitor *uptimerobotv1.Monitor) error {
 	publish := monitor.Spec.HeartbeatURLPublish
+	heartbeatURL := buildHeartbeatURL(configuredHeartbeatBaseURL(), monitor.Status.ID, monitor.Status.HeartbeatURL)
+	shouldPublish := monitor.Spec.Monitor.Type == urtypes.TypeHeartbeat && heartbeatURL != ""
+	if !shouldPublish {
+		return r.cleanupHeartbeatURLPublishTarget(ctx, monitor)
+	}
 	if publish == nil {
-		return nil
+		return r.cleanupHeartbeatURLPublishTarget(ctx, monitor)
 	}
 
 	targetType := publish.Type
@@ -389,26 +394,87 @@ func (r *MonitorReconciler) reconcileHeartbeatURLPublishTarget(ctx context.Conte
 		targetKey = "heartbeatURL"
 	}
 
-	heartbeatURL := buildHeartbeatURL(configuredHeartbeatBaseURL(), monitor.Status.ID, monitor.Status.HeartbeatURL)
-	shouldPublish := monitor.Spec.Monitor.Type == urtypes.TypeHeartbeat && heartbeatURL != ""
-	if !shouldPublish {
+	switch targetType {
+	case uptimerobotv1.HeartbeatURLPublishTypeConfigMap:
+		if err := r.reconcileHeartbeatURLConfigMap(ctx, monitor, targetName, targetKey, heartbeatURL); err != nil {
+			return err
+		}
+	case uptimerobotv1.HeartbeatURLPublishTypeSecret:
+		if err := r.reconcileHeartbeatURLSecret(ctx, monitor, targetName, targetKey, heartbeatURL); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("unsupported heartbeatURLPublish type %q", targetType)
+	}
+
+	if monitor.Status.HeartbeatURLPublishTargetType == targetType &&
+		monitor.Status.HeartbeatURLPublishTargetName == targetName &&
+		monitor.Status.HeartbeatURLPublishTargetKey == targetKey {
+		return nil
+	}
+	monitor.Status.HeartbeatURLPublishTargetType = targetType
+	monitor.Status.HeartbeatURLPublishTargetName = targetName
+	monitor.Status.HeartbeatURLPublishTargetKey = targetKey
+	log.FromContext(ctx).V(1).Info("Published heartbeat URL target",
+		"monitor", monitor.Name,
+		"targetType", targetType,
+		"targetName", targetName,
+		"targetKey", targetKey)
+	return r.updateMonitorStatus(ctx, monitor)
+}
+
+func (r *MonitorReconciler) cleanupHeartbeatURLPublishTarget(ctx context.Context, monitor *uptimerobotv1.Monitor) error {
+	targetType := monitor.Status.HeartbeatURLPublishTargetType
+	targetName := strings.TrimSpace(monitor.Status.HeartbeatURLPublishTargetName)
+	if targetType == "" && targetName == "" && monitor.Status.HeartbeatURLPublishTargetKey == "" {
 		return nil
 	}
 
-	switch targetType {
-	case uptimerobotv1.HeartbeatURLPublishTypeConfigMap:
-		return r.reconcileHeartbeatURLConfigMap(ctx, monitor, targetName, targetKey, heartbeatURL)
-	default:
-		return r.reconcileHeartbeatURLSecret(ctx, monitor, targetName, targetKey, heartbeatURL)
+	if targetName != "" {
+		switch targetType {
+		case uptimerobotv1.HeartbeatURLPublishTypeSecret:
+			secret := &corev1.Secret{}
+			err := r.Get(ctx, client.ObjectKey{Name: targetName, Namespace: monitor.Namespace}, secret)
+			if err != nil && !apierrors.IsNotFound(err) {
+				return err
+			}
+			if err == nil && metav1.IsControlledBy(secret, monitor) {
+				if err := r.Delete(ctx, secret); err != nil && !apierrors.IsNotFound(err) {
+					return err
+				}
+			}
+		case uptimerobotv1.HeartbeatURLPublishTypeConfigMap:
+			configMap := &corev1.ConfigMap{}
+			err := r.Get(ctx, client.ObjectKey{Name: targetName, Namespace: monitor.Namespace}, configMap)
+			if err != nil && !apierrors.IsNotFound(err) {
+				return err
+			}
+			if err == nil && metav1.IsControlledBy(configMap, monitor) {
+				if err := r.Delete(ctx, configMap); err != nil && !apierrors.IsNotFound(err) {
+					return err
+				}
+			}
+		default:
+			log.FromContext(ctx).Info("Skipping heartbeat publish cleanup for unknown target type",
+				"monitor", monitor.Name,
+				"targetType", targetType,
+				"targetName", targetName)
+		}
 	}
+
+	monitor.Status.HeartbeatURLPublishTargetType = ""
+	monitor.Status.HeartbeatURLPublishTargetName = ""
+	monitor.Status.HeartbeatURLPublishTargetKey = ""
+	return r.updateMonitorStatus(ctx, monitor)
 }
 
 func (r *MonitorReconciler) reconcileHeartbeatURLSecret(ctx context.Context, monitor *uptimerobotv1.Monitor, name, key, heartbeatURL string) error {
+	logger := log.FromContext(ctx)
 	secret := &corev1.Secret{}
 	objKey := client.ObjectKey{Name: name, Namespace: monitor.Namespace}
 	err := r.Get(ctx, objKey, secret)
 	if err != nil && !apierrors.IsNotFound(err) {
-		return err
+		return fmt.Errorf("failed to get Secret %s/%s for monitor %s: %w", monitor.Namespace, name, monitor.Name, err)
 	}
 
 	if apierrors.IsNotFound(err) {
@@ -423,9 +489,21 @@ func (r *MonitorReconciler) reconcileHeartbeatURLSecret(ctx context.Context, mon
 			},
 		}
 		if err := controllerutil.SetControllerReference(monitor, secret, r.Scheme); err != nil {
-			return err
+			return fmt.Errorf("failed to set owner reference on Secret %s/%s for monitor %s: %w", monitor.Namespace, name, monitor.Name, err)
 		}
-		return r.Create(ctx, secret)
+		if err := r.Create(ctx, secret); err != nil {
+			return fmt.Errorf("failed to create Secret %s/%s for monitor %s: %w", monitor.Namespace, name, monitor.Name, err)
+		}
+		logger.V(1).Info("Created heartbeat URL Secret",
+			"monitor", monitor.Name,
+			"namespace", monitor.Namespace,
+			"secret", name,
+			"key", key)
+		return nil
+	}
+
+	if !metav1.IsControlledBy(secret, monitor) {
+		return fmt.Errorf("refusing to publish heartbeat URL to existing Secret %q: object is not managed by Monitor %q", name, monitor.Name)
 	}
 
 	if secret.Data == nil {
@@ -436,28 +514,27 @@ func (r *MonitorReconciler) reconcileHeartbeatURLSecret(ctx context.Context, mon
 		secret.Data[key] = []byte(heartbeatURL)
 		needsUpdate = true
 	}
-	if secret.Type != corev1.SecretTypeOpaque {
-		secret.Type = corev1.SecretTypeOpaque
-		needsUpdate = true
-	}
-	if !metav1.IsControlledBy(secret, monitor) {
-		if err := controllerutil.SetControllerReference(monitor, secret, r.Scheme); err != nil {
-			return err
-		}
-		needsUpdate = true
-	}
 	if !needsUpdate {
 		return nil
 	}
-	return r.Update(ctx, secret)
+	if err := r.Update(ctx, secret); err != nil {
+		return fmt.Errorf("failed to update Secret %s/%s for monitor %s: %w", monitor.Namespace, name, monitor.Name, err)
+	}
+	logger.V(1).Info("Updated heartbeat URL Secret",
+		"monitor", monitor.Name,
+		"namespace", monitor.Namespace,
+		"secret", name,
+		"key", key)
+	return nil
 }
 
 func (r *MonitorReconciler) reconcileHeartbeatURLConfigMap(ctx context.Context, monitor *uptimerobotv1.Monitor, name, key, heartbeatURL string) error {
+	logger := log.FromContext(ctx)
 	configMap := &corev1.ConfigMap{}
 	objKey := client.ObjectKey{Name: name, Namespace: monitor.Namespace}
 	err := r.Get(ctx, objKey, configMap)
 	if err != nil && !apierrors.IsNotFound(err) {
-		return err
+		return fmt.Errorf("failed to get ConfigMap %s/%s for monitor %s: %w", monitor.Namespace, name, monitor.Name, err)
 	}
 
 	if apierrors.IsNotFound(err) {
@@ -471,9 +548,21 @@ func (r *MonitorReconciler) reconcileHeartbeatURLConfigMap(ctx context.Context, 
 			},
 		}
 		if err := controllerutil.SetControllerReference(monitor, configMap, r.Scheme); err != nil {
-			return err
+			return fmt.Errorf("failed to set owner reference on ConfigMap %s/%s for monitor %s: %w", monitor.Namespace, name, monitor.Name, err)
 		}
-		return r.Create(ctx, configMap)
+		if err := r.Create(ctx, configMap); err != nil {
+			return fmt.Errorf("failed to create ConfigMap %s/%s for monitor %s: %w", monitor.Namespace, name, monitor.Name, err)
+		}
+		logger.V(1).Info("Created heartbeat URL ConfigMap",
+			"monitor", monitor.Name,
+			"namespace", monitor.Namespace,
+			"configMap", name,
+			"key", key)
+		return nil
+	}
+
+	if !metav1.IsControlledBy(configMap, monitor) {
+		return fmt.Errorf("refusing to publish heartbeat URL to existing ConfigMap %q: object is not managed by Monitor %q", name, monitor.Name)
 	}
 
 	if configMap.Data == nil {
@@ -484,16 +573,18 @@ func (r *MonitorReconciler) reconcileHeartbeatURLConfigMap(ctx context.Context, 
 		configMap.Data[key] = heartbeatURL
 		needsUpdate = true
 	}
-	if !metav1.IsControlledBy(configMap, monitor) {
-		if err := controllerutil.SetControllerReference(monitor, configMap, r.Scheme); err != nil {
-			return err
-		}
-		needsUpdate = true
-	}
 	if !needsUpdate {
 		return nil
 	}
-	return r.Update(ctx, configMap)
+	if err := r.Update(ctx, configMap); err != nil {
+		return fmt.Errorf("failed to update ConfigMap %s/%s for monitor %s: %w", monitor.Namespace, name, monitor.Name, err)
+	}
+	logger.V(1).Info("Updated heartbeat URL ConfigMap",
+		"monitor", monitor.Name,
+		"namespace", monitor.Namespace,
+		"configMap", name,
+		"key", key)
+	return nil
 }
 
 // updateMonitorStatus writes status, retrying on conflict so a successful create is not
@@ -516,6 +607,9 @@ func (r *MonitorReconciler) updateMonitorStatus(ctx context.Context, monitor *up
 	latest.Status.Type = monitor.Status.Type
 	latest.Status.Status = monitor.Status.Status
 	latest.Status.HeartbeatURL = monitor.Status.HeartbeatURL
+	latest.Status.HeartbeatURLPublishTargetType = monitor.Status.HeartbeatURLPublishTargetType
+	latest.Status.HeartbeatURLPublishTargetName = monitor.Status.HeartbeatURLPublishTargetName
+	latest.Status.HeartbeatURLPublishTargetKey = monitor.Status.HeartbeatURLPublishTargetKey
 	return r.Status().Update(ctx, latest)
 }
 

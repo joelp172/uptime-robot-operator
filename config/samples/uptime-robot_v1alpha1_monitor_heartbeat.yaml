@@ -11,7 +11,7 @@ spec:
   prune: true
   heartbeatURLPublish:
     type: Secret
-    # name: example-heartbeat-url  # Optional, defaults to <monitor-name>-heartbeat-url
+    # name: example-heartbeat-heartbeat-url  # Optional, defaults to <monitor-name>-heartbeat-url
     # key: heartbeatURL            # Optional key inside Secret/ConfigMap
   monitor:
     name: Example Heartbeat Monitor

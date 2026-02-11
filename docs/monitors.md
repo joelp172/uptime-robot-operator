@@ -107,8 +107,15 @@ kubectl get secret backup-job-heartbeat -o jsonpath='{.data.url}' | base64 -d
 Use one Secret/ConfigMap per heartbeat monitor (default naming is `<monitor-name>-heartbeat-url`).
 This avoids key collisions when multiple heartbeat monitors exist in the same namespace.
 
+The operator only publishes to targets it manages itself. If you point `heartbeatURLPublish.name`
+at an existing Secret/ConfigMap that is not owned by the same Monitor, reconciliation fails.
+
+When `heartbeatURLPublish` is removed, or when monitor type changes away from `Heartbeat`,
+the previously managed publish target is deleted by the operator.
+
 Operator-wide heartbeat base URL can be overridden with environment variable
 `UPTIMEROBOT_HEARTBEAT_BASE_URL` (default: `https://heartbeat.uptimerobot.com`).
+Set this on the operator controller deployment (for example via Helm values).
 
 ### Port
 
