@@ -81,6 +81,7 @@ EOF
 | [Installation](docs/installation.md) | Install via kubectl or Helm |
 | [Getting Started](docs/getting-started.md) | Create your first monitor (tutorial) |
 | [Monitors](docs/monitors.md) | Configure monitor types and alerts |
+| [Migration Guide](docs/migration-guide.md) | Adopt existing UptimeRobot resources |
 | [Maintenance Windows](docs/maintenance-windows.md) | Schedule planned downtime |
 | [API Reference](docs/api-reference.md) | Complete CRD field reference |
 | [Development](docs/development.md) | Contributing and testing |
