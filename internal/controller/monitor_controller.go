@@ -322,13 +322,34 @@ func buildHeartbeatURL(monitorID, apiURL string) string {
 	if strings.HasPrefix(trimmed, "http://") || strings.HasPrefix(trimmed, "https://") {
 		return trimmed
 	}
-	if strings.HasPrefix(trimmed, "m") && strings.Contains(trimmed, "-") {
+	if isPrefixedHeartbeatKey(trimmed) {
 		return fmt.Sprintf("https://heartbeat.uptimerobot.com/%s", trimmed)
 	}
 	if monitorID != "" {
 		return fmt.Sprintf("https://heartbeat.uptimerobot.com/m%s-%s", monitorID, trimmed)
 	}
 	return fmt.Sprintf("https://heartbeat.uptimerobot.com/%s", trimmed)
+}
+
+func isPrefixedHeartbeatKey(value string) bool {
+	if len(value) < 3 {
+		return false
+	}
+	prefix := value[0]
+	if prefix != 'm' && prefix != 'u' {
+		return false
+	}
+	rest := value[1:]
+	dashIdx := strings.IndexByte(rest, '-')
+	if dashIdx <= 0 {
+		return false
+	}
+	for _, c := range rest[:dashIdx] {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func (r *MonitorReconciler) reconcileHeartbeatURLPublishTarget(ctx context.Context, monitor *uptimerobotv1.Monitor) error {
@@ -350,16 +371,17 @@ func (r *MonitorReconciler) reconcileHeartbeatURLPublishTarget(ctx context.Conte
 		targetKey = "heartbeatURL"
 	}
 
-	shouldPublish := monitor.Spec.Monitor.Type == urtypes.TypeHeartbeat && monitor.Status.HeartbeatURL != ""
+	heartbeatURL := buildHeartbeatURL(monitor.Status.ID, monitor.Status.HeartbeatURL)
+	shouldPublish := monitor.Spec.Monitor.Type == urtypes.TypeHeartbeat && heartbeatURL != ""
 	if !shouldPublish {
 		return nil
 	}
 
 	switch targetType {
 	case uptimerobotv1.HeartbeatURLPublishTypeConfigMap:
-		return r.reconcileHeartbeatURLConfigMap(ctx, monitor, targetName, targetKey, monitor.Status.HeartbeatURL)
+		return r.reconcileHeartbeatURLConfigMap(ctx, monitor, targetName, targetKey, heartbeatURL)
 	default:
-		return r.reconcileHeartbeatURLSecret(ctx, monitor, targetName, targetKey, monitor.Status.HeartbeatURL)
+		return r.reconcileHeartbeatURLSecret(ctx, monitor, targetName, targetKey, heartbeatURL)
 	}
 }
 

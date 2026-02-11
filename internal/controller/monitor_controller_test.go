@@ -965,7 +965,9 @@ var _ = Describe("Monitor Controller", func() {
 
 		It("expands token paths", func() {
 			Expect(buildHeartbeatURL("1", "m1-token")).To(Equal("https://heartbeat.uptimerobot.com/m1-token"))
-			Expect(buildHeartbeatURL("801675016", "b2d7d6f52d3e02d2f6135eadc481ed24c8684366")).To(Equal("https://heartbeat.uptimerobot.com/m801675016-b2d7d6f52d3e02d2f6135eadc481ed24c8684366"))
+			Expect(buildHeartbeatURL("1", "u1-token")).To(Equal("https://heartbeat.uptimerobot.com/u1-token"))
+			Expect(buildHeartbeatURL("123456789", "abcdef0123456789deadbeefcafebabe")).To(Equal("https://heartbeat.uptimerobot.com/m123456789-abcdef0123456789deadbeefcafebabe"))
+			Expect(buildHeartbeatURL("123456789", "mabc-token-part")).To(Equal("https://heartbeat.uptimerobot.com/m123456789-mabc-token-part"))
 		})
 	})
 })

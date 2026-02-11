@@ -41,6 +41,7 @@ go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="monitor" -timeout 20m
 
 # Run specific monitor tests
 go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="monitor" -ginkgo.focus="Regional Monitoring|specified region" -timeout 20m
+UPTIME_ROBOT_API_KEY=your_key KIND_CLUSTER=kind go test ./test/e2e -v -ginkgo.label-filter="monitor" -ginkgo.focus="Regional Monitoring|specified region" -timeout 20m
 
 # Run only MaintenanceWindow tests
 go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="maintenancewindow" -timeout 20m
