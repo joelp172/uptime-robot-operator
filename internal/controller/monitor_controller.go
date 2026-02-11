@@ -61,8 +61,8 @@ var (
 //+kubebuilder:rbac:groups=uptimerobot.com,resources=monitors,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=uptimerobot.com,resources=monitors/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=uptimerobot.com,resources=monitors/finalizers,verbs=update
-//+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch
-//+kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch
+//+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -371,6 +371,10 @@ func isPrefixedHeartbeatKey(value string) bool {
 }
 
 func (r *MonitorReconciler) reconcileHeartbeatURLPublishTarget(ctx context.Context, monitor *uptimerobotv1.Monitor) error {
+	currentTargetType := monitor.Status.HeartbeatURLPublishTargetType
+	currentTargetName := strings.TrimSpace(monitor.Status.HeartbeatURLPublishTargetName)
+	currentTargetKey := strings.TrimSpace(monitor.Status.HeartbeatURLPublishTargetKey)
+
 	publish := monitor.Spec.HeartbeatURLPublish
 	heartbeatURL := buildHeartbeatURL(configuredHeartbeatBaseURL(), monitor.Status.ID, monitor.Status.HeartbeatURL)
 	shouldPublish := monitor.Spec.Monitor.Type == urtypes.TypeHeartbeat && heartbeatURL != ""
@@ -392,6 +396,15 @@ func (r *MonitorReconciler) reconcileHeartbeatURLPublishTarget(ctx context.Conte
 	targetKey := publish.Key
 	if targetKey == "" {
 		targetKey = "heartbeatURL"
+	}
+
+	targetChanged := currentTargetType != targetType ||
+		currentTargetName != targetName ||
+		currentTargetKey != targetKey
+	if targetChanged && currentTargetName != "" {
+		if err := r.cleanupHeartbeatURLPublishTargetObject(ctx, monitor, currentTargetType, currentTargetName); err != nil {
+			return err
+		}
 	}
 
 	switch targetType {
@@ -431,34 +444,8 @@ func (r *MonitorReconciler) cleanupHeartbeatURLPublishTarget(ctx context.Context
 	}
 
 	if targetName != "" {
-		switch targetType {
-		case uptimerobotv1.HeartbeatURLPublishTypeSecret:
-			secret := &corev1.Secret{}
-			err := r.Get(ctx, client.ObjectKey{Name: targetName, Namespace: monitor.Namespace}, secret)
-			if err != nil && !apierrors.IsNotFound(err) {
-				return err
-			}
-			if err == nil && metav1.IsControlledBy(secret, monitor) {
-				if err := r.Delete(ctx, secret); err != nil && !apierrors.IsNotFound(err) {
-					return err
-				}
-			}
-		case uptimerobotv1.HeartbeatURLPublishTypeConfigMap:
-			configMap := &corev1.ConfigMap{}
-			err := r.Get(ctx, client.ObjectKey{Name: targetName, Namespace: monitor.Namespace}, configMap)
-			if err != nil && !apierrors.IsNotFound(err) {
-				return err
-			}
-			if err == nil && metav1.IsControlledBy(configMap, monitor) {
-				if err := r.Delete(ctx, configMap); err != nil && !apierrors.IsNotFound(err) {
-					return err
-				}
-			}
-		default:
-			log.FromContext(ctx).Info("Skipping heartbeat publish cleanup for unknown target type",
-				"monitor", monitor.Name,
-				"targetType", targetType,
-				"targetName", targetName)
+		if err := r.cleanupHeartbeatURLPublishTargetObject(ctx, monitor, targetType, targetName); err != nil {
+			return err
 		}
 	}
 
@@ -466,6 +453,39 @@ func (r *MonitorReconciler) cleanupHeartbeatURLPublishTarget(ctx context.Context
 	monitor.Status.HeartbeatURLPublishTargetName = ""
 	monitor.Status.HeartbeatURLPublishTargetKey = ""
 	return r.updateMonitorStatus(ctx, monitor)
+}
+
+func (r *MonitorReconciler) cleanupHeartbeatURLPublishTargetObject(ctx context.Context, monitor *uptimerobotv1.Monitor, targetType uptimerobotv1.HeartbeatURLPublishType, targetName string) error {
+	switch targetType {
+	case uptimerobotv1.HeartbeatURLPublishTypeSecret:
+		secret := &corev1.Secret{}
+		err := r.Get(ctx, client.ObjectKey{Name: targetName, Namespace: monitor.Namespace}, secret)
+		if err != nil && !apierrors.IsNotFound(err) {
+			return err
+		}
+		if err == nil && metav1.IsControlledBy(secret, monitor) {
+			if err := r.Delete(ctx, secret); err != nil && !apierrors.IsNotFound(err) {
+				return err
+			}
+		}
+	case uptimerobotv1.HeartbeatURLPublishTypeConfigMap:
+		configMap := &corev1.ConfigMap{}
+		err := r.Get(ctx, client.ObjectKey{Name: targetName, Namespace: monitor.Namespace}, configMap)
+		if err != nil && !apierrors.IsNotFound(err) {
+			return err
+		}
+		if err == nil && metav1.IsControlledBy(configMap, monitor) {
+			if err := r.Delete(ctx, configMap); err != nil && !apierrors.IsNotFound(err) {
+				return err
+			}
+		}
+	default:
+		log.FromContext(ctx).Info("Skipping heartbeat publish cleanup for unknown target type",
+			"monitor", monitor.Name,
+			"targetType", targetType,
+			"targetName", targetName)
+	}
+	return nil
 }
 
 func (r *MonitorReconciler) reconcileHeartbeatURLSecret(ctx context.Context, monitor *uptimerobotv1.Monitor, name, key, heartbeatURL string) error {
