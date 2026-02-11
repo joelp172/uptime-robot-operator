@@ -1,3 +1,7 @@
+---
+alwaysApply: true
+---
+
 # New Field Checklist
 
 When adding a new field to the operator, ensure ALL of the following are completed:

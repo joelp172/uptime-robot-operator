@@ -1,3 +1,7 @@
+---
+alwaysApply: true
+---
+
 # API Validation First
 
 ## Rule: Validate Against Real API Before Code Changes
