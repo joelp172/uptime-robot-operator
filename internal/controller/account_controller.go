@@ -65,8 +65,8 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	apiKey, err := GetApiKey(ctx, r.Client, account)
 	if err != nil {
 		account.Status.Ready = false
+		// Don't set Synced here since we haven't attempted sync with UptimeRobot yet
 		SetReadyCondition(&account.Status.Conditions, false, ReasonSecretNotFound, fmt.Sprintf("Failed to get API key: %v", err), account.Generation)
-		SetSyncedCondition(&account.Status.Conditions, false, ReasonSecretNotFound, fmt.Sprintf("Failed to get API key: %v", err), account.Generation)
 		SetErrorCondition(&account.Status.Conditions, true, ReasonSecretNotFound, fmt.Sprintf("Failed to get API key: %v", err), account.Generation)
 		if updateErr := r.Status().Update(ctx, account); updateErr != nil {
 			return ctrl.Result{}, updateErr

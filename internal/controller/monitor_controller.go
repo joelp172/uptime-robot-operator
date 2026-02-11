@@ -260,8 +260,8 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			if existingType != monitor.Spec.Monitor.Type {
 				monitor.Status.Ready = false
 				msg := fmt.Sprintf("cannot adopt monitor: type mismatch - existing monitor is %s but spec defines %s", existingType.String(), monitor.Spec.Monitor.Type.String())
+				// Don't set Synced here since this is a validation error before sync attempt
 				SetReadyCondition(&monitor.Status.Conditions, false, ReasonReconcileError, msg, monitor.Generation)
-				SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
 				SetErrorCondition(&monitor.Status.Conditions, true, ReasonReconcileError, msg, monitor.Generation)
 				if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
 					return ctrl.Result{}, updateErr
