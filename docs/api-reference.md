@@ -76,6 +76,7 @@ Defines an UptimeRobot monitor.
 | `contacts[].threshold` | duration | No | `1m` | Wait before first alert |
 | `contacts[].recurrence` | duration | No | `0` | Repeat interval (0 = no repeat) |
 | `sourceRef` | object | No | - | Optional source reference |
+| `heartbeatURLPublish` | object | No | - | Publish heartbeat URL to Secret/ConfigMap |
 | `monitor` | MonitorValues | Yes | - | Monitor configuration |
 
 ### MonitorValues
@@ -156,6 +157,14 @@ Defines an UptimeRobot monitor.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `interval` | duration | No | Expected ping interval (default: 60s) |
+
+### HeartbeatURLPublish
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `type` | string | No | `Secret` | `Secret` or `ConfigMap` |
+| `name` | string | No | `<monitor-name>-heartbeat-url` | Target object name |
+| `key` | string | No | `heartbeatURL` | Data key containing the URL |
 
 ### Port
 

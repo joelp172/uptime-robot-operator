@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"time"
 
 	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot/urtypes"
 	. "github.com/onsi/ginkgo/v2"
@@ -702,6 +703,120 @@ var _ = Describe("Monitor Controller", func() {
 				},
 			})
 			Expect(err).NotTo(HaveOccurred())
+		})
+	})
+
+	Context("When publishing heartbeat URLs", func() {
+		ctx := context.Background()
+		var (
+			secret  *corev1.Secret
+			account *uptimerobotv1.Account
+			contact *uptimerobotv1.Contact
+		)
+
+		BeforeEach(func() {
+			account, secret = CreateAccount(ctx)
+			ReconcileAccount(ctx, account)
+
+			contact = CreateContact(ctx, account.Name)
+			ReconcileContact(ctx, contact)
+		})
+
+		AfterEach(func() {
+			CleanupContact(ctx, contact)
+			CleanupAccount(ctx, account, secret)
+		})
+
+		It("publishes heartbeat URL to a Secret", func() {
+			monitor := &uptimerobotv1.Monitor{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "heartbeat-secret-monitor",
+					Namespace: "default",
+				},
+				Spec: uptimerobotv1.MonitorSpec{
+					Account: corev1.LocalObjectReference{Name: account.Name},
+					Contacts: []uptimerobotv1.MonitorContactRef{
+						{
+							LocalObjectReference: corev1.LocalObjectReference{Name: contact.Name},
+						},
+					},
+					Monitor: uptimerobotv1.MonitorValues{
+						Name: "Heartbeat Secret Monitor",
+						Type: urtypes.TypeHeartbeat,
+						Heartbeat: &uptimerobotv1.MonitorHeartbeat{
+							Interval: &metav1.Duration{Duration: 5 * time.Minute},
+						},
+					},
+					HeartbeatURLPublish: &uptimerobotv1.HeartbeatURLPublish{
+						Type: uptimerobotv1.HeartbeatURLPublishTypeSecret,
+						Name: "hb-secret",
+						Key:  "url",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, monitor)).To(Succeed())
+
+			controllerReconciler := &MonitorReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: monitor.Name, Namespace: monitor.Namespace},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: monitor.Name, Namespace: monitor.Namespace}, monitor)).To(Succeed())
+			Expect(monitor.Status.HeartbeatURL).NotTo(BeEmpty())
+
+			published := &corev1.Secret{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "hb-secret", Namespace: "default"}, published)).To(Succeed())
+			Expect(string(published.Data["url"])).To(Equal(monitor.Status.HeartbeatURL))
+		})
+
+		It("publishes heartbeat URL to a ConfigMap with defaults", func() {
+			monitor := &uptimerobotv1.Monitor{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "heartbeat-configmap-monitor",
+					Namespace: "default",
+				},
+				Spec: uptimerobotv1.MonitorSpec{
+					Account: corev1.LocalObjectReference{Name: account.Name},
+					Contacts: []uptimerobotv1.MonitorContactRef{
+						{
+							LocalObjectReference: corev1.LocalObjectReference{Name: contact.Name},
+						},
+					},
+					Monitor: uptimerobotv1.MonitorValues{
+						Name: "Heartbeat ConfigMap Monitor",
+						Type: urtypes.TypeHeartbeat,
+						Heartbeat: &uptimerobotv1.MonitorHeartbeat{
+							Interval: &metav1.Duration{Duration: 5 * time.Minute},
+						},
+					},
+					HeartbeatURLPublish: &uptimerobotv1.HeartbeatURLPublish{
+						Type: uptimerobotv1.HeartbeatURLPublishTypeConfigMap,
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, monitor)).To(Succeed())
+
+			controllerReconciler := &MonitorReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: monitor.Name, Namespace: monitor.Namespace},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: monitor.Name, Namespace: monitor.Namespace}, monitor)).To(Succeed())
+			Expect(monitor.Status.HeartbeatURL).NotTo(BeEmpty())
+
+			published := &corev1.ConfigMap{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "heartbeat-configmap-monitor-heartbeat-url", Namespace: "default"}, published)).To(Succeed())
+			Expect(published.Data["heartbeatURL"]).To(Equal(monitor.Status.HeartbeatURL))
+		})
+	})
+
+	Context("buildHeartbeatURL", func() {
+		It("uses full URLs as-is and expands token paths", func() {
+			Expect(buildHeartbeatURL("1", "https://heartbeat.uptimerobot.com/m1-token")).To(Equal("https://heartbeat.uptimerobot.com/m1-token"))
+			Expect(buildHeartbeatURL("1", "m1-token")).To(Equal("https://heartbeat.uptimerobot.com/m1-token"))
+			Expect(buildHeartbeatURL("801675016", "b2d7d6f52d3e02d2f6135eadc481ed24c8684366")).To(Equal("https://heartbeat.uptimerobot.com/m801675016-b2d7d6f52d3e02d2f6135eadc481ed24c8684366"))
 		})
 	})
 })

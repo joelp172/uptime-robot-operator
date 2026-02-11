@@ -84,6 +84,10 @@ spec:
     interval: 24h
     heartbeat:
       interval: 24h
+  heartbeatURLPublish:
+    type: Secret
+    name: backup-job-heartbeat
+    key: url
 ```
 
 Get the webhook URL:
@@ -93,6 +97,15 @@ kubectl get monitor backup-job -o jsonpath='{.status.heartbeatURL}'
 ```
 
 Your service should call this URL after each successful run.
+
+You can inject it into workloads from the published Secret/ConfigMap:
+
+```bash
+kubectl get secret backup-job-heartbeat -o jsonpath='{.data.url}' | base64 -d
+```
+
+Use one Secret/ConfigMap per heartbeat monitor (default naming is `<monitor-name>-heartbeat-url`).
+This avoids key collisions when multiple heartbeat monitors exist in the same namespace.
 
 ### Port
 

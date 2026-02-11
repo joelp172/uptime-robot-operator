@@ -49,6 +49,34 @@ type MonitorSpec struct {
 
 	// SourceRef optionally references the object that created this Monitor.
 	SourceRef *corev1.TypedLocalObjectReference `json:"sourceRef,omitempty"`
+
+	// HeartbeatURLPublish configures publishing the generated heartbeat URL to a Secret or ConfigMap.
+	// This is only applied for Heartbeat monitor types.
+	HeartbeatURLPublish *HeartbeatURLPublish `json:"heartbeatURLPublish,omitempty"`
+}
+
+// HeartbeatURLPublishType selects where a heartbeat URL is published.
+// +kubebuilder:validation:Enum=Secret;ConfigMap
+type HeartbeatURLPublishType string
+
+const (
+	HeartbeatURLPublishTypeSecret    HeartbeatURLPublishType = "Secret"
+	HeartbeatURLPublishTypeConfigMap HeartbeatURLPublishType = "ConfigMap"
+)
+
+// HeartbeatURLPublish controls where the generated heartbeat URL is written.
+type HeartbeatURLPublish struct {
+	// Type chooses where to publish the heartbeat URL.
+	//+kubebuilder:default:=Secret
+	Type HeartbeatURLPublishType `json:"type,omitempty"`
+
+	// Name is the target Secret/ConfigMap name.
+	// Defaults to "<monitor-name>-heartbeat-url".
+	Name string `json:"name,omitempty"`
+
+	// Key is the data key containing the heartbeat URL.
+	//+kubebuilder:default:=heartbeatURL
+	Key string `json:"key,omitempty"`
 }
 
 // MonitorStatus defines the observed state of Monitor.

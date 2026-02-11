@@ -104,6 +104,28 @@ spec:
                   type: object
                   x-kubernetes-map-type: atomic
                 type: array
+              heartbeatURLPublish:
+                description: |-
+                  HeartbeatURLPublish configures publishing the generated heartbeat URL to a Secret or ConfigMap.
+                  This is only applied for Heartbeat monitor types.
+                properties:
+                  key:
+                    default: heartbeatURL
+                    description: Key is the data key containing the heartbeat URL.
+                    type: string
+                  name:
+                    description: |-
+                      Name is the target Secret/ConfigMap name.
+                      Defaults to "<monitor-name>-heartbeat-url".
+                    type: string
+                  type:
+                    default: Secret
+                    description: Type chooses where to publish the heartbeat URL.
+                    enum:
+                    - Secret
+                    - ConfigMap
+                    type: string
+                type: object
               monitor:
                 description: Monitor configures the Uptime Robot monitor.
                 properties:
