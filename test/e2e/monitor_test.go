@@ -18,6 +18,7 @@ package e2e
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"os/exec"
@@ -306,6 +307,209 @@ spec:
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(monitor.Type).To(Equal("HEARTBEAT"))
 			}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
+		})
+	})
+
+	Context("Heartbeat URL Publishing", func() {
+		getMonitorHeartbeatURL := func(monitorName string) string {
+			cmd := exec.Command("kubectl", "get", "monitor", monitorName, "-o", "jsonpath={.status.heartbeatURL}")
+			output, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			return strings.TrimSpace(output)
+		}
+
+		It("publishes heartbeat URL to a Secret with default name/key when only type is specified", func() {
+			monitorName := fmt.Sprintf("e2e-heartbeat-secret-defaults-%s", testRunID)
+			secretName := monitorName + "-heartbeat-url"
+
+			defer deleteMonitorAndWaitForAPICleanup(monitorName)
+			defer func() {
+				cmd := exec.Command("kubectl", "delete", "secret", secretName, "--ignore-not-found=true")
+				_, _ = utils.Run(cmd)
+			}()
+
+			applyMonitor(fmt.Sprintf(`
+apiVersion: uptimerobot.com/v1alpha1
+kind: Monitor
+metadata:
+  name: %s
+spec:
+  syncInterval: 1m
+  prune: true
+  account:
+    name: e2e-account-%s
+  heartbeatURLPublish:
+    type: Secret
+  monitor:
+    name: "E2E Heartbeat Secret Defaults %s"
+    type: Heartbeat
+    heartbeat:
+      interval: 5m
+`, monitorName, testRunID, testRunID))
+
+			_ = waitMonitorReadyAndGetID(monitorName)
+
+			Eventually(func(g Gomega) {
+				heartbeatURL := getMonitorHeartbeatURL(monitorName)
+				g.Expect(heartbeatURL).NotTo(BeEmpty())
+
+				cmd := exec.Command("kubectl", "get", "secret", secretName, "-o", "jsonpath={.data.heartbeatURL}")
+				encoded, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(strings.TrimSpace(encoded)).NotTo(BeEmpty())
+
+				decoded, decodeErr := base64.StdEncoding.DecodeString(strings.TrimSpace(encoded))
+				g.Expect(decodeErr).NotTo(HaveOccurred())
+				g.Expect(string(decoded)).To(Equal(heartbeatURL))
+			}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
+		})
+
+		It("updates an existing Secret with the heartbeat URL", func() {
+			monitorName := fmt.Sprintf("e2e-heartbeat-secret-update-%s", testRunID)
+			secretName := fmt.Sprintf("e2e-heartbeat-published-secret-%s", testRunID)
+			oldURL := "https://old.example.invalid"
+
+			defer deleteMonitorAndWaitForAPICleanup(monitorName)
+			defer func() {
+				cmd := exec.Command("kubectl", "delete", "secret", secretName, "--ignore-not-found=true")
+				_, _ = utils.Run(cmd)
+			}()
+
+			cmd := exec.Command("kubectl", "delete", "secret", secretName, "--ignore-not-found=true")
+			_, _ = utils.Run(cmd)
+			cmd = exec.Command("kubectl", "create", "secret", "generic", secretName, "--from-literal=url="+oldURL)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			applyMonitor(fmt.Sprintf(`
+apiVersion: uptimerobot.com/v1alpha1
+kind: Monitor
+metadata:
+  name: %s
+spec:
+  syncInterval: 1m
+  prune: true
+  account:
+    name: e2e-account-%s
+  heartbeatURLPublish:
+    type: Secret
+    name: %s
+    key: url
+  monitor:
+    name: "E2E Heartbeat Secret Update %s"
+    type: Heartbeat
+    heartbeat:
+      interval: 5m
+`, monitorName, testRunID, secretName, testRunID))
+
+			_ = waitMonitorReadyAndGetID(monitorName)
+
+			Eventually(func(g Gomega) {
+				heartbeatURL := getMonitorHeartbeatURL(monitorName)
+				g.Expect(heartbeatURL).NotTo(BeEmpty())
+
+				cmd := exec.Command("kubectl", "get", "secret", secretName, "-o", "jsonpath={.data.url}")
+				encoded, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(strings.TrimSpace(encoded)).NotTo(BeEmpty())
+
+				decoded, decodeErr := base64.StdEncoding.DecodeString(strings.TrimSpace(encoded))
+				g.Expect(decodeErr).NotTo(HaveOccurred())
+				g.Expect(string(decoded)).To(Equal(heartbeatURL))
+				g.Expect(string(decoded)).NotTo(Equal(oldURL))
+			}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
+		})
+
+		It("updates an existing ConfigMap with the heartbeat URL", func() {
+			monitorName := fmt.Sprintf("e2e-heartbeat-configmap-update-%s", testRunID)
+			configMapName := fmt.Sprintf("e2e-heartbeat-published-cm-%s", testRunID)
+			oldURL := "https://old.example.invalid"
+
+			defer deleteMonitorAndWaitForAPICleanup(monitorName)
+			defer func() {
+				cmd := exec.Command("kubectl", "delete", "configmap", configMapName, "--ignore-not-found=true")
+				_, _ = utils.Run(cmd)
+			}()
+
+			cmd := exec.Command("kubectl", "delete", "configmap", configMapName, "--ignore-not-found=true")
+			_, _ = utils.Run(cmd)
+			cmd = exec.Command("kubectl", "create", "configmap", configMapName, "--from-literal=url="+oldURL)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			applyMonitor(fmt.Sprintf(`
+apiVersion: uptimerobot.com/v1alpha1
+kind: Monitor
+metadata:
+  name: %s
+spec:
+  syncInterval: 1m
+  prune: true
+  account:
+    name: e2e-account-%s
+  heartbeatURLPublish:
+    type: ConfigMap
+    name: %s
+    key: url
+  monitor:
+    name: "E2E Heartbeat ConfigMap Update %s"
+    type: Heartbeat
+    heartbeat:
+      interval: 5m
+`, monitorName, testRunID, configMapName, testRunID))
+
+			_ = waitMonitorReadyAndGetID(monitorName)
+
+			Eventually(func(g Gomega) {
+				heartbeatURL := getMonitorHeartbeatURL(monitorName)
+				g.Expect(heartbeatURL).NotTo(BeEmpty())
+
+				cmd := exec.Command("kubectl", "get", "configmap", configMapName, "-o", "jsonpath={.data.url}")
+				value, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(strings.TrimSpace(value)).To(Equal(heartbeatURL))
+				g.Expect(strings.TrimSpace(value)).NotTo(Equal(oldURL))
+			}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
+		})
+
+		It("does not publish heartbeat URL when monitor type is not Heartbeat", func() {
+			monitorName := fmt.Sprintf("e2e-http-no-heartbeat-publish-%s", testRunID)
+			secretName := fmt.Sprintf("e2e-should-not-exist-%s", testRunID)
+
+			defer deleteMonitorAndWaitForAPICleanup(monitorName)
+			defer func() {
+				cmd := exec.Command("kubectl", "delete", "secret", secretName, "--ignore-not-found=true")
+				_, _ = utils.Run(cmd)
+			}()
+
+			applyMonitor(fmt.Sprintf(`
+apiVersion: uptimerobot.com/v1alpha1
+kind: Monitor
+metadata:
+  name: %s
+spec:
+  syncInterval: 1m
+  prune: true
+  account:
+    name: e2e-account-%s
+  heartbeatURLPublish:
+    type: Secret
+    name: %s
+    key: heartbeatURL
+  monitor:
+    name: "E2E HTTP No Heartbeat Publish %s"
+    url: https://example.com
+    type: HTTPS
+    interval: 5m
+`, monitorName, testRunID, secretName, testRunID))
+
+			_ = waitMonitorReadyAndGetID(monitorName)
+
+			Consistently(func() error {
+				cmd := exec.Command("kubectl", "get", "secret", secretName)
+				_, err := utils.Run(cmd)
+				return err
+			}, 30*time.Second, 5*time.Second).Should(HaveOccurred())
 		})
 	})
 
