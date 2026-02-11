@@ -58,15 +58,32 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, client.IgnoreNotFound(fetchErr)
 	}
 
+	// Update observedGeneration
+	groupResource.Status.ObservedGeneration = groupResource.Generation
+
 	// Step 2: Locate credential vault
 	credentialVault := &uptimerobotv1.Account{}
 	if vaultErr := GetAccount(ctx, r.Client, credentialVault, groupResource.Spec.Account.Name); vaultErr != nil {
+		groupResource.Status.Ready = false
+		SetReadyCondition(&groupResource.Status.Conditions, false, ReasonReconcileError, fmt.Sprintf("Failed to get account: %v", vaultErr), groupResource.Generation)
+		SetSyncedCondition(&groupResource.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to get account: %v", vaultErr), groupResource.Generation)
+		SetErrorCondition(&groupResource.Status.Conditions, true, ReasonReconcileError, fmt.Sprintf("Failed to get account: %v", vaultErr), groupResource.Generation)
+		if updateErr := r.Status().Update(ctx, groupResource); updateErr != nil {
+			return ctrl.Result{}, updateErr
+		}
 		return ctrl.Result{}, vaultErr
 	}
 
 	// Step 3: Extract API token from secret
 	apiToken, tokenErr := GetApiKey(ctx, r.Client, credentialVault)
 	if tokenErr != nil {
+		groupResource.Status.Ready = false
+		SetReadyCondition(&groupResource.Status.Conditions, false, ReasonSecretNotFound, fmt.Sprintf("Failed to get API key: %v", tokenErr), groupResource.Generation)
+		SetSyncedCondition(&groupResource.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to get API key: %v", tokenErr), groupResource.Generation)
+		SetErrorCondition(&groupResource.Status.Conditions, true, ReasonSecretNotFound, fmt.Sprintf("Failed to get API key: %v", tokenErr), groupResource.Generation)
+		if updateErr := r.Status().Update(ctx, groupResource); updateErr != nil {
+			return ctrl.Result{}, updateErr
+		}
 		return ctrl.Result{}, tokenErr
 	}
 	backendClient := uptimerobot.NewClient(apiToken)
@@ -77,6 +94,13 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		if controllerutil.ContainsFinalizer(groupResource, cleanupMarker) {
 			if groupResource.Spec.Prune && groupResource.Status.Ready {
 				if purgeErr := backendClient.PurgeGroupFromBackend(ctx, groupResource.Status.ID); purgeErr != nil {
+					groupResource.Status.Ready = false
+					SetReadyCondition(&groupResource.Status.Conditions, false, ReasonAPIError, fmt.Sprintf("Failed to delete group from UptimeRobot: %v", purgeErr), groupResource.Generation)
+					SetSyncedCondition(&groupResource.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to delete group from UptimeRobot: %v", purgeErr), groupResource.Generation)
+					SetErrorCondition(&groupResource.Status.Conditions, true, ReasonAPIError, fmt.Sprintf("Failed to delete group from UptimeRobot: %v", purgeErr), groupResource.Generation)
+					if updateErr := r.Status().Update(ctx, groupResource); updateErr != nil {
+						return ctrl.Result{}, updateErr
+					}
 					return ctrl.Result{}, purgeErr
 				}
 			}
@@ -141,6 +165,13 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 		backendResponse, creationErr := backendClient.SpawnGroupInBackend(ctx, creationPayload)
 		if creationErr != nil {
+			groupResource.Status.Ready = false
+			SetReadyCondition(&groupResource.Status.Conditions, false, ReasonAPIError, fmt.Sprintf("Group creation failed: %v", creationErr), groupResource.Generation)
+			SetSyncedCondition(&groupResource.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to create group in UptimeRobot: %v", creationErr), groupResource.Generation)
+			SetErrorCondition(&groupResource.Status.Conditions, true, ReasonAPIError, fmt.Sprintf("Group creation failed: %v", creationErr), groupResource.Generation)
+			if updateErr := r.Status().Update(ctx, groupResource); updateErr != nil {
+				return ctrl.Result{}, updateErr
+			}
 			return ctrl.Result{}, fmt.Errorf("group creation failed: %w", creationErr)
 		}
 
@@ -149,6 +180,9 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		groupResource.Status.MonitorCount = len(aggregatedMonitorIDs)
 		nowTimestamp := metav1.Now()
 		groupResource.Status.LastReconciled = &nowTimestamp
+		SetReadyCondition(&groupResource.Status.Conditions, true, ReasonReconcileSuccess, "MonitorGroup reconciled successfully", groupResource.Generation)
+		SetSyncedCondition(&groupResource.Status.Conditions, true, ReasonSyncSuccess, "Successfully synced with UptimeRobot", groupResource.Generation)
+		SetErrorCondition(&groupResource.Status.Conditions, false, ReasonReconcileSuccess, "", groupResource.Generation)
 
 		if statusErr := r.Status().Update(ctx, groupResource); statusErr != nil {
 			return ctrl.Result{}, statusErr
@@ -175,6 +209,13 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 				backendResponse, recreationErr := backendClient.SpawnGroupInBackend(ctx, creationPayload)
 				if recreationErr != nil {
+					groupResource.Status.Ready = false
+					SetReadyCondition(&groupResource.Status.Conditions, false, ReasonAPIError, fmt.Sprintf("Group recreation failed: %v", recreationErr), groupResource.Generation)
+					SetSyncedCondition(&groupResource.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to recreate group in UptimeRobot: %v", recreationErr), groupResource.Generation)
+					SetErrorCondition(&groupResource.Status.Conditions, true, ReasonAPIError, fmt.Sprintf("Group recreation failed: %v", recreationErr), groupResource.Generation)
+					if updateErr := r.Status().Update(ctx, groupResource); updateErr != nil {
+						return ctrl.Result{}, updateErr
+					}
 					return ctrl.Result{}, fmt.Errorf("group recreation failed: %w", recreationErr)
 				}
 
@@ -182,6 +223,9 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				groupResource.Status.MonitorCount = len(aggregatedMonitorIDs)
 				nowTimestamp := metav1.Now()
 				groupResource.Status.LastReconciled = &nowTimestamp
+				SetReadyCondition(&groupResource.Status.Conditions, true, ReasonReconcileSuccess, "MonitorGroup reconciled successfully", groupResource.Generation)
+				SetSyncedCondition(&groupResource.Status.Conditions, true, ReasonSyncSuccess, "Successfully synced with UptimeRobot", groupResource.Generation)
+				SetErrorCondition(&groupResource.Status.Conditions, false, ReasonReconcileSuccess, "", groupResource.Generation)
 
 				if statusErr := r.Status().Update(ctx, groupResource); statusErr != nil {
 					return ctrl.Result{}, statusErr
@@ -189,12 +233,22 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 				return ctrl.Result{RequeueAfter: groupResource.Spec.SyncInterval.Duration}, nil
 			}
+			groupResource.Status.Ready = false
+			SetReadyCondition(&groupResource.Status.Conditions, false, ReasonAPIError, fmt.Sprintf("Group update failed: %v", updateErr), groupResource.Generation)
+			SetSyncedCondition(&groupResource.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to update group in UptimeRobot: %v", updateErr), groupResource.Generation)
+			SetErrorCondition(&groupResource.Status.Conditions, true, ReasonAPIError, fmt.Sprintf("Group update failed: %v", updateErr), groupResource.Generation)
+			if statusUpdateErr := r.Status().Update(ctx, groupResource); statusUpdateErr != nil {
+				return ctrl.Result{}, statusUpdateErr
+			}
 			return ctrl.Result{}, fmt.Errorf("group update failed: %w", updateErr)
 		}
 
 		groupResource.Status.MonitorCount = len(aggregatedMonitorIDs)
 		nowTimestamp := metav1.Now()
 		groupResource.Status.LastReconciled = &nowTimestamp
+		SetReadyCondition(&groupResource.Status.Conditions, true, ReasonReconcileSuccess, "MonitorGroup reconciled successfully", groupResource.Generation)
+		SetSyncedCondition(&groupResource.Status.Conditions, true, ReasonSyncSuccess, "Successfully synced with UptimeRobot", groupResource.Generation)
+		SetErrorCondition(&groupResource.Status.Conditions, false, ReasonReconcileSuccess, "", groupResource.Generation)
 
 		if statusErr := r.Status().Update(ctx, groupResource); statusErr != nil {
 			return ctrl.Result{}, statusErr
