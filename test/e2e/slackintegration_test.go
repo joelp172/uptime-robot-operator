@@ -185,6 +185,27 @@ spec:
 		integrationID = strings.TrimSpace(integrationID)
 		Expect(integrationID).NotTo(BeEmpty())
 
+		By("verifying SlackIntegration status conditions and observedGeneration")
+		cmd = exec.Command("kubectl", "get", "slackintegration", integrationName, "-n", namespace, "-o", "jsonpath={.status.observedGeneration}")
+		observedGeneration, err := utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(strings.TrimSpace(observedGeneration)).NotTo(BeEmpty())
+
+		cmd = exec.Command("kubectl", "get", "slackintegration", integrationName, "-n", namespace, "-o", "jsonpath={.status.conditions[?(@.type==\"Ready\")].status}")
+		readyStatus, err := utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(readyStatus).To(Equal("True"))
+
+		cmd = exec.Command("kubectl", "get", "slackintegration", integrationName, "-n", namespace, "-o", "jsonpath={.status.conditions[?(@.type==\"Synced\")].status}")
+		syncedStatus, err := utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(syncedStatus).To(Equal("True"))
+
+		cmd = exec.Command("kubectl", "get", "slackintegration", integrationName, "-n", namespace, "-o", "jsonpath={.status.conditions[?(@.type==\"Error\")].status}")
+		errorStatus, err := utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(errorStatus).To(Equal("False"))
+
 		By("verifying integration exists in UptimeRobot API")
 		apiKey := os.Getenv("UPTIME_ROBOT_API_KEY")
 		Eventually(func(g Gomega) {

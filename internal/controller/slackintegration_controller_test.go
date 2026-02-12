@@ -90,7 +90,10 @@ var _ = Describe("SlackIntegration Controller", func() {
 			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
 
 			if webhookSecret != nil {
-				Expect(k8sClient.Delete(ctx, webhookSecret)).To(Succeed())
+				secret := &corev1.Secret{}
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: webhookSecret.Name, Namespace: webhookSecret.Namespace}, secret); err == nil {
+					Expect(k8sClient.Delete(ctx, secret)).To(Succeed())
+				}
 			}
 
 			CleanupAccount(ctx, account, secret)
@@ -111,6 +114,20 @@ var _ = Describe("SlackIntegration Controller", func() {
 			Expect(slackIntegration.Status.Ready).To(BeTrue())
 			Expect(slackIntegration.Status.ID).NotTo(BeEmpty())
 			Expect(slackIntegration.Status.Type).To(Equal("Slack"))
+
+			ready := findCondition(slackIntegration.Status.Conditions, TypeReady)
+			Expect(ready).NotTo(BeNil())
+			Expect(ready.Status).To(Equal(metav1.ConditionTrue))
+			Expect(ready.Reason).To(Equal(ReasonReconcileSuccess))
+
+			synced := findCondition(slackIntegration.Status.Conditions, TypeSynced)
+			Expect(synced).NotTo(BeNil())
+			Expect(synced.Status).To(Equal(metav1.ConditionTrue))
+			Expect(synced.Reason).To(Equal(ReasonSyncSuccess))
+
+			errCond := findCondition(slackIntegration.Status.Conditions, TypeError)
+			Expect(errCond).NotTo(BeNil())
+			Expect(errCond.Status).To(Equal(metav1.ConditionFalse))
 		})
 
 		It("should recreate integration when spec drifts from existing integration", func() {
@@ -139,6 +156,34 @@ var _ = Describe("SlackIntegration Controller", func() {
 			Expect(slackIntegration.Status.ID).NotTo(BeEmpty())
 			Expect(slackIntegration.Status.ID).NotTo(Equal(originalID))
 			Expect(slackIntegration.Status.Type).To(Equal("Slack"))
+		})
+
+		It("should set failure conditions when webhook secret is missing", func() {
+			controllerReconciler := &SlackIntegrationReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+			Expect(k8sClient.Delete(ctx, webhookSecret)).To(Succeed())
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).To(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, namespacedName, slackIntegration)).To(Succeed())
+			Expect(slackIntegration.Status.Ready).To(BeFalse())
+
+			ready := findCondition(slackIntegration.Status.Conditions, TypeReady)
+			Expect(ready).NotTo(BeNil())
+			Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+			Expect(ready.Reason).To(Equal(ReasonReconcileError))
+
+			errCond := findCondition(slackIntegration.Status.Conditions, TypeError)
+			Expect(errCond).NotTo(BeNil())
+			Expect(errCond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(errCond.Reason).To(Equal(ReasonReconcileError))
+
+			Expect(findCondition(slackIntegration.Status.Conditions, TypeSynced)).To(BeNil())
 		})
 	})
 })

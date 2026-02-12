@@ -146,6 +146,35 @@ spec:
 			contactID, err := utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(contactID).NotTo(BeEmpty(), "Account should have at least one alert contact")
+
+			By("verifying Account status conditions and observedGeneration")
+			cmd = exec.Command("kubectl", "get", "account",
+				fmt.Sprintf("e2e-account-%s", testRunID),
+				"-o", "jsonpath={.status.observedGeneration}")
+			observedGeneration, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(strings.TrimSpace(observedGeneration)).NotTo(BeEmpty())
+
+			cmd = exec.Command("kubectl", "get", "account",
+				fmt.Sprintf("e2e-account-%s", testRunID),
+				"-o", "jsonpath={.status.conditions[?(@.type==\"Ready\")].status}")
+			readyStatus, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(readyStatus).To(Equal("True"))
+
+			cmd = exec.Command("kubectl", "get", "account",
+				fmt.Sprintf("e2e-account-%s", testRunID),
+				"-o", "jsonpath={.status.conditions[?(@.type==\"Synced\")].status}")
+			syncedStatus, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(syncedStatus).To(Equal("True"))
+
+			cmd = exec.Command("kubectl", "get", "account",
+				fmt.Sprintf("e2e-account-%s", testRunID),
+				"-o", "jsonpath={.status.conditions[?(@.type==\"Error\")].status}")
+			errorStatus, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(errorStatus).To(Equal("False"))
 		})
 
 		It("should reject creating a second default Account", func() {
@@ -227,6 +256,35 @@ spec:
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(output).To(Equal("true"))
 			}, 1*time.Minute, 5*time.Second).Should(Succeed())
+
+			By("verifying Contact status conditions and observedGeneration")
+			cmd = exec.Command("kubectl", "get", "contact",
+				fmt.Sprintf("e2e-default-contact-%s", testRunID),
+				"-o", "jsonpath={.status.observedGeneration}")
+			observedGeneration, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(strings.TrimSpace(observedGeneration)).NotTo(BeEmpty())
+
+			cmd = exec.Command("kubectl", "get", "contact",
+				fmt.Sprintf("e2e-default-contact-%s", testRunID),
+				"-o", "jsonpath={.status.conditions[?(@.type==\"Ready\")].status}")
+			readyStatus, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(readyStatus).To(Equal("True"))
+
+			cmd = exec.Command("kubectl", "get", "contact",
+				fmt.Sprintf("e2e-default-contact-%s", testRunID),
+				"-o", "jsonpath={.status.conditions[?(@.type==\"Synced\")].status}")
+			syncedStatus, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(syncedStatus).To(Equal("True"))
+
+			cmd = exec.Command("kubectl", "get", "contact",
+				fmt.Sprintf("e2e-default-contact-%s", testRunID),
+				"-o", "jsonpath={.status.conditions[?(@.type==\"Error\")].status}")
+			errorStatus, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(errorStatus).To(Equal("False"))
 		})
 
 		It("should reject creating a second default Contact", func() {

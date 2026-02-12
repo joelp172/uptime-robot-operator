@@ -18,6 +18,8 @@ package controller
 
 import (
 	"context"
+	"fmt"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -32,15 +34,13 @@ import (
 
 var _ = Describe("Contact Controller", func() {
 	Context("When reconciling a resource", func() {
-		const resourceName = "test-resource"
-
 		ctx := context.Background()
-		namespacedName := types.NamespacedName{Name: resourceName}
 		var (
 			secret  *corev1.Secret
 			account *uptimerobotv1.Account
 			contact *uptimerobotv1.Contact
 		)
+		var namespacedName types.NamespacedName
 
 		BeforeEach(func() {
 			By("creating the custom resource for the Kind Account")
@@ -49,6 +49,7 @@ var _ = Describe("Contact Controller", func() {
 
 			By("creating the custom resource for the Kind Contact")
 			contact = CreateContact(ctx, account.Name)
+			namespacedName = types.NamespacedName{Name: contact.Name}
 		})
 
 		AfterEach(func() {
@@ -66,15 +67,60 @@ var _ = Describe("Contact Controller", func() {
 		It("should successfully reconcile the resource", func() {
 			By("Reconciling the created resource")
 			ReconcileContact(ctx, contact)
+
+			Expect(contact.Status.ObservedGeneration).To(Equal(contact.Generation))
+			ready := findCondition(contact.Status.Conditions, TypeReady)
+			Expect(ready).NotTo(BeNil())
+			Expect(ready.Status).To(Equal(metav1.ConditionTrue))
+			Expect(ready.Reason).To(Equal(ReasonReconcileSuccess))
+
+			synced := findCondition(contact.Status.Conditions, TypeSynced)
+			Expect(synced).NotTo(BeNil())
+			Expect(synced.Status).To(Equal(metav1.ConditionTrue))
+			Expect(synced.Reason).To(Equal(ReasonSyncSuccess))
+
+			errCond := findCondition(contact.Status.Conditions, TypeError)
+			Expect(errCond).NotTo(BeNil())
+			Expect(errCond.Status).To(Equal(metav1.ConditionFalse))
+		})
+
+		It("should set failure conditions when account secret is missing", func() {
+			controllerReconciler := &ContactReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+			Expect(k8sClient.Delete(ctx, secret)).To(Succeed())
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).To(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, namespacedName, contact)).To(Succeed())
+			Expect(contact.Status.Ready).To(BeFalse())
+			Expect(contact.Status.ObservedGeneration).To(Equal(contact.Generation))
+
+			ready := findCondition(contact.Status.Conditions, TypeReady)
+			Expect(ready).NotTo(BeNil())
+			Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+			Expect(ready.Reason).To(Equal(ReasonSecretNotFound))
+
+			errCond := findCondition(contact.Status.Conditions, TypeError)
+			Expect(errCond).NotTo(BeNil())
+			Expect(errCond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(errCond.Reason).To(Equal(ReasonSecretNotFound))
+
+			Expect(findCondition(contact.Status.Conditions, TypeSynced)).To(BeNil())
 		})
 	})
 })
 
 func CreateContact(ctx context.Context, accountName string) *uptimerobotv1.Contact {
 	By("creating the secret for the Kind Contact")
+	name := fmt.Sprintf("test-resource-%d", time.Now().UnixNano())
 	contact := &uptimerobotv1.Contact{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "test-resource",
+			Name: name,
 		},
 		Spec: uptimerobotv1.ContactSpec{
 			Account: corev1.LocalObjectReference{

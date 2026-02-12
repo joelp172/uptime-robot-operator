@@ -72,6 +72,20 @@ var _ = Describe("MonitorGroup Controller", func() {
 			By("Checking if MonitorGroup status was updated")
 			Expect(mg.Status.Ready).To(BeTrue())
 			Expect(mg.Status.ID).NotTo(BeEmpty())
+
+			ready := findCondition(mg.Status.Conditions, TypeReady)
+			Expect(ready).NotTo(BeNil())
+			Expect(ready.Status).To(Equal(metav1.ConditionTrue))
+			Expect(ready.Reason).To(Equal(ReasonReconcileSuccess))
+
+			synced := findCondition(mg.Status.Conditions, TypeSynced)
+			Expect(synced).NotTo(BeNil())
+			Expect(synced.Status).To(Equal(metav1.ConditionTrue))
+			Expect(synced.Reason).To(Equal(ReasonSyncSuccess))
+
+			errCond := findCondition(mg.Status.Conditions, TypeError)
+			Expect(errCond).NotTo(BeNil())
+			Expect(errCond.Status).To(Equal(metav1.ConditionFalse))
 		})
 
 		It("should update monitor group name successfully", func() {
@@ -98,6 +112,36 @@ var _ = Describe("MonitorGroup Controller", func() {
 			err = k8sClient.Get(ctx, types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace}, mg)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(mg.Status.Ready).To(BeTrue())
+		})
+
+		It("should set failure conditions when account secret is missing", func() {
+			mg := CreateMonitorGroup(ctx, "test-missing-secret-mg", account.Name, uptimerobotv1.MonitorGroupSpec{
+				FriendlyName: "Missing Secret Group",
+			})
+			defer CleanupMonitorGroup(ctx, mg)
+
+			Expect(k8sClient.Delete(ctx, secret)).To(Succeed())
+
+			_, err := ReconcileMonitorGroup(ctx, mg)
+			Expect(err).To(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace}, mg)).To(Succeed())
+			Expect(mg.Status.Ready).To(BeFalse())
+
+			ready := findCondition(mg.Status.Conditions, TypeReady)
+			Expect(ready).NotTo(BeNil())
+			Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+			Expect(ready.Reason).To(Equal(ReasonSecretNotFound))
+
+			synced := findCondition(mg.Status.Conditions, TypeSynced)
+			Expect(synced).NotTo(BeNil())
+			Expect(synced.Status).To(Equal(metav1.ConditionFalse))
+			Expect(synced.Reason).To(Equal(ReasonSyncError))
+
+			errCond := findCondition(mg.Status.Conditions, TypeError)
+			Expect(errCond).NotTo(BeNil())
+			Expect(errCond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(errCond.Reason).To(Equal(ReasonSecretNotFound))
 		})
 
 		It("should handle monitor group deletion with prune", func() {

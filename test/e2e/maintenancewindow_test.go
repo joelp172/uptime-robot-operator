@@ -202,6 +202,31 @@ spec:
 			applyMaintenanceWindow(mwYAML)
 			mwID := waitMaintenanceWindowReadyAndGetID(mwName)
 
+			By("verifying MaintenanceWindow status conditions and observedGeneration")
+			cmd := exec.Command("kubectl", "get", "maintenancewindow", mwName, "-n", namespace,
+				"-o", "jsonpath={.status.observedGeneration}")
+			observedGeneration, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(strings.TrimSpace(observedGeneration)).NotTo(BeEmpty())
+
+			cmd = exec.Command("kubectl", "get", "maintenancewindow", mwName, "-n", namespace,
+				"-o", "jsonpath={.status.conditions[?(@.type==\"Ready\")].status}")
+			readyStatus, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(readyStatus).To(Equal("True"))
+
+			cmd = exec.Command("kubectl", "get", "maintenancewindow", mwName, "-n", namespace,
+				"-o", "jsonpath={.status.conditions[?(@.type==\"Synced\")].status}")
+			syncedStatus, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(syncedStatus).To(Equal("True"))
+
+			cmd = exec.Command("kubectl", "get", "maintenancewindow", mwName, "-n", namespace,
+				"-o", "jsonpath={.status.conditions[?(@.type==\"Error\")].status}")
+			errorStatus, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(errorStatus).To(Equal("False"))
+
 			By("validating maintenance window fields in UptimeRobot API")
 			apiKey := os.Getenv("UPTIME_ROBOT_API_KEY")
 			Eventually(func(g Gomega) {
