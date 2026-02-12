@@ -59,6 +59,24 @@ var _ = Describe("Conditions", func() {
 			Expect(conditions[0].ObservedGeneration).To(Equal(int64(2)))
 		})
 
+		It("should update observedGeneration even when condition content is unchanged", func() {
+			conditions := []metav1.Condition{
+				{
+					Type:               TypeReady,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.Now(),
+					Reason:             ReasonReconcileSuccess,
+					Message:            "All good",
+					ObservedGeneration: 1,
+				},
+			}
+
+			SetCondition(&conditions, TypeReady, metav1.ConditionTrue, ReasonReconcileSuccess, "All good", 2)
+
+			Expect(conditions).To(HaveLen(1))
+			Expect(conditions[0].ObservedGeneration).To(Equal(int64(2)))
+		})
+
 		It("should preserve other conditions when updating one", func() {
 			conditions := []metav1.Condition{
 				{

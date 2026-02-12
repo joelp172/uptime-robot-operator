@@ -32,6 +32,10 @@ spec:
       name: Heartbeat URL
       priority: 1
       type: string
+    - jsonPath: .status.lastSyncedTime
+      name: Last Synced
+      priority: 1
+      type: date
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -529,6 +533,11 @@ spec:
                 - ConfigMap
                 type: string
               id:
+                type: string
+              lastSyncedTime:
+                description: LastSyncedTime records when the resource last successfully
+                  synced with UptimeRobot.
+                format: date-time
                 type: string
               observedGeneration:
                 description: ObservedGeneration is the most recent generation observed

@@ -76,6 +76,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if err := r.Get(ctx, req.NamespacedName, monitor); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+	monitor.Status.ObservedGeneration = monitor.Generation
 
 	account := &uptimerobotv1.Account{}
 	if err := GetAccount(ctx, r.Client, account, monitor.Spec.Account.Name); err != nil {
@@ -387,10 +388,11 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
-	monitor.Status.ObservedGeneration = monitor.Generation
 	SetReadyCondition(&monitor.Status.Conditions, true, ReasonReconcileSuccess, "Monitor reconciled successfully", monitor.Generation)
 	SetSyncedCondition(&monitor.Status.Conditions, true, ReasonSyncSuccess, "Successfully synced with UptimeRobot", monitor.Generation)
 	SetErrorCondition(&monitor.Status.Conditions, false, ReasonReconcileSuccess, "", monitor.Generation)
+	now := metav1.Now()
+	monitor.Status.LastSyncedTime = &now
 	if err := r.updateMonitorStatus(ctx, monitor); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -726,6 +728,7 @@ func (r *MonitorReconciler) updateMonitorStatus(ctx context.Context, monitor *up
 	latest.Status.HeartbeatURLPublishTargetKey = monitor.Status.HeartbeatURLPublishTargetKey
 	latest.Status.ObservedGeneration = monitor.Status.ObservedGeneration
 	latest.Status.Conditions = monitor.Status.Conditions
+	latest.Status.LastSyncedTime = monitor.Status.LastSyncedTime
 	return r.Status().Update(ctx, latest)
 }
 

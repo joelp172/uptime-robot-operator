@@ -54,6 +54,7 @@ func (r *ContactReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if err := r.Get(ctx, req.NamespacedName, contact); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+	contact.Status.ObservedGeneration = contact.Generation
 
 	account := &uptimerobotv1.Account{}
 	if err := GetAccount(ctx, r.Client, account, contact.Spec.Account.Name); err != nil {
@@ -114,7 +115,6 @@ func (r *ContactReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 		contact.Status.Ready = true
 		contact.Status.ID = id
-		contact.Status.ObservedGeneration = contact.Generation
 		SetReadyCondition(&contact.Status.Conditions, true, ReasonReconcileSuccess, "Contact reconciled successfully", contact.Generation)
 		SetSyncedCondition(&contact.Status.Conditions, true, ReasonSyncSuccess, "Successfully validated contact reference", contact.Generation)
 		SetErrorCondition(&contact.Status.Conditions, false, ReasonReconcileSuccess, "", contact.Generation)

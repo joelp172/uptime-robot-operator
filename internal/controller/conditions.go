@@ -59,8 +59,9 @@ func SetCondition(conditions *[]metav1.Condition, conditionType string, status m
 				(*conditions)[i].Reason = reason
 				(*conditions)[i].Message = message
 				(*conditions)[i].LastTransitionTime = now
-				(*conditions)[i].ObservedGeneration = observedGeneration
 			}
+			// Always refresh observedGeneration so consumers know latest generation was evaluated.
+			(*conditions)[i].ObservedGeneration = observedGeneration
 			return
 		}
 	}
