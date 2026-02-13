@@ -94,7 +94,6 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		if controllerutil.ContainsFinalizer(groupResource, cleanupMarker) {
 			if groupResource.Spec.Prune && groupResource.Status.Ready {
 				if purgeErr := backendClient.PurgeGroupFromBackend(ctx, groupResource.Status.ID); purgeErr != nil {
-					groupResource.Status.Ready = false
 					SetReadyCondition(&groupResource.Status.Conditions, false, ReasonAPIError, fmt.Sprintf("Failed to delete group from UptimeRobot: %v", purgeErr), groupResource.Generation)
 					SetSyncedCondition(&groupResource.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to delete group from UptimeRobot: %v", purgeErr), groupResource.Generation)
 					SetErrorCondition(&groupResource.Status.Conditions, true, ReasonAPIError, fmt.Sprintf("Failed to delete group from UptimeRobot: %v", purgeErr), groupResource.Generation)

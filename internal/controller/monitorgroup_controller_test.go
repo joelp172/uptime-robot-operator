@@ -207,6 +207,64 @@ var _ = Describe("MonitorGroup Controller", func() {
 			Expect(err).To(HaveOccurred())
 		})
 
+		It("should retain finalizer when prune deletion fails", func() {
+			mg := CreateMonitorGroup(ctx, "test-delete-failure-mg", account.Name, uptimerobotv1.MonitorGroupSpec{
+				FriendlyName: "Test Delete Failure Group",
+			})
+
+			By("Creating the group in backend")
+			_, err := ReconcileMonitorGroup(ctx, mg)
+			Expect(err).NotTo(HaveOccurred())
+
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace}, mg)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(mg.Status.Ready).To(BeTrue())
+			Expect(mg.Finalizers).To(ContainElement("uptimerobot.com/finalizer"))
+
+			By("Deleting the CR")
+			Expect(k8sClient.Delete(ctx, mg)).To(Succeed())
+
+			By("Forcing purge failure during finalization")
+			originalAPI := os.Getenv("UPTIME_ROBOT_API")
+			Expect(os.Setenv("UPTIME_ROBOT_API", "http://127.0.0.1:1")).To(Succeed())
+			DeferCleanup(func() {
+				Expect(os.Setenv("UPTIME_ROBOT_API", originalAPI)).To(Succeed())
+			})
+
+			_, err = ReconcileMonitorGroup(ctx, mg)
+			Expect(err).To(HaveOccurred())
+
+			By("Ensuring the resource is still present with finalizer for retry")
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace}, mg)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(mg.DeletionTimestamp.IsZero()).To(BeFalse())
+			Expect(mg.Finalizers).To(ContainElement("uptimerobot.com/finalizer"))
+			Expect(mg.Status.Ready).To(BeTrue())
+
+			ready := findCondition(mg.Status.Conditions, TypeReady)
+			Expect(ready).NotTo(BeNil())
+			Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+			Expect(ready.Reason).To(Equal(ReasonAPIError))
+
+			synced := findCondition(mg.Status.Conditions, TypeSynced)
+			Expect(synced).NotTo(BeNil())
+			Expect(synced.Status).To(Equal(metav1.ConditionFalse))
+			Expect(synced.Reason).To(Equal(ReasonSyncError))
+
+			errCond := findCondition(mg.Status.Conditions, TypeError)
+			Expect(errCond).NotTo(BeNil())
+			Expect(errCond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(errCond.Reason).To(Equal(ReasonAPIError))
+
+			By("Restoring API and allowing finalization to complete")
+			Expect(os.Setenv("UPTIME_ROBOT_API", originalAPI)).To(Succeed())
+			_, err = ReconcileMonitorGroup(ctx, mg)
+			Expect(err).NotTo(HaveOccurred())
+
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace}, mg)
+			Expect(err).To(HaveOccurred())
+		})
+
 		It("should add monitors to group successfully", func() {
 			// Create a monitor first
 			monitor := CreateMonitor(ctx, "test-monitor-for-group", account.Name, contact.Name)
