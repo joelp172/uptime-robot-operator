@@ -151,10 +151,22 @@ func calculateBackoff(attempt int, baseDelay, maxDelay time.Duration, jitterFrac
 
 // doWithRetry wraps an HTTP request with retry logic
 func (c Client) doWithRetry(ctx context.Context, req *http.Request) (*http.Response, error) {
-	maxRetries := DefaultMaxRetries
-	baseDelay := DefaultBaseDelay
-	maxDelay := DefaultMaxDelay
-	jitterFraction := DefaultJitterFraction
+	maxRetries := c.maxRetries
+	if maxRetries <= 0 {
+		maxRetries = DefaultMaxRetries
+	}
+	baseDelay := c.baseDelay
+	if baseDelay <= 0 {
+		baseDelay = DefaultBaseDelay
+	}
+	maxDelay := c.maxDelay
+	if maxDelay <= 0 {
+		maxDelay = DefaultMaxDelay
+	}
+	jitterFraction := c.jitterFraction
+	if jitterFraction < 0 {
+		jitterFraction = DefaultJitterFraction
+	}
 
 	var lastErr error
 

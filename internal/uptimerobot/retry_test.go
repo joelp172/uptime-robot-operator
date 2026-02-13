@@ -276,6 +276,10 @@ func TestDoWithRetry_429ExponentialBackoff(t *testing.T) {
 
 func TestDoWithRetry_MaxRetriesExceeded(t *testing.T) {
 	client := NewClient("test-api-key")
+	client.maxRetries = 2
+	client.baseDelay = 10 * time.Millisecond
+	client.maxDelay = 20 * time.Millisecond
+	client.jitterFraction = 0
 	var attemptCount int32
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -305,10 +309,10 @@ func TestDoWithRetry_MaxRetriesExceeded(t *testing.T) {
 		_ = resp.Body.Close()
 	}
 
-	// Should attempt initial request + 5 retries = 6 total
+	// Should attempt initial request + configured retries.
 	finalAttempts := atomic.LoadInt32(&attemptCount)
-	if finalAttempts != DefaultMaxRetries+1 {
-		t.Errorf("expected %d attempts (1 initial + %d retries), got %d", DefaultMaxRetries+1, DefaultMaxRetries, finalAttempts)
+	if finalAttempts != int32(client.maxRetries+1) {
+		t.Errorf("expected %d attempts (1 initial + %d retries), got %d", client.maxRetries+1, client.maxRetries, finalAttempts)
 	}
 }
 

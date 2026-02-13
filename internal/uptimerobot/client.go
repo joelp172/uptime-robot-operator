@@ -41,13 +41,26 @@ func NewClient(apiKey string) Client {
 		api = strings.TrimSuffix(env, "/")
 	}
 
-	return Client{url: api, apiKey: apiKey}
+	return Client{
+		url:            api,
+		apiKey:         apiKey,
+		maxRetries:     DefaultMaxRetries,
+		baseDelay:      DefaultBaseDelay,
+		maxDelay:       DefaultMaxDelay,
+		jitterFraction: DefaultJitterFraction,
+	}
 }
 
 // Client is the UptimeRobot API v3 client.
 type Client struct {
 	url    string
 	apiKey string
+
+	// Optional retry overrides for testing. Zero values use package defaults.
+	maxRetries     int
+	baseDelay      time.Duration
+	maxDelay       time.Duration
+	jitterFraction float64
 }
 
 var (
