@@ -82,8 +82,7 @@ jobs:
         run: |
           helm install uptime-robot charts/uptime-robot-operator/ \
             --set image.repository=uptime-robot-operator \
-            --set image.tag=test \
-            --wait --timeout 2m
+            --set image.tag=test
 
       - name: Verify installation
         run: |
@@ -101,12 +100,12 @@ jobs:
           helm upgrade uptime-robot charts/uptime-robot-operator/ \
             --set replicaCount=2 \
             --set image.repository=uptime-robot-operator \
-            --set image.tag=test \
-            --wait --timeout 2m
+            --set image.tag=test
 
       - name: Verify upgrade
         run: |
           kubectl get pods -n uptime-robot-system
+          kubectl rollout status deployment -l app.kubernetes.io/name=uptime-robot-operator -n uptime-robot-system --timeout=120s
           # Should have 2 replicas now
           kubectl get deployment -n uptime-robot-system -o jsonpath='{.items[0].spec.replicas}' | grep -q "2"
 
