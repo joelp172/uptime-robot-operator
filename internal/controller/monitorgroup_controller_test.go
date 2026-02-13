@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"os"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -72,6 +73,20 @@ var _ = Describe("MonitorGroup Controller", func() {
 			By("Checking if MonitorGroup status was updated")
 			Expect(mg.Status.Ready).To(BeTrue())
 			Expect(mg.Status.ID).NotTo(BeEmpty())
+
+			ready := findCondition(mg.Status.Conditions, TypeReady)
+			Expect(ready).NotTo(BeNil())
+			Expect(ready.Status).To(Equal(metav1.ConditionTrue))
+			Expect(ready.Reason).To(Equal(ReasonReconcileSuccess))
+
+			synced := findCondition(mg.Status.Conditions, TypeSynced)
+			Expect(synced).NotTo(BeNil())
+			Expect(synced.Status).To(Equal(metav1.ConditionTrue))
+			Expect(synced.Reason).To(Equal(ReasonSyncSuccess))
+
+			errCond := findCondition(mg.Status.Conditions, TypeError)
+			Expect(errCond).NotTo(BeNil())
+			Expect(errCond.Status).To(Equal(metav1.ConditionFalse))
 		})
 
 		It("should update monitor group name successfully", func() {
@@ -100,6 +115,115 @@ var _ = Describe("MonitorGroup Controller", func() {
 			Expect(mg.Status.Ready).To(BeTrue())
 		})
 
+		It("should preserve status.ready when update of an existing monitor group fails", func() {
+			mg := CreateMonitorGroup(ctx, "test-update-failure-mg", account.Name, uptimerobotv1.MonitorGroupSpec{
+				FriendlyName: "Update Failure Group",
+			})
+			defer CleanupMonitorGroup(ctx, mg)
+
+			_, err := ReconcileMonitorGroup(ctx, mg)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace}, mg)).To(Succeed())
+			Expect(mg.Status.Ready).To(BeTrue())
+
+			originalAPI := os.Getenv("UPTIME_ROBOT_API")
+			Expect(os.Setenv("UPTIME_ROBOT_API", "http://127.0.0.1:1")).To(Succeed())
+			DeferCleanup(func() {
+				Expect(os.Setenv("UPTIME_ROBOT_API", originalAPI)).To(Succeed())
+			})
+
+			_, err = ReconcileMonitorGroup(ctx, mg)
+			Expect(err).To(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace}, mg)).To(Succeed())
+			Expect(mg.Status.Ready).To(BeTrue())
+
+			ready := findCondition(mg.Status.Conditions, TypeReady)
+			Expect(ready).NotTo(BeNil())
+			Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+			Expect(ready.Reason).To(Equal(ReasonAPIError))
+
+			synced := findCondition(mg.Status.Conditions, TypeSynced)
+			Expect(synced).NotTo(BeNil())
+			Expect(synced.Status).To(Equal(metav1.ConditionFalse))
+			Expect(synced.Reason).To(Equal(ReasonSyncError))
+
+			errCond := findCondition(mg.Status.Conditions, TypeError)
+			Expect(errCond).NotTo(BeNil())
+			Expect(errCond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(errCond.Reason).To(Equal(ReasonAPIError))
+		})
+
+		It("should set failure conditions when account secret is missing", func() {
+			mg := CreateMonitorGroup(ctx, "test-missing-secret-mg", account.Name, uptimerobotv1.MonitorGroupSpec{
+				FriendlyName: "Missing Secret Group",
+			})
+			defer CleanupMonitorGroup(ctx, mg)
+
+			Expect(k8sClient.Delete(ctx, secret)).To(Succeed())
+
+			_, err := ReconcileMonitorGroup(ctx, mg)
+			Expect(err).To(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace}, mg)).To(Succeed())
+			Expect(mg.Status.Ready).To(BeFalse())
+
+			ready := findCondition(mg.Status.Conditions, TypeReady)
+			Expect(ready).NotTo(BeNil())
+			Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+			Expect(ready.Reason).To(Equal(ReasonSecretNotFound))
+
+			synced := findCondition(mg.Status.Conditions, TypeSynced)
+			Expect(synced).To(BeNil())
+
+			errCond := findCondition(mg.Status.Conditions, TypeError)
+			Expect(errCond).NotTo(BeNil())
+			Expect(errCond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(errCond.Reason).To(Equal(ReasonSecretNotFound))
+		})
+
+		It("should preserve status.ready on transient api key lookup failure for existing group", func() {
+			mg := CreateMonitorGroup(ctx, "test-transient-secret-group", account.Name, uptimerobotv1.MonitorGroupSpec{
+				FriendlyName: "Transient Secret Group",
+			})
+			defer CleanupMonitorGroup(ctx, mg)
+
+			_, err := ReconcileMonitorGroup(ctx, mg)
+			Expect(err).NotTo(HaveOccurred())
+
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace}, mg)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(mg.Status.Ready).To(BeTrue())
+			Expect(mg.Status.ID).NotTo(BeEmpty())
+
+			Expect(k8sClient.Delete(ctx, secret)).To(Succeed())
+
+			_, err = ReconcileMonitorGroup(ctx, mg)
+			Expect(err).To(HaveOccurred())
+
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace}, mg)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(mg.Status.Ready).To(BeTrue())
+			Expect(mg.Status.ID).NotTo(BeEmpty())
+
+			ready := findCondition(mg.Status.Conditions, TypeReady)
+			Expect(ready).NotTo(BeNil())
+			Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+			Expect(ready.Reason).To(Equal(ReasonSecretNotFound))
+
+			errCond := findCondition(mg.Status.Conditions, TypeError)
+			Expect(errCond).NotTo(BeNil())
+			Expect(errCond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(errCond.Reason).To(Equal(ReasonSecretNotFound))
+
+			// No backend sync attempt was made; keep last sync state from prior successful reconcile.
+			synced := findCondition(mg.Status.Conditions, TypeSynced)
+			Expect(synced).NotTo(BeNil())
+			Expect(synced.Status).To(Equal(metav1.ConditionTrue))
+			Expect(synced.Reason).To(Equal(ReasonSyncSuccess))
+		})
+
 		It("should handle monitor group deletion with prune", func() {
 			mg := CreateMonitorGroup(ctx, "test-delete-mg", account.Name, uptimerobotv1.MonitorGroupSpec{
 				FriendlyName: "Test Delete Group",
@@ -118,6 +242,65 @@ var _ = Describe("MonitorGroup Controller", func() {
 			CleanupMonitorGroup(ctx, mg)
 
 			// Verify finalizer was removed
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace}, mg)
+			Expect(err).To(HaveOccurred())
+		})
+
+		It("should retain finalizer when prune deletion fails", func() {
+			mg := CreateMonitorGroup(ctx, "test-delete-failure-mg", account.Name, uptimerobotv1.MonitorGroupSpec{
+				FriendlyName: "Test Delete Failure Group",
+				Prune:        true,
+			})
+
+			By("Creating the group in backend")
+			_, err := ReconcileMonitorGroup(ctx, mg)
+			Expect(err).NotTo(HaveOccurred())
+
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace}, mg)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(mg.Status.Ready).To(BeTrue())
+			Expect(mg.Finalizers).To(ContainElement("uptimerobot.com/finalizer"))
+
+			By("Deleting the CR")
+			Expect(k8sClient.Delete(ctx, mg)).To(Succeed())
+
+			By("Forcing purge failure during finalization")
+			originalAPI := os.Getenv("UPTIME_ROBOT_API")
+			Expect(os.Setenv("UPTIME_ROBOT_API", "http://127.0.0.1:1")).To(Succeed())
+			DeferCleanup(func() {
+				Expect(os.Setenv("UPTIME_ROBOT_API", originalAPI)).To(Succeed())
+			})
+
+			_, err = ReconcileMonitorGroup(ctx, mg)
+			Expect(err).To(HaveOccurred())
+
+			By("Ensuring the resource is still present with finalizer for retry")
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace}, mg)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(mg.DeletionTimestamp.IsZero()).To(BeFalse())
+			Expect(mg.Finalizers).To(ContainElement("uptimerobot.com/finalizer"))
+			Expect(mg.Status.Ready).To(BeTrue())
+
+			ready := findCondition(mg.Status.Conditions, TypeReady)
+			Expect(ready).NotTo(BeNil())
+			Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+			Expect(ready.Reason).To(Equal(ReasonAPIError))
+
+			synced := findCondition(mg.Status.Conditions, TypeSynced)
+			Expect(synced).NotTo(BeNil())
+			Expect(synced.Status).To(Equal(metav1.ConditionFalse))
+			Expect(synced.Reason).To(Equal(ReasonSyncError))
+
+			errCond := findCondition(mg.Status.Conditions, TypeError)
+			Expect(errCond).NotTo(BeNil())
+			Expect(errCond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(errCond.Reason).To(Equal(ReasonAPIError))
+
+			By("Restoring API and allowing finalization to complete")
+			Expect(os.Setenv("UPTIME_ROBOT_API", originalAPI)).To(Succeed())
+			_, err = ReconcileMonitorGroup(ctx, mg)
+			Expect(err).NotTo(HaveOccurred())
+
 			err = k8sClient.Get(ctx, types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace}, mg)
 			Expect(err).To(HaveOccurred())
 		})

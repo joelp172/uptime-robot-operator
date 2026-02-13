@@ -54,6 +54,12 @@ type MonitorGroupStatus struct {
 	ID             string       `json:"id,omitempty"`
 	MonitorCount   int          `json:"monitorCount,omitempty"`
 	LastReconciled *metav1.Time `json:"lastReconciled,omitempty"`
+
+	// Conditions represent the latest available observations of the resource's state
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// ObservedGeneration is the most recent generation observed by the controller
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
 
 //+kubebuilder:object:root=true

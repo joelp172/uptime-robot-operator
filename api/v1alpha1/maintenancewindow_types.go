@@ -94,6 +94,12 @@ type MaintenanceWindowStatus struct {
 
 	// MonitorCount is the number of monitors assigned to this maintenance window.
 	MonitorCount int `json:"monitorCount,omitempty"`
+
+	// Conditions represent the latest available observations of the resource's state
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// ObservedGeneration is the most recent generation observed by the controller
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
 
 //+kubebuilder:object:root=true

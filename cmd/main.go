@@ -17,8 +17,10 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"flag"
+	"net/http"
 	"os"
 	"path/filepath"
 
@@ -47,6 +49,26 @@ var (
 	setupLog = ctrl.Log.WithName("setup")
 )
 
+// disabledWebhookServer disables webhook serving when webhooks are not enabled.
+type disabledWebhookServer struct{}
+
+func (disabledWebhookServer) NeedLeaderElection() bool { return false }
+
+func (disabledWebhookServer) Register(_ string, _ http.Handler) {}
+
+func (disabledWebhookServer) Start(ctx context.Context) error {
+	<-ctx.Done()
+	return nil
+}
+
+func (disabledWebhookServer) StartedChecker() healthz.Checker {
+	return func(_ *http.Request) error { return nil }
+}
+
+func (disabledWebhookServer) WebhookMux() *http.ServeMux {
+	return http.NewServeMux()
+}
+
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
@@ -59,6 +81,7 @@ func main() {
 	var metricsAddr string
 	var metricsCertPath, metricsCertName, metricsCertKey string
 	var webhookCertPath, webhookCertName, webhookCertKey string
+	var enableWebhooks bool
 	var enableLeaderElection bool
 	var probeAddr string
 	var secureMetrics bool
@@ -75,6 +98,7 @@ func main() {
 	flag.StringVar(&webhookCertPath, "webhook-cert-path", "", "The directory that contains the webhook certificate.")
 	flag.StringVar(&webhookCertName, "webhook-cert-name", "tls.crt", "The name of the webhook certificate file.")
 	flag.StringVar(&webhookCertKey, "webhook-cert-key", "tls.key", "The name of the webhook key file.")
+	flag.BoolVar(&enableWebhooks, "enable-webhooks", false, "Enable validating webhooks.")
 	flag.StringVar(&metricsCertPath, "metrics-cert-path", "",
 		"The directory that contains the metrics server certificate.")
 	flag.StringVar(&metricsCertName, "metrics-cert-name", "tls.crt", "The name of the metrics server certificate file.")
@@ -112,32 +136,35 @@ func main() {
 
 	// Create watchers for metrics and webhooks certificates
 	var metricsCertWatcher, webhookCertWatcher *certwatcher.CertWatcher
+	webhookServer := webhook.Server(disabledWebhookServer{})
 
-	// Initial webhook TLS options
-	webhookTLSOpts := tlsOpts
+	if enableWebhooks {
+		// Initial webhook TLS options
+		webhookTLSOpts := tlsOpts
 
-	if len(webhookCertPath) > 0 {
-		setupLog.Info("Initializing webhook certificate watcher using provided certificates",
-			"webhook-cert-path", webhookCertPath, "webhook-cert-name", webhookCertName, "webhook-cert-key", webhookCertKey)
+		if len(webhookCertPath) > 0 {
+			setupLog.Info("Initializing webhook certificate watcher using provided certificates",
+				"webhook-cert-path", webhookCertPath, "webhook-cert-name", webhookCertName, "webhook-cert-key", webhookCertKey)
 
-		var err error
-		webhookCertWatcher, err = certwatcher.New(
-			filepath.Join(webhookCertPath, webhookCertName),
-			filepath.Join(webhookCertPath, webhookCertKey),
-		)
-		if err != nil {
-			setupLog.Error(err, "Failed to initialize webhook certificate watcher")
-			os.Exit(1)
+			var err error
+			webhookCertWatcher, err = certwatcher.New(
+				filepath.Join(webhookCertPath, webhookCertName),
+				filepath.Join(webhookCertPath, webhookCertKey),
+			)
+			if err != nil {
+				setupLog.Error(err, "Failed to initialize webhook certificate watcher")
+				os.Exit(1)
+			}
+
+			webhookTLSOpts = append(webhookTLSOpts, func(config *tls.Config) {
+				config.GetCertificate = webhookCertWatcher.GetCertificate
+			})
 		}
 
-		webhookTLSOpts = append(webhookTLSOpts, func(config *tls.Config) {
-			config.GetCertificate = webhookCertWatcher.GetCertificate
+		webhookServer = webhook.NewServer(webhook.Options{
+			TLSOpts: webhookTLSOpts,
 		})
 	}
-
-	webhookServer := webhook.NewServer(webhook.Options{
-		TLSOpts: webhookTLSOpts,
-	})
 
 	// Metrics endpoint is enabled in 'config/default/kustomization.yaml'. The Metrics options configure the server.
 	// More info:
@@ -253,13 +280,17 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "SlackIntegration")
 		os.Exit(1)
 	}
-	if err = (&uptimerobotv1.Account{}).SetupWebhookWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create webhook", "webhook", "Account")
-		os.Exit(1)
-	}
-	if err = (&uptimerobotv1.Contact{}).SetupWebhookWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create webhook", "webhook", "Contact")
-		os.Exit(1)
+	if enableWebhooks {
+		if err = (&uptimerobotv1.Account{}).SetupWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "Account")
+			os.Exit(1)
+		}
+		if err = (&uptimerobotv1.Contact{}).SetupWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "Contact")
+			os.Exit(1)
+		}
+	} else {
+		setupLog.Info("webhooks are disabled: webhook server will not listen")
 	}
 	//+kubebuilder:scaffold:builder
 

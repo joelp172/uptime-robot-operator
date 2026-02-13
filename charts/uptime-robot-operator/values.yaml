@@ -83,6 +83,11 @@ affinity: {}
 leaderElection:
   enabled: true
 
+# Webhook configuration
+webhooks:
+  # Enable validating webhooks. Keep disabled unless webhook certs are provisioned.
+  enabled: false
+
 # Health probe bind address
 healthProbeBindAddress: ':8081'
 

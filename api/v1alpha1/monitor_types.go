@@ -103,6 +103,15 @@ type MonitorStatus struct {
 	HeartbeatURLPublishTargetKey string              `json:"heartbeatURLPublishTargetKey,omitempty"`
 	Type                         urtypes.MonitorType `json:"type,omitempty"`
 	Status                       uint8               `json:"status,omitempty"`
+
+	// Conditions represent the latest available observations of the resource's state
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// ObservedGeneration is the most recent generation observed by the controller
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+
+	// LastSyncedTime records when the resource last successfully synced with UptimeRobot.
+	LastSyncedTime *metav1.Time `json:"lastSyncedTime,omitempty"`
 }
 
 //+kubebuilder:object:root=true
@@ -113,6 +122,7 @@ type MonitorStatus struct {
 //+kubebuilder:printcolumn:name="Friendly Name",type="string",JSONPath=".spec.monitor.name"
 //+kubebuilder:printcolumn:name="URL",type="string",JSONPath=".spec.monitor.url",priority=1
 //+kubebuilder:printcolumn:name="Heartbeat URL",type="string",JSONPath=".status.heartbeatURL",priority=1
+//+kubebuilder:printcolumn:name="Last Synced",type="date",JSONPath=".status.lastSyncedTime",priority=1
 //+kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
 // Monitor is the Schema for the monitors API.

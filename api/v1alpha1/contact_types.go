@@ -37,6 +37,12 @@ type ContactSpec struct {
 type ContactStatus struct {
 	Ready bool   `json:"ready"`
 	ID    string `json:"id,omitempty"`
+
+	// Conditions represent the latest available observations of the resource's state
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// ObservedGeneration is the most recent generation observed by the controller
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
 
 //+kubebuilder:object:root=true

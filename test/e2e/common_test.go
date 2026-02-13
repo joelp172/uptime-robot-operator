@@ -212,11 +212,42 @@ func cleanupMonitors() {
 // applyMaintenanceWindow applies a maintenance window YAML manifest via kubectl
 func applyMaintenanceWindow(mwYAML string) {
 	debugLog("Applying MaintenanceWindow YAML:\n%s", mwYAML)
-	cmd := exec.Command("kubectl", "apply", "-f", "-")
-	cmd.Stdin = strings.NewReader(mwYAML)
-	output, err := utils.Run(cmd)
+	output, err := applyYAMLWithWebhookRetry("MaintenanceWindow", mwYAML)
 	debugLog("MaintenanceWindow apply output: %s", output)
 	Expect(err).NotTo(HaveOccurred())
+}
+
+// applyYAMLWithWebhookRetry applies YAML via kubectl and retries transient webhook call failures.
+func applyYAMLWithWebhookRetry(resourceKind, yaml string) (string, error) {
+	deadline := time.Now().Add(60 * time.Second)
+	attempt := 1
+
+	for {
+		cmd := exec.Command("kubectl", "apply", "-f", "-")
+		cmd.Stdin = strings.NewReader(yaml)
+		output, err := utils.Run(cmd)
+		if err == nil {
+			return output, nil
+		}
+
+		if !isRetryableWebhookError(err.Error()) || time.Now().After(deadline) {
+			return output, err
+		}
+
+		debugLog("%s apply attempt %d failed with retryable webhook error: %v", resourceKind, attempt, err)
+		attempt++
+		time.Sleep(3 * time.Second)
+	}
+}
+
+func isRetryableWebhookError(errMsg string) bool {
+	if !strings.Contains(errMsg, "failed calling webhook") {
+		return false
+	}
+
+	return strings.Contains(errMsg, "context deadline exceeded") ||
+		strings.Contains(errMsg, "i/o timeout") ||
+		strings.Contains(errMsg, "no endpoints available")
 }
 
 // waitMaintenanceWindowReady waits for a maintenance window to become ready

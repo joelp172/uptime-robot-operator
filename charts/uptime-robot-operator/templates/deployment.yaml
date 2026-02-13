@@ -36,9 +36,13 @@ spec:
         {{- if .Values.leaderElection.enabled }}
         - --leader-elect
         {{- end }}
+        - --enable-webhooks={{ .Values.webhooks.enabled }}
         - --health-probe-bind-address={{ .Values.healthProbeBindAddress }}
         securityContext:
           {{- toYaml .Values.securityContext | nindent 10 }}
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
         livenessProbe:
           {{- toYaml .Values.livenessProbe | nindent 10 }}
         readinessProbe:
@@ -59,4 +63,7 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      volumes:
+      - name: tmp
+        emptyDir: {}
       terminationGracePeriodSeconds: 10

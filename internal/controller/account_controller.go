@@ -61,9 +61,17 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if err := r.Get(ctx, req.NamespacedName, account); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+	account.Status.ObservedGeneration = account.Generation
 
 	apiKey, err := GetApiKey(ctx, r.Client, account)
 	if err != nil {
+		account.Status.Ready = false
+		// Don't set Synced here since we haven't attempted sync with UptimeRobot yet
+		SetReadyCondition(&account.Status.Conditions, false, ReasonSecretNotFound, fmt.Sprintf("Failed to get API key: %v", err), account.Generation)
+		SetErrorCondition(&account.Status.Conditions, true, ReasonSecretNotFound, fmt.Sprintf("Failed to get API key: %v", err), account.Generation)
+		if updateErr := r.Status().Update(ctx, account); updateErr != nil {
+			return ctrl.Result{}, updateErr
+		}
 		return ctrl.Result{}, err
 	}
 
@@ -71,10 +79,13 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	email, err := urclient.GetAccountDetails(ctx)
 	if err != nil {
 		account.Status.Ready = false
-		if err := r.Status().Update(ctx, account); err != nil {
-			return ctrl.Result{}, err
+		msg := fmt.Sprintf("Failed to get account details: %v", err)
+		SetReadyCondition(&account.Status.Conditions, false, ReasonAPIError, msg, account.Generation)
+		SetSyncedCondition(&account.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to sync with UptimeRobot: %v", err), account.Generation)
+		SetErrorCondition(&account.Status.Conditions, true, ReasonAPIError, msg, account.Generation)
+		if updateErr := r.Status().Update(ctx, account); updateErr != nil {
+			return ctrl.Result{}, updateErr
 		}
-
 		return ctrl.Result{}, err
 	}
 
@@ -102,6 +113,9 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	account.Status.Ready = true
 	account.Status.Email = email
 	account.Status.AlertContacts = alertContacts
+	SetReadyCondition(&account.Status.Conditions, true, ReasonReconcileSuccess, "Account reconciled successfully", account.Generation)
+	SetSyncedCondition(&account.Status.Conditions, true, ReasonSyncSuccess, "Successfully synced with UptimeRobot", account.Generation)
+	SetErrorCondition(&account.Status.Conditions, false, ReasonReconcileSuccess, "", account.Generation)
 	if err := r.Status().Update(ctx, account); err != nil {
 		return ctrl.Result{}, err
 	}
