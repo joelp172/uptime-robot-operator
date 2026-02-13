@@ -210,6 +210,7 @@ var _ = Describe("MonitorGroup Controller", func() {
 		It("should retain finalizer when prune deletion fails", func() {
 			mg := CreateMonitorGroup(ctx, "test-delete-failure-mg", account.Name, uptimerobotv1.MonitorGroupSpec{
 				FriendlyName: "Test Delete Failure Group",
+				Prune:        true,
 			})
 
 			By("Creating the group in backend")
