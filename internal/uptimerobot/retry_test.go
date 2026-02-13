@@ -168,7 +168,9 @@ func TestDoWithRetry_Success(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("doWithRetry() status = %d, want %d", resp.StatusCode, http.StatusOK)
 	}
-	resp.Body.Close()
+	if err := resp.Body.Close(); err != nil {
+		t.Errorf("failed to close response body: %v", err)
+	}
 }
 
 func TestDoWithRetry_429WithRetryAfter(t *testing.T) {
@@ -206,7 +208,9 @@ func TestDoWithRetry_429WithRetryAfter(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("doWithRetry() status = %d, want %d", resp.StatusCode, http.StatusOK)
 	}
-	resp.Body.Close()
+	if err := resp.Body.Close(); err != nil {
+		t.Errorf("failed to close response body: %v", err)
+	}
 
 	finalAttempts := atomic.LoadInt32(&attemptCount)
 	if finalAttempts != 3 {
@@ -253,7 +257,9 @@ func TestDoWithRetry_429ExponentialBackoff(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("doWithRetry() status = %d, want %d", resp.StatusCode, http.StatusOK)
 	}
-	resp.Body.Close()
+	if err := resp.Body.Close(); err != nil {
+		t.Errorf("failed to close response body: %v", err)
+	}
 
 	finalAttempts := atomic.LoadInt32(&attemptCount)
 	if finalAttempts != 3 {
@@ -292,7 +298,7 @@ func TestDoWithRetry_MaxRetriesExceeded(t *testing.T) {
 		t.Errorf("doWithRetry() error = %v, want error containing '429'", err)
 	}
 	if resp != nil {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}
 
 	// Should attempt initial request + 5 retries = 6 total
@@ -341,7 +347,7 @@ func TestDoWithRetry_NonRetryableError(t *testing.T) {
 				t.Errorf("doWithRetry() error = %v, want error containing '%d'", err, tt.statusCode)
 			}
 			if resp != nil {
-				resp.Body.Close()
+				_ = resp.Body.Close()
 			}
 
 			// Should only attempt once (no retries for non-retryable errors)
@@ -469,7 +475,9 @@ func TestDoWithRetry_POSTRequestWithBody(t *testing.T) {
 	if resp.StatusCode != http.StatusCreated {
 		t.Errorf("doWithRetry() status = %d, want %d", resp.StatusCode, http.StatusCreated)
 	}
-	resp.Body.Close()
+	if err := resp.Body.Close(); err != nil {
+		t.Errorf("failed to close response body: %v", err)
+	}
 
 	finalAttempts := atomic.LoadInt32(&attemptCount)
 	if finalAttempts != 3 {
@@ -528,7 +536,9 @@ func TestDoWithRetry_PATCHRequestWithBody(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("doWithRetry() status = %d, want %d", resp.StatusCode, http.StatusOK)
 	}
-	resp.Body.Close()
+	if err := resp.Body.Close(); err != nil {
+		t.Errorf("failed to close response body: %v", err)
+	}
 
 	finalAttempts := atomic.LoadInt32(&attemptCount)
 	if finalAttempts != 2 {
