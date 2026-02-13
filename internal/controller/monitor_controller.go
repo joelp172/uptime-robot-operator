@@ -352,9 +352,60 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				return ctrl.Result{}, err
 			}
 
+			// If monitor should be created in paused state, pause it after creation
 			if monitor.Spec.Monitor.Status == urtypes.MonitorPaused {
-				if _, err := urclient.EditMonitor(ctx, result.ID, monitor.Spec.Monitor, contacts); err != nil {
+				if err := urclient.PauseMonitor(ctx, result.ID); err != nil {
 					monitor.Status.Ready = false
+					msg := fmt.Sprintf("Failed to pause newly created monitor: %v", err)
+					SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
+					SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
+					SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, msg, monitor.Generation)
+					if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
+						return ctrl.Result{}, updateErr
+					}
+					return ctrl.Result{}, err
+				}
+				log.FromContext(ctx).Info("Paused newly created monitor", "monitorID", result.ID)
+			}
+		}
+	} else {
+		// Existing monitor - update it
+		// First, detect if monitor status needs to change (pause/start)
+		// Get current monitor state from API for drift detection
+		currentMonitor, err := urclient.GetMonitor(ctx, monitor.Status.ID)
+		if err != nil && !errors.Is(err, uptimerobot.ErrMonitorNotFound) {
+			msg := fmt.Sprintf("Failed to get current monitor state: %v", err)
+			SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
+			SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
+			SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, msg, monitor.Generation)
+			if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
+				return ctrl.Result{}, updateErr
+			}
+			return ctrl.Result{}, err
+		}
+
+		// Determine desired and current status
+		desiredStatus := monitor.Spec.Monitor.Status
+		var currentStatus uint8
+		if currentMonitor != nil {
+			// Map API status string to our status values
+			switch strings.ToUpper(currentMonitor.Status) {
+			case "PAUSED":
+				currentStatus = urtypes.MonitorPaused
+			case "UP", "DOWN", "STARTED", "SEEMS DOWN":
+				currentStatus = urtypes.MonitorRunning
+			default:
+				currentStatus = urtypes.MonitorRunning
+			}
+		} else {
+			currentStatus = monitor.Status.Status
+		}
+
+		// Handle status changes using pause/start endpoints
+		if desiredStatus != currentStatus {
+			if desiredStatus == urtypes.MonitorPaused {
+				// Pause the monitor
+				if err := urclient.PauseMonitor(ctx, monitor.Status.ID); err != nil {
 					msg := fmt.Sprintf("Failed to pause monitor: %v", err)
 					SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
 					SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
@@ -364,9 +415,24 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					}
 					return ctrl.Result{}, err
 				}
+				log.FromContext(ctx).Info("Paused monitor", "monitorID", monitor.Status.ID)
+			} else if desiredStatus == urtypes.MonitorRunning {
+				// Start the monitor
+				if err := urclient.StartMonitor(ctx, monitor.Status.ID); err != nil {
+					msg := fmt.Sprintf("Failed to start monitor: %v", err)
+					SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
+					SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
+					SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, msg, monitor.Generation)
+					if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
+						return ctrl.Result{}, updateErr
+					}
+					return ctrl.Result{}, err
+				}
+				log.FromContext(ctx).Info("Started monitor", "monitorID", monitor.Status.ID)
 			}
 		}
-	} else {
+
+		// Update other monitor fields
 		result, err := urclient.EditMonitor(ctx, monitor.Status.ID, monitor.Spec.Monitor, contacts)
 		if err != nil {
 			msg := fmt.Sprintf("Failed to edit monitor: %v", err)

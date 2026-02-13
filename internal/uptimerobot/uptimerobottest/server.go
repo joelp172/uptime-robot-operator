@@ -163,6 +163,12 @@ func NewServerWithState(state *ServerState) *httptest.Server {
 		handleDeleteMonitor(w, r, state)
 	})
 
+	// POST /monitors/{id}/pause - Pause monitor
+	mux.HandleFunc("POST /monitors/{id}/pause", handlePauseMonitor)
+
+	// POST /monitors/{id}/start - Start monitor
+	mux.HandleFunc("POST /monitors/{id}/start", handleStartMonitor)
+
 	// GET /user/me - Get user info
 	mux.HandleFunc("GET /user/me", handleGetUser)
 
@@ -244,6 +250,18 @@ func handleDeleteMonitor(w http.ResponseWriter, r *http.Request, state *ServerSt
 		monitorID := path
 		state.MarkMonitorDeleted(monitorID)
 	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func handlePauseMonitor(w http.ResponseWriter, r *http.Request) {
+	// POST /monitors/{id}/pause - Pause monitor
+	// This is idempotent - pausing an already paused monitor returns success
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func handleStartMonitor(w http.ResponseWriter, r *http.Request) {
+	// POST /monitors/{id}/start - Start (resume) monitor
+	// This is idempotent - starting an already active monitor returns success
 	w.WriteHeader(http.StatusNoContent)
 }
 

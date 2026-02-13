@@ -952,3 +952,19 @@ func (c Client) EnumerateGroupsFromBackend(ctx context.Context) ([]GroupWireForm
 	}
 	return responsePayload.Groups, nil
 }
+
+// PauseMonitor pauses a monitor by ID using the v3 API.
+// POST /monitors/{id}/pause
+// This operation is idempotent - pausing an already paused monitor will return successfully.
+func (c Client) PauseMonitor(ctx context.Context, id string) error {
+	endpoint := fmt.Sprintf("monitors/%s/pause", id)
+	return c.doJSON(ctx, http.MethodPost, endpoint, nil, nil)
+}
+
+// StartMonitor starts (resumes) a paused monitor by ID using the v3 API.
+// POST /monitors/{id}/start
+// This operation is idempotent - starting an already active monitor will return successfully.
+func (c Client) StartMonitor(ctx context.Context, id string) error {
+	endpoint := fmt.Sprintf("monitors/%s/start", id)
+	return c.doJSON(ctx, http.MethodPost, endpoint, nil, nil)
+}
