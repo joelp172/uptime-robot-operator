@@ -143,28 +143,30 @@ func (r *AccountReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&uptimerobotv1.Account{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
-		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
-			if obj.GetNamespace() != ClusterResourceNamespace {
-				return nil
-			}
-
-			accounts := &uptimerobotv1.AccountList{}
-			if err := mgr.GetClient().List(ctx, accounts); err != nil {
-				return nil
-			}
-
-			requests := make([]reconcile.Request, 0, len(accounts.Items))
-			for _, account := range accounts.Items {
-				if account.Spec.ApiKeySecretRef.Name == obj.GetName() {
-					requests = append(requests, reconcile.Request{
-						NamespacedName: client.ObjectKey{Name: account.Name},
-					})
-				}
-			}
-			return requests
-		})).
+		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.mapSecretToAccounts)).
 		Named("account").
 		Complete(r)
+}
+
+func (r *AccountReconciler) mapSecretToAccounts(ctx context.Context, obj client.Object) []reconcile.Request {
+	if obj.GetNamespace() != ClusterResourceNamespace {
+		return nil
+	}
+
+	accounts := &uptimerobotv1.AccountList{}
+	if err := r.List(ctx, accounts); err != nil {
+		return nil
+	}
+
+	requests := make([]reconcile.Request, 0, len(accounts.Items))
+	for _, account := range accounts.Items {
+		if account.Spec.ApiKeySecretRef.Name == obj.GetName() {
+			requests = append(requests, reconcile.Request{
+				NamespacedName: client.ObjectKey{Name: account.Name},
+			})
+		}
+	}
+	return requests
 }
 
 var (

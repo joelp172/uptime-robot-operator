@@ -26,6 +26,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes/scheme"
+	ctrl "sigs.k8s.io/controller-runtime"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	uptimerobotv1 "github.com/joelp172/uptime-robot-operator/api/v1alpha1"
@@ -102,6 +105,73 @@ var _ = Describe("Account Controller", func() {
 			Expect(errCond.Reason).To(Equal(ReasonSecretNotFound))
 
 			Expect(findCondition(account.Status.Conditions, TypeSynced)).To(BeNil())
+		})
+
+		It("should recover when the missing api key secret is created later", func() {
+			suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+			accountName := "recover-account-" + suffix
+			secretName := "recover-secret-" + suffix
+
+			account := &uptimerobotv1.Account{
+				ObjectMeta: metav1.ObjectMeta{Name: accountName},
+				Spec: uptimerobotv1.AccountSpec{
+					ApiKeySecretRef: corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
+						Key:                  "apiKey",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, account)).To(Succeed())
+			defer CleanupAccount(ctx, account, &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: ClusterResourceNamespace},
+			})
+
+			mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+				Scheme:                 scheme.Scheme,
+				Metrics:                metricsserver.Options{BindAddress: "0"},
+				HealthProbeBindAddress: "0",
+				LeaderElection:         false,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			reconciler := &AccountReconciler{
+				Client: mgr.GetClient(),
+				Scheme: mgr.GetScheme(),
+			}
+			Expect(reconciler.SetupWithManager(mgr)).To(Succeed())
+
+			mgrCtx, cancelMgr := context.WithCancel(ctx)
+			defer cancelMgr()
+			go func() {
+				_ = mgr.Start(mgrCtx)
+			}()
+
+			Eventually(func(g Gomega) {
+				current := &uptimerobotv1.Account{}
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: accountName}, current)).To(Succeed())
+				ready := findCondition(current.Status.Conditions, TypeReady)
+				g.Expect(ready).NotTo(BeNil())
+				g.Expect(ready.Reason).To(Equal(ReasonSecretNotFound))
+			}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
+
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      secretName,
+					Namespace: ClusterResourceNamespace,
+				},
+				Data: map[string][]byte{"apiKey": []byte("1234")},
+			}
+			Expect(k8sClient.Create(ctx, secret)).To(Succeed())
+
+			Eventually(func(g Gomega) {
+				current := &uptimerobotv1.Account{}
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: accountName}, current)).To(Succeed())
+				g.Expect(current.Status.Ready).To(BeTrue())
+				ready := findCondition(current.Status.Conditions, TypeReady)
+				g.Expect(ready).NotTo(BeNil())
+				g.Expect(ready.Status).To(Equal(metav1.ConditionTrue))
+				g.Expect(ready.Reason).To(Equal(ReasonReconcileSuccess))
+			}, 20*time.Second, 500*time.Millisecond).Should(Succeed())
 		})
 	})
 })
