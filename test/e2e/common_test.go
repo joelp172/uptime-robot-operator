@@ -73,6 +73,81 @@ func waitMonitorReadyAndGetID(monitorName string) string {
 	return strings.TrimSpace(monitorID)
 }
 
+// waitForAccountReady waits for an account to report status.ready=true and emits
+// reconciliation diagnostics when the timeout is reached.
+func waitForAccountReady(accountName string) {
+	By(fmt.Sprintf("waiting for Account %s to become ready", accountName))
+	deadline := time.Now().Add(e2ePollTimeout)
+	lastReady := ""
+	lastObservedGeneration := ""
+	lastGeneration := ""
+	lastConditionSummary := ""
+
+	for time.Now().Before(deadline) {
+		cmd := exec.Command("kubectl", "get", "account", accountName, "-o", "jsonpath={.status.ready}")
+		ready, err := utils.Run(cmd)
+		if err == nil {
+			lastReady = strings.TrimSpace(ready)
+		}
+
+		cmd = exec.Command("kubectl", "get", "account", accountName, "-o", "jsonpath={.status.observedGeneration}")
+		observedGeneration, err := utils.Run(cmd)
+		if err == nil {
+			lastObservedGeneration = strings.TrimSpace(observedGeneration)
+		}
+
+		cmd = exec.Command("kubectl", "get", "account", accountName, "-o", "jsonpath={.metadata.generation}")
+		generation, err := utils.Run(cmd)
+		if err == nil {
+			lastGeneration = strings.TrimSpace(generation)
+		}
+
+		cmd = exec.Command("kubectl", "get", "account", accountName,
+			"-o", "jsonpath={range .status.conditions[*]}{.type}={.status}:{.reason}:{.message}{\"\\n\"}{end}")
+		conditionSummary, err := utils.Run(cmd)
+		if err == nil {
+			lastConditionSummary = strings.TrimSpace(conditionSummary)
+		}
+
+		if lastReady == "true" {
+			return
+		}
+
+		time.Sleep(e2ePollInterval)
+	}
+
+	By("collecting Account reconciliation diagnostics")
+	cmd := exec.Command("kubectl", "get", "account", accountName, "-o", "yaml")
+	if out, err := utils.Run(cmd); err == nil {
+		_, _ = fmt.Fprintf(GinkgoWriter, "Account YAML:\n%s\n", out)
+	}
+
+	cmd = exec.Command("kubectl", "describe", "account", accountName)
+	if out, err := utils.Run(cmd); err == nil {
+		_, _ = fmt.Fprintf(GinkgoWriter, "Account describe:\n%s\n", out)
+	}
+
+	cmd = exec.Command("kubectl", "get", "events", "-A",
+		"--field-selector", fmt.Sprintf("involvedObject.kind=Account,involvedObject.name=%s", accountName),
+		"--sort-by=.lastTimestamp")
+	if out, err := utils.Run(cmd); err == nil {
+		_, _ = fmt.Fprintf(GinkgoWriter, "Account events:\n%s\n", out)
+	}
+
+	cmd = exec.Command("kubectl", "get", "pods", "-n", namespace, "-l", "control-plane=controller-manager",
+		"-o", "jsonpath={.items[0].metadata.name}")
+	podName, err := utils.Run(cmd)
+	if err == nil && strings.TrimSpace(podName) != "" {
+		cmd = exec.Command("kubectl", "logs", strings.TrimSpace(podName), "-n", namespace, "--tail=300")
+		if out, logsErr := utils.Run(cmd); logsErr == nil {
+			_, _ = fmt.Fprintf(GinkgoWriter, "Controller logs:\n%s\n", out)
+		}
+	}
+
+	Fail(fmt.Sprintf("Account %s did not become ready within %s (ready=%q observedGeneration=%q generation=%q conditions=%q)",
+		accountName, e2ePollTimeout, lastReady, lastObservedGeneration, lastGeneration, lastConditionSummary))
+}
+
 // deleteMonitorAndWaitForAPICleanup deletes a monitor CR and waits for it to be removed from the API
 func deleteMonitorAndWaitForAPICleanup(monitorName string) {
 	// Try to get the monitor ID first - if the resource doesn't exist, skip cleanup

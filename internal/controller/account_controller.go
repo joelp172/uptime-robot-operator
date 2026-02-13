@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot"
 	corev1 "k8s.io/api/core/v1"
@@ -28,8 +29,10 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	uptimerobotv1 "github.com/joelp172/uptime-robot-operator/api/v1alpha1"
 )
@@ -42,7 +45,10 @@ type AccountReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-var ErrKeyNotFound = errors.New("secret key not found")
+var (
+	ErrKeyNotFound = errors.New("secret key not found")
+	ErrEmptyKey    = errors.New("secret key value is empty")
+)
 
 //+kubebuilder:rbac:groups=uptimerobot.com,resources=accounts,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=uptimerobot.com,resources=accounts/status,verbs=get;update;patch
@@ -137,8 +143,30 @@ func (r *AccountReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&uptimerobotv1.Account{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.mapSecretToAccounts)).
 		Named("account").
 		Complete(r)
+}
+
+func (r *AccountReconciler) mapSecretToAccounts(ctx context.Context, obj client.Object) []reconcile.Request {
+	if obj.GetNamespace() != ClusterResourceNamespace {
+		return nil
+	}
+
+	accounts := &uptimerobotv1.AccountList{}
+	if err := r.List(ctx, accounts); err != nil {
+		return nil
+	}
+
+	requests := make([]reconcile.Request, 0, len(accounts.Items))
+	for _, account := range accounts.Items {
+		if account.Spec.ApiKeySecretRef.Name == obj.GetName() {
+			requests = append(requests, reconcile.Request{
+				NamespacedName: client.ObjectKey{Name: account.Name},
+			})
+		}
+	}
+	return requests
 }
 
 var (
@@ -184,5 +212,10 @@ func GetApiKey(ctx context.Context, c client.Client, account *uptimerobotv1.Acco
 		return "", fmt.Errorf("%w: %s", ErrKeyNotFound, account.Spec.ApiKeySecretRef.Key)
 	}
 
-	return string(apiKey), nil
+	trimmed := strings.TrimSpace(string(apiKey))
+	if trimmed == "" {
+		return "", fmt.Errorf("%w: %s", ErrEmptyKey, account.Spec.ApiKeySecretRef.Key)
+	}
+
+	return trimmed, nil
 }

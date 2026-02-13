@@ -21,7 +21,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -63,6 +62,9 @@ var _ = Describe("SlackIntegration CRD Reconciliation", Ordered, Label("slackint
 		out, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager: %s", out)
 
+		By("ensuring webhook endpoint is ready")
+		waitForWebhookEndpointReady()
+
 		By("creating account API key secret")
 		apiKey := os.Getenv("UPTIME_ROBOT_API_KEY")
 		cmd = exec.Command("kubectl", "delete", "secret", "uptime-robot-e2e", "-n", namespace, "--ignore-not-found=true")
@@ -94,20 +96,11 @@ spec:
     name: uptime-robot-e2e
     key: apiKey
 `, testRunID)
-		cmd = exec.Command("kubectl", "apply", "-f", "-")
-		cmd.Stdin = strings.NewReader(accountYAML)
-		_, err = utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred())
+		out, err = applyYAMLWithWebhookRetry("Account", accountYAML)
+		Expect(err).NotTo(HaveOccurred(), "Failed to create Account: %s", out)
 
 		By("waiting for Account to become ready")
-		Eventually(func(g Gomega) {
-			cmd := exec.Command("kubectl", "get", "account",
-				fmt.Sprintf("e2e-account-%s", testRunID),
-				"-o", "jsonpath={.status.ready}")
-			output, err := utils.Run(cmd)
-			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(output).To(Equal("true"))
-		}, 2*time.Minute, 5*time.Second).Should(Succeed())
+		waitForAccountReady(fmt.Sprintf("e2e-account-%s", testRunID))
 	})
 
 	AfterAll(func() {

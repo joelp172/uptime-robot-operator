@@ -61,6 +61,9 @@ var _ = Describe("Account and Contact Resources", Ordered, Label("account", "con
 		out, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager: %s", out)
 
+		By("ensuring webhook endpoint is ready")
+		waitForWebhookEndpointReady()
+
 		By("creating the API key secret")
 		apiKey := os.Getenv("UPTIME_ROBOT_API_KEY")
 		Expect(apiKey).NotTo(BeEmpty(), "UPTIME_ROBOT_API_KEY must be set for Account/Contact tests")
@@ -116,20 +119,12 @@ spec:
     key: apiKey
 `, testRunID)
 
-			cmd := exec.Command("kubectl", "apply", "-f", "-")
-			cmd.Stdin = strings.NewReader(accountYAML)
-			_, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
+			var cmd *exec.Cmd
+			out, err := applyYAMLWithWebhookRetry("Account", accountYAML)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create Account: %s", out)
 
 			By("waiting for Account to become ready")
-			Eventually(func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "account",
-					fmt.Sprintf("e2e-account-%s", testRunID),
-					"-o", "jsonpath={.status.ready}")
-				output, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("true"))
-			}, 2*time.Minute, 5*time.Second).Should(Succeed())
+			waitForAccountReady(fmt.Sprintf("e2e-account-%s", testRunID))
 
 			By("verifying Account has email in status")
 			cmd = exec.Command("kubectl", "get", "account",
@@ -179,6 +174,7 @@ spec:
 
 		It("should reject creating a second default Account", func() {
 			By("creating a baseline default Account")
+			var cmd *exec.Cmd
 			accountYAML := fmt.Sprintf(`
 apiVersion: uptimerobot.com/v1alpha1
 kind: Account
@@ -190,10 +186,8 @@ spec:
     name: uptime-robot-e2e
     key: apiKey
 `, testRunID)
-			cmd := exec.Command("kubectl", "apply", "-f", "-")
-			cmd.Stdin = strings.NewReader(accountYAML)
-			_, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
+			out, err := applyYAMLWithWebhookRetry("Account", accountYAML)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create Account: %s", out)
 
 			By("attempting to create a second default Account")
 			secondDefaultYAML := fmt.Sprintf(`
@@ -210,7 +204,7 @@ spec:
 
 			cmd = exec.Command("kubectl", "apply", "-f", "-")
 			cmd.Stdin = strings.NewReader(secondDefaultYAML)
-			out, err := utils.Run(cmd)
+			out, err = utils.Run(cmd)
 			Expect(err).To(HaveOccurred(), "Expected second default Account apply to fail")
 			Expect(out).To(ContainSubstring("spec.isDefault: Forbidden"))
 			Expect(out).To(SatisfyAny(
@@ -223,6 +217,7 @@ spec:
 	Context("Contact Setup", func() {
 		It("should create default Contact", func() {
 			By("creating a baseline default Account")
+			var cmd *exec.Cmd
 			accountYAML := fmt.Sprintf(`
 apiVersion: uptimerobot.com/v1alpha1
 kind: Account
@@ -234,20 +229,11 @@ spec:
     name: uptime-robot-e2e
     key: apiKey
 `, testRunID)
-			cmd := exec.Command("kubectl", "apply", "-f", "-")
-			cmd.Stdin = strings.NewReader(accountYAML)
-			_, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
+			out, err := applyYAMLWithWebhookRetry("Account", accountYAML)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create Account: %s", out)
 
 			By("waiting for Account to become ready")
-			Eventually(func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "account",
-					fmt.Sprintf("e2e-account-%s", testRunID),
-					"-o", "jsonpath={.status.ready}")
-				output, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("true"))
-			}, 2*time.Minute, 5*time.Second).Should(Succeed())
+			waitForAccountReady(fmt.Sprintf("e2e-account-%s", testRunID))
 
 			By("getting the first contact ID from Account status")
 			var contactID string
@@ -337,6 +323,7 @@ spec:
 
 		It("should reject creating a second default Contact", func() {
 			By("creating a baseline default Account")
+			var cmd *exec.Cmd
 			accountYAML := fmt.Sprintf(`
 apiVersion: uptimerobot.com/v1alpha1
 kind: Account
@@ -348,10 +335,11 @@ spec:
     name: uptime-robot-e2e
     key: apiKey
 `, testRunID)
-			cmd := exec.Command("kubectl", "apply", "-f", "-")
-			cmd.Stdin = strings.NewReader(accountYAML)
-			_, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
+			out, err := applyYAMLWithWebhookRetry("Account", accountYAML)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create Account: %s", out)
+
+			By("waiting for Account to become ready")
+			waitForAccountReady(fmt.Sprintf("e2e-account-%s", testRunID))
 
 			By("getting a contact ID from Account status")
 			cmd = exec.Command("kubectl", "get", "account",
@@ -391,7 +379,7 @@ spec:
 
 			cmd = exec.Command("kubectl", "apply", "-f", "-")
 			cmd.Stdin = strings.NewReader(secondDefaultContactYAML)
-			out, err := utils.Run(cmd)
+			out, err = utils.Run(cmd)
 			Expect(err).To(HaveOccurred(), "Expected second default Contact apply to fail")
 			Expect(out).To(ContainSubstring("spec.isDefault: Forbidden"))
 			Expect(out).To(SatisfyAny(

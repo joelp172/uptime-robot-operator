@@ -69,6 +69,9 @@ stringData:
 		Expect(err).NotTo(HaveOccurred())
 
 		By("creating Account resource for MonitorGroup tests")
+		By("ensuring webhook endpoint is ready for MonitorGroup tests")
+		waitForWebhookEndpointReady()
+
 		accountYAML := fmt.Sprintf(`
 apiVersion: uptimerobot.com/v1alpha1
 kind: Account
@@ -81,9 +84,7 @@ spec:
     key: apiKey
 `, testRunID)
 		debugLog("Applying Account YAML:\n%s", accountYAML)
-		cmd = exec.Command("kubectl", "apply", "-f", "-")
-		cmd.Stdin = strings.NewReader(accountYAML)
-		output, err = utils.Run(cmd)
+		output, err = applyYAMLWithWebhookRetry("Account", accountYAML)
 		if err != nil {
 			debugLog("Failed to create Account: %v, output: %s", err, output)
 		} else {
@@ -93,20 +94,7 @@ spec:
 
 		// Wait for Account to be ready
 		debugLog("Waiting for Account e2e-account-mg-%s to become ready", testRunID)
-		pollCount := 0
-		Eventually(func(g Gomega) {
-			pollCount++
-			cmd := exec.Command("kubectl", "get", "account", fmt.Sprintf("e2e-account-mg-%s", testRunID),
-				"-o", "jsonpath={.status.ready}")
-			output, err := utils.Run(cmd)
-			if err != nil {
-				debugLog("Poll #%d: Failed to get Account: %v", pollCount, err)
-			} else {
-				debugLog("Poll #%d: Account status ready=%s", pollCount, output)
-			}
-			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(output).To(Equal("true"))
-		}, 2*time.Minute, 5*time.Second).Should(Succeed())
+		waitForAccountReady(fmt.Sprintf("e2e-account-mg-%s", testRunID))
 		debugLog("Account e2e-account-mg-%s is ready", testRunID)
 
 		By("getting the first contact ID from Account status")
