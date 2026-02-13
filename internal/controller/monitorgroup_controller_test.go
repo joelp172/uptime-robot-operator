@@ -183,6 +183,47 @@ var _ = Describe("MonitorGroup Controller", func() {
 			Expect(errCond.Reason).To(Equal(ReasonSecretNotFound))
 		})
 
+		It("should preserve status.ready on transient api key lookup failure for existing group", func() {
+			mg := CreateMonitorGroup(ctx, "test-transient-secret-group", account.Name, uptimerobotv1.MonitorGroupSpec{
+				FriendlyName: "Transient Secret Group",
+			})
+			defer CleanupMonitorGroup(ctx, mg)
+
+			_, err := ReconcileMonitorGroup(ctx, mg)
+			Expect(err).NotTo(HaveOccurred())
+
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace}, mg)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(mg.Status.Ready).To(BeTrue())
+			Expect(mg.Status.ID).NotTo(BeEmpty())
+
+			Expect(k8sClient.Delete(ctx, secret)).To(Succeed())
+
+			_, err = ReconcileMonitorGroup(ctx, mg)
+			Expect(err).To(HaveOccurred())
+
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace}, mg)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(mg.Status.Ready).To(BeTrue())
+			Expect(mg.Status.ID).NotTo(BeEmpty())
+
+			ready := findCondition(mg.Status.Conditions, TypeReady)
+			Expect(ready).NotTo(BeNil())
+			Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+			Expect(ready.Reason).To(Equal(ReasonSecretNotFound))
+
+			errCond := findCondition(mg.Status.Conditions, TypeError)
+			Expect(errCond).NotTo(BeNil())
+			Expect(errCond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(errCond.Reason).To(Equal(ReasonSecretNotFound))
+
+			// No backend sync attempt was made; keep last sync state from prior successful reconcile.
+			synced := findCondition(mg.Status.Conditions, TypeSynced)
+			Expect(synced).NotTo(BeNil())
+			Expect(synced.Status).To(Equal(metav1.ConditionTrue))
+			Expect(synced.Reason).To(Equal(ReasonSyncSuccess))
+		})
+
 		It("should handle monitor group deletion with prune", func() {
 			mg := CreateMonitorGroup(ctx, "test-delete-mg", account.Name, uptimerobotv1.MonitorGroupSpec{
 				FriendlyName: "Test Delete Group",

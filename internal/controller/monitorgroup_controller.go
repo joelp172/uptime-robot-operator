@@ -64,7 +64,9 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// Step 2: Locate credential vault
 	credentialVault := &uptimerobotv1.Account{}
 	if vaultErr := GetAccount(ctx, r.Client, credentialVault, groupResource.Spec.Account.Name); vaultErr != nil {
-		groupResource.Status.Ready = false
+		if groupResource.Status.ID == "" {
+			groupResource.Status.Ready = false
+		}
 		SetReadyCondition(&groupResource.Status.Conditions, false, ReasonReconcileError, fmt.Sprintf("Failed to get account: %v", vaultErr), groupResource.Generation)
 		SetErrorCondition(&groupResource.Status.Conditions, true, ReasonReconcileError, fmt.Sprintf("Failed to get account: %v", vaultErr), groupResource.Generation)
 		if updateErr := r.Status().Update(ctx, groupResource); updateErr != nil {
@@ -76,7 +78,9 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// Step 3: Extract API token from secret
 	apiToken, tokenErr := GetApiKey(ctx, r.Client, credentialVault)
 	if tokenErr != nil {
-		groupResource.Status.Ready = false
+		if groupResource.Status.ID == "" {
+			groupResource.Status.Ready = false
+		}
 		SetReadyCondition(&groupResource.Status.Conditions, false, ReasonSecretNotFound, fmt.Sprintf("Failed to get API key: %v", tokenErr), groupResource.Generation)
 		SetErrorCondition(&groupResource.Status.Conditions, true, ReasonSecretNotFound, fmt.Sprintf("Failed to get API key: %v", tokenErr), groupResource.Generation)
 		if updateErr := r.Status().Update(ctx, groupResource); updateErr != nil {
