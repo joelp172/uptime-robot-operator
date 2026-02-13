@@ -150,6 +150,57 @@ kubectl apply -f charts/uptime-robot-operator/crds/
 | `affinity`                        | Affinity for pod assignment                      | `{}`             |
 | `podAnnotations`                  | Pod annotations                                  | `{kubectl.kubernetes.io/default-container: manager}` |
 
+### Network Policy Parameters
+
+| Name                              | Description                                      | Value            |
+|-----------------------------------|--------------------------------------------------|------------------|
+| `networkPolicy.enabled`           | Enable NetworkPolicy for the operator            | `false`          |
+| `networkPolicy.ingress`           | Ingress rules for the NetworkPolicy              | See values.yaml  |
+| `networkPolicy.egress`            | Egress rules for the NetworkPolicy               | See values.yaml  |
+
+The NetworkPolicy is disabled by default. When enabled, it restricts network traffic to and from the operator pod:
+
+**Ingress (allowed):**
+- Port 8081 (health probes)
+- Port 8443 (metrics)
+- Port 9443 (webhooks)
+
+**Egress (allowed):**
+- Port 443 (HTTPS for UptimeRobot API and Kubernetes API)
+- Port 53 (DNS, both TCP and UDP)
+
+**All other traffic is denied** when the NetworkPolicy is enabled.
+
+**Important:** If you customize the ingress or egress rules and provide an empty list, all traffic in that direction will be blocked. This is intentional for security-by-default behavior.
+
+To enable the NetworkPolicy:
+
+```bash
+helm install uptime-robot-operator ./charts/uptime-robot-operator \
+  --set networkPolicy.enabled=true
+```
+
+You can customize the ingress and egress rules by providing a custom values file:
+
+```yaml
+networkPolicy:
+  enabled: true
+  ingress:
+    - from:
+      - namespaceSelector:
+          matchLabels:
+            monitoring: enabled
+      ports:
+        - port: 8443
+          protocol: TCP
+  egress:
+    - to:
+      - namespaceSelector: {}
+      ports:
+        - port: 443
+          protocol: TCP
+```
+
 ### Other Parameters
 
 | Name                              | Description                                      | Value            |
