@@ -393,11 +393,12 @@ func TestDoWithRetry_ContextCancellation(t *testing.T) {
 	}
 }
 
-func TestDoWithRetry_ParseRetryAfterRateLimitHeaders(t *testing.T) {
+func TestDoWithRetry_429RespectsRetryAfterHeader(t *testing.T) {
 	client := NewClient("test-api-key")
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Simulate UptimeRobot rate limit response with headers
+		// Simulate UptimeRobot rate limit response with Retry-After header
+		// Note: X-RateLimit-* headers are informational only and not used by retry logic
 		w.Header().Set("X-RateLimit-Limit", "10")
 		w.Header().Set("X-RateLimit-Remaining", "0")
 		w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(time.Now().Add(60*time.Second).Unix(), 10))
