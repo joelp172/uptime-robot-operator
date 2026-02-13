@@ -49,10 +49,10 @@ var (
 func isRetryableStatusCode(statusCode int) bool {
 	switch statusCode {
 	case http.StatusTooManyRequests, // 429
-		http.StatusInternalServerError,     // 500
-		http.StatusBadGateway,               // 502
-		http.StatusServiceUnavailable,       // 503
-		http.StatusGatewayTimeout:           // 504
+		http.StatusInternalServerError, // 500
+		http.StatusBadGateway,          // 502
+		http.StatusServiceUnavailable,  // 503
+		http.StatusGatewayTimeout:      // 504
 		return true
 	case http.StatusConflict: // 409 - conflicts may be transient
 		return true

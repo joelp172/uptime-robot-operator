@@ -33,17 +33,17 @@ func TestIsRetryableStatusCode(t *testing.T) {
 		statusCode int
 		expected   bool
 	}{
-		{http.StatusOK, false},                  // 200
-		{http.StatusBadRequest, false},          // 400
-		{http.StatusUnauthorized, false},        // 401
-		{http.StatusForbidden, false},           // 403
-		{http.StatusNotFound, false},            // 404
-		{http.StatusConflict, true},             // 409 - conflicts may be transient
-		{http.StatusTooManyRequests, true},      // 429
-		{http.StatusInternalServerError, true},  // 500
-		{http.StatusBadGateway, true},           // 502
-		{http.StatusServiceUnavailable, true},   // 503
-		{http.StatusGatewayTimeout, true},       // 504
+		{http.StatusOK, false},                 // 200
+		{http.StatusBadRequest, false},         // 400
+		{http.StatusUnauthorized, false},       // 401
+		{http.StatusForbidden, false},          // 403
+		{http.StatusNotFound, false},           // 404
+		{http.StatusConflict, true},            // 409 - conflicts may be transient
+		{http.StatusTooManyRequests, true},     // 429
+		{http.StatusInternalServerError, true}, // 500
+		{http.StatusBadGateway, true},          // 502
+		{http.StatusServiceUnavailable, true},  // 503
+		{http.StatusGatewayTimeout, true},      // 504
 	}
 
 	for _, tt := range tests {
@@ -90,10 +90,10 @@ func TestIsRetryableError(t *testing.T) {
 
 func TestParseRetryAfter(t *testing.T) {
 	tests := []struct {
-		name        string
-		retryAfter  string
-		wantMin     time.Duration
-		wantMax     time.Duration
+		name       string
+		retryAfter string
+		wantMin    time.Duration
+		wantMax    time.Duration
 	}{
 		{"empty string", "", 0, 0},
 		{"delay in seconds", "10", 10 * time.Second, 10 * time.Second},
@@ -143,7 +143,7 @@ func TestCalculateBackoff(t *testing.T) {
 
 func TestDoWithRetry_Success(t *testing.T) {
 	client := NewClient("test-api-key")
-	
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
@@ -171,7 +171,7 @@ func TestDoWithRetry_Success(t *testing.T) {
 func TestDoWithRetry_429WithRetryAfter(t *testing.T) {
 	client := NewClient("test-api-key")
 	var attemptCount int32
-	
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		count := atomic.AddInt32(&attemptCount, 1)
 		if count < 3 {
@@ -219,7 +219,7 @@ func TestDoWithRetry_429WithRetryAfter(t *testing.T) {
 func TestDoWithRetry_429ExponentialBackoff(t *testing.T) {
 	client := NewClient("test-api-key")
 	var attemptCount int32
-	
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		count := atomic.AddInt32(&attemptCount, 1)
 		if count < 3 {
@@ -267,7 +267,7 @@ func TestDoWithRetry_429ExponentialBackoff(t *testing.T) {
 func TestDoWithRetry_MaxRetriesExceeded(t *testing.T) {
 	client := NewClient("test-api-key")
 	var attemptCount int32
-	
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&attemptCount, 1)
 		w.WriteHeader(http.StatusTooManyRequests)
@@ -302,7 +302,7 @@ func TestDoWithRetry_MaxRetriesExceeded(t *testing.T) {
 func TestDoWithRetry_NonRetryableError(t *testing.T) {
 	client := NewClient("test-api-key")
 	var attemptCount int32
-	
+
 	tests := []struct {
 		name       string
 		statusCode int
@@ -316,7 +316,7 @@ func TestDoWithRetry_NonRetryableError(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			atomic.StoreInt32(&attemptCount, 0)
-			
+
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				atomic.AddInt32(&attemptCount, 1)
 				w.WriteHeader(tt.statusCode)
@@ -353,7 +353,7 @@ func TestDoWithRetry_NonRetryableError(t *testing.T) {
 func TestDoWithRetry_ContextCancellation(t *testing.T) {
 	client := NewClient("test-api-key")
 	var attemptCount int32
-	
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&attemptCount, 1)
 		w.WriteHeader(http.StatusTooManyRequests)
@@ -362,7 +362,7 @@ func TestDoWithRetry_ContextCancellation(t *testing.T) {
 	defer server.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	// Cancel context after first retry
 	go func() {
 		time.Sleep(1500 * time.Millisecond)
@@ -392,7 +392,7 @@ func TestDoWithRetry_ContextCancellation(t *testing.T) {
 
 func TestDoWithRetry_ParseRetryAfterRateLimitHeaders(t *testing.T) {
 	client := NewClient("test-api-key")
-	
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Simulate UptimeRobot rate limit response with headers
 		w.Header().Set("X-RateLimit-Limit", "10")
@@ -412,7 +412,7 @@ func TestDoWithRetry_ParseRetryAfterRateLimitHeaders(t *testing.T) {
 	start := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	
+
 	_, _ = client.doWithRetry(ctx, req)
 	elapsed := time.Since(start)
 
