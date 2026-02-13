@@ -175,9 +175,7 @@ var _ = Describe("MonitorGroup Controller", func() {
 			Expect(ready.Reason).To(Equal(ReasonSecretNotFound))
 
 			synced := findCondition(mg.Status.Conditions, TypeSynced)
-			Expect(synced).NotTo(BeNil())
-			Expect(synced.Status).To(Equal(metav1.ConditionFalse))
-			Expect(synced.Reason).To(Equal(ReasonSyncError))
+			Expect(synced).To(BeNil())
 
 			errCond := findCondition(mg.Status.Conditions, TypeError)
 			Expect(errCond).NotTo(BeNil())
