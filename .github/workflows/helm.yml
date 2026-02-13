@@ -82,7 +82,8 @@ jobs:
         run: |
           helm install uptime-robot charts/uptime-robot-operator/ \
             --set image.repository=uptime-robot-operator \
-            --set image.tag=test
+            --set image.tag=test \
+            --set webhooks.enabled=false
 
       - name: Verify installation
         run: |
@@ -100,7 +101,8 @@ jobs:
           helm upgrade uptime-robot charts/uptime-robot-operator/ \
             --set replicaCount=2 \
             --set image.repository=uptime-robot-operator \
-            --set image.tag=test
+            --set image.tag=test \
+            --set webhooks.enabled=false
 
       - name: Verify upgrade
         run: |

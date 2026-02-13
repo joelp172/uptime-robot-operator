@@ -59,6 +59,7 @@ func main() {
 	var metricsAddr string
 	var metricsCertPath, metricsCertName, metricsCertKey string
 	var webhookCertPath, webhookCertName, webhookCertKey string
+	var enableWebhooks bool
 	var enableLeaderElection bool
 	var probeAddr string
 	var secureMetrics bool
@@ -75,6 +76,7 @@ func main() {
 	flag.StringVar(&webhookCertPath, "webhook-cert-path", "", "The directory that contains the webhook certificate.")
 	flag.StringVar(&webhookCertName, "webhook-cert-name", "tls.crt", "The name of the webhook certificate file.")
 	flag.StringVar(&webhookCertKey, "webhook-cert-key", "tls.key", "The name of the webhook key file.")
+	flag.BoolVar(&enableWebhooks, "enable-webhooks", true, "Enable validating webhooks.")
 	flag.StringVar(&metricsCertPath, "metrics-cert-path", "",
 		"The directory that contains the metrics server certificate.")
 	flag.StringVar(&metricsCertName, "metrics-cert-name", "tls.crt", "The name of the metrics server certificate file.")
@@ -253,13 +255,17 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "SlackIntegration")
 		os.Exit(1)
 	}
-	if err = (&uptimerobotv1.Account{}).SetupWebhookWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create webhook", "webhook", "Account")
-		os.Exit(1)
-	}
-	if err = (&uptimerobotv1.Contact{}).SetupWebhookWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create webhook", "webhook", "Contact")
-		os.Exit(1)
+	if enableWebhooks {
+		if err = (&uptimerobotv1.Account{}).SetupWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "Account")
+			os.Exit(1)
+		}
+		if err = (&uptimerobotv1.Contact{}).SetupWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "Contact")
+			os.Exit(1)
+		}
+	} else {
+		setupLog.Info("webhooks are disabled")
 	}
 	//+kubebuilder:scaffold:builder
 

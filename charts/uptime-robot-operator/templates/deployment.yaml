@@ -36,6 +36,7 @@ spec:
         {{- if .Values.leaderElection.enabled }}
         - --leader-elect
         {{- end }}
+        - --enable-webhooks={{ .Values.webhooks.enabled }}
         - --health-probe-bind-address={{ .Values.healthProbeBindAddress }}
         securityContext:
           {{- toYaml .Values.securityContext | nindent 10 }}
