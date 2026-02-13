@@ -18,6 +18,9 @@ spec:
     - jsonPath: .status.ready
       name: Ready
       type: boolean
+    - jsonPath: .status.state
+      name: Status
+      type: string
     - jsonPath: .spec.monitor.type
       name: Type
       type: string
@@ -546,6 +549,8 @@ spec:
                 type: integer
               ready:
                 type: boolean
+              state:
+                type: string
               status:
                 type: integer
               type:
