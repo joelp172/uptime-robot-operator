@@ -388,17 +388,30 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		desiredStatus := monitor.Spec.Monitor.Status
 		var currentStatus uint8
 		if currentMonitor != nil {
-			// Map API status string to our status values
+			// Map API status string to our pause/running state values
+			// The API returns various operational status strings:
+			// - "PAUSED": Monitor is explicitly paused
+			// - "UP", "STARTED": Monitor is running and responding successfully
+			// - "DOWN", "SEEMS DOWN": Monitor is running but experiencing issues
+			// For pause/start purposes, only "PAUSED" maps to MonitorPaused (0),
+			// all other states indicate the monitor is running (1), even if failing.
 			switch strings.ToUpper(currentMonitor.Status) {
 			case "PAUSED":
 				currentStatus = urtypes.MonitorPaused
 			case "UP", "DOWN", "STARTED", "SEEMS DOWN":
 				currentStatus = urtypes.MonitorRunning
 			default:
+				// Unknown status, assume running
 				currentStatus = urtypes.MonitorRunning
 			}
+		} else if errors.Is(err, uptimerobot.ErrMonitorNotFound) {
+			// Monitor no longer exists in API - don't use cached status for drift detection
+			// Instead, proceed to EditMonitor which will recreate it if needed
+			log.FromContext(ctx).Info("Monitor not found in API, will recreate", "monitorID", monitor.Status.ID)
+			currentStatus = desiredStatus // Avoid unnecessary pause/start calls
 		} else {
-			currentStatus = monitor.Status.Status
+			// No error but also no monitor - shouldn't happen, but default to desired status
+			currentStatus = desiredStatus
 		}
 
 		// Handle status changes using pause/start endpoints
