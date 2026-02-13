@@ -17,8 +17,10 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"flag"
+	"net/http"
 	"os"
 	"path/filepath"
 
@@ -46,6 +48,26 @@ var (
 	scheme   = runtime.NewScheme()
 	setupLog = ctrl.Log.WithName("setup")
 )
+
+// disabledWebhookServer disables webhook serving when webhooks are not enabled.
+type disabledWebhookServer struct{}
+
+func (disabledWebhookServer) NeedLeaderElection() bool { return false }
+
+func (disabledWebhookServer) Register(_ string, _ http.Handler) {}
+
+func (disabledWebhookServer) Start(ctx context.Context) error {
+	<-ctx.Done()
+	return nil
+}
+
+func (disabledWebhookServer) StartedChecker() healthz.Checker {
+	return func(_ *http.Request) error { return nil }
+}
+
+func (disabledWebhookServer) WebhookMux() *http.ServeMux {
+	return http.NewServeMux()
+}
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
@@ -114,32 +136,35 @@ func main() {
 
 	// Create watchers for metrics and webhooks certificates
 	var metricsCertWatcher, webhookCertWatcher *certwatcher.CertWatcher
+	webhookServer := webhook.Server(disabledWebhookServer{})
 
-	// Initial webhook TLS options
-	webhookTLSOpts := tlsOpts
+	if enableWebhooks {
+		// Initial webhook TLS options
+		webhookTLSOpts := tlsOpts
 
-	if len(webhookCertPath) > 0 {
-		setupLog.Info("Initializing webhook certificate watcher using provided certificates",
-			"webhook-cert-path", webhookCertPath, "webhook-cert-name", webhookCertName, "webhook-cert-key", webhookCertKey)
+		if len(webhookCertPath) > 0 {
+			setupLog.Info("Initializing webhook certificate watcher using provided certificates",
+				"webhook-cert-path", webhookCertPath, "webhook-cert-name", webhookCertName, "webhook-cert-key", webhookCertKey)
 
-		var err error
-		webhookCertWatcher, err = certwatcher.New(
-			filepath.Join(webhookCertPath, webhookCertName),
-			filepath.Join(webhookCertPath, webhookCertKey),
-		)
-		if err != nil {
-			setupLog.Error(err, "Failed to initialize webhook certificate watcher")
-			os.Exit(1)
+			var err error
+			webhookCertWatcher, err = certwatcher.New(
+				filepath.Join(webhookCertPath, webhookCertName),
+				filepath.Join(webhookCertPath, webhookCertKey),
+			)
+			if err != nil {
+				setupLog.Error(err, "Failed to initialize webhook certificate watcher")
+				os.Exit(1)
+			}
+
+			webhookTLSOpts = append(webhookTLSOpts, func(config *tls.Config) {
+				config.GetCertificate = webhookCertWatcher.GetCertificate
+			})
 		}
 
-		webhookTLSOpts = append(webhookTLSOpts, func(config *tls.Config) {
-			config.GetCertificate = webhookCertWatcher.GetCertificate
+		webhookServer = webhook.NewServer(webhook.Options{
+			TLSOpts: webhookTLSOpts,
 		})
 	}
-
-	webhookServer := webhook.NewServer(webhook.Options{
-		TLSOpts: webhookTLSOpts,
-	})
 
 	// Metrics endpoint is enabled in 'config/default/kustomization.yaml'. The Metrics options configure the server.
 	// More info:
@@ -265,7 +290,7 @@ func main() {
 			os.Exit(1)
 		}
 	} else {
-		setupLog.Info("webhooks are disabled")
+		setupLog.Info("webhooks are disabled: webhook server will not listen")
 	}
 	//+kubebuilder:scaffold:builder
 
