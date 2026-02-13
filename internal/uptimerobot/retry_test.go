@@ -19,6 +19,7 @@ package uptimerobot
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -56,6 +57,14 @@ func TestIsRetryableStatusCode(t *testing.T) {
 	}
 }
 
+// mockTimeoutError is a mock net.Error that reports as a timeout
+type mockTimeoutError struct {
+	error
+}
+
+func (e mockTimeoutError) Timeout() bool   { return true }
+func (e mockTimeoutError) Temporary() bool { return true }
+
 func TestIsRetryableError(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -67,7 +76,8 @@ func TestIsRetryableError(t *testing.T) {
 		{"connection reset", fmt.Errorf("connection reset by peer"), true},
 		{"broken pipe", fmt.Errorf("broken pipe"), true},
 		{"EOF error", fmt.Errorf("unexpected EOF"), true},
-		{"timeout error", fmt.Errorf("timeout exceeded"), false}, // This needs to be a net.Error to be detected
+		{"timeout error string", fmt.Errorf("timeout exceeded"), false}, // String matching not used for timeouts
+		{"timeout error net.Error", mockTimeoutError{fmt.Errorf("i/o timeout")}, true}, // Actual net.Error with Timeout()
 		{"other error", fmt.Errorf("some other error"), false},
 	}
 
@@ -424,9 +434,8 @@ func TestDoWithRetry_POSTRequestWithBody(t *testing.T) {
 		count := atomic.AddInt32(&attemptCount, 1)
 		
 		// Read and store the request body
-		body := make([]byte, 1024)
-		n, _ := r.Body.Read(body)
-		receivedBodies = append(receivedBodies, string(body[:n]))
+		body, _ := io.ReadAll(r.Body)
+		receivedBodies = append(receivedBodies, string(body))
 		
 		if count < 3 {
 			w.WriteHeader(http.StatusTooManyRequests)
