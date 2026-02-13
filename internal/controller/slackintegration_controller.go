@@ -59,7 +59,9 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	account := &uptimerobotv1.Account{}
 	if err := GetAccount(ctx, r.Client, account, resource.Spec.Account.Name); err != nil {
-		resource.Status.Ready = false
+		if resource.Status.ID == "" {
+			resource.Status.Ready = false
+		}
 		SetReadyCondition(&resource.Status.Conditions, false, ReasonReconcileError, fmt.Sprintf("Failed to get account: %v", err), resource.Generation)
 		SetErrorCondition(&resource.Status.Conditions, true, ReasonReconcileError, fmt.Sprintf("Failed to get account: %v", err), resource.Generation)
 		if updateErr := r.updateSlackIntegrationStatus(ctx, resource); updateErr != nil {
@@ -70,7 +72,9 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	apiKey, err := GetApiKey(ctx, r.Client, account)
 	if err != nil {
-		resource.Status.Ready = false
+		if resource.Status.ID == "" {
+			resource.Status.Ready = false
+		}
 		SetReadyCondition(&resource.Status.Conditions, false, ReasonSecretNotFound, fmt.Sprintf("Failed to get API key: %v", err), resource.Generation)
 		SetErrorCondition(&resource.Status.Conditions, true, ReasonSecretNotFound, fmt.Sprintf("Failed to get API key: %v", err), resource.Generation)
 		if updateErr := r.updateSlackIntegrationStatus(ctx, resource); updateErr != nil {
