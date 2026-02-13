@@ -18,7 +18,6 @@ package uptimerobot
 
 import (
 	"context"
-	"os"
 	"testing"
 
 	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot/uptimerobottest"
@@ -28,8 +27,7 @@ func TestPauseMonitor(t *testing.T) {
 	srv := uptimerobottest.NewServer()
 	defer srv.Close()
 
-	os.Setenv("UPTIME_ROBOT_API", srv.URL)
-	defer os.Unsetenv("UPTIME_ROBOT_API")
+	t.Setenv("UPTIME_ROBOT_API", srv.URL)
 
 	client := NewClient("test-api-key")
 	ctx := context.Background()
@@ -53,8 +51,7 @@ func TestStartMonitor(t *testing.T) {
 	srv := uptimerobottest.NewServer()
 	defer srv.Close()
 
-	os.Setenv("UPTIME_ROBOT_API", srv.URL)
-	defer os.Unsetenv("UPTIME_ROBOT_API")
+	t.Setenv("UPTIME_ROBOT_API", srv.URL)
 
 	client := NewClient("test-api-key")
 	ctx := context.Background()

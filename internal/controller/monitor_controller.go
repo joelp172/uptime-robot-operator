@@ -422,7 +422,8 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 		// Handle status changes using pause/start endpoints
 		if desiredStatus != currentStatus {
-			if desiredStatus == urtypes.MonitorPaused {
+			switch desiredStatus {
+			case urtypes.MonitorPaused:
 				// Pause the monitor
 				if err := urclient.PauseMonitor(ctx, monitor.Status.ID); err != nil {
 					msg := fmt.Sprintf("Failed to pause monitor: %v", err)
@@ -440,7 +441,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				if err := r.updateMonitorStatus(ctx, monitor); err != nil {
 					return ctrl.Result{}, err
 				}
-			} else if desiredStatus == urtypes.MonitorRunning {
+			case urtypes.MonitorRunning:
 				// Start the monitor
 				if err := urclient.StartMonitor(ctx, monitor.Status.ID); err != nil {
 					msg := fmt.Sprintf("Failed to start monitor: %v", err)
