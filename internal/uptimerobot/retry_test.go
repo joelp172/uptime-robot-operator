@@ -18,6 +18,7 @@ package uptimerobot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -293,6 +294,9 @@ func TestDoWithRetry_MaxRetriesExceeded(t *testing.T) {
 
 	if err == nil {
 		t.Error("doWithRetry() error = nil, want error")
+	}
+	if !errors.Is(err, ErrMaxRetriesExceeded) {
+		t.Errorf("doWithRetry() error = %v, want error wrapping ErrMaxRetriesExceeded", err)
 	}
 	if !strings.Contains(err.Error(), "429") {
 		t.Errorf("doWithRetry() error = %v, want error containing '429'", err)

@@ -190,9 +190,13 @@ func (c Client) doWithRetry(ctx context.Context, req *http.Request) (*http.Respo
 			// Check if we should retry based on status code
 			shouldRetry := isRetryableStatusCode(resp.StatusCode)
 
-			// Don't retry if not retryable or if we've exhausted attempts
-			if !shouldRetry || attempt >= maxRetries {
+			// Don't retry if not retryable.
+			if !shouldRetry {
 				return nil, lastErr
+			}
+			// Retryable, but attempts are exhausted.
+			if attempt >= maxRetries {
+				return nil, fmt.Errorf("%w: %v", ErrMaxRetriesExceeded, lastErr)
 			}
 
 			// Calculate backoff delay
@@ -230,9 +234,13 @@ func (c Client) doWithRetry(ctx context.Context, req *http.Request) (*http.Respo
 			// Check if we should retry based on error type
 			shouldRetry := isRetryableError(err)
 
-			// Don't retry if not retryable or if we've exhausted attempts
-			if !shouldRetry || attempt >= maxRetries {
+			// Don't retry if not retryable.
+			if !shouldRetry {
 				return nil, lastErr
+			}
+			// Retryable, but attempts are exhausted.
+			if attempt >= maxRetries {
+				return nil, fmt.Errorf("%w: %v", ErrMaxRetriesExceeded, lastErr)
 			}
 
 			// Calculate backoff delay
@@ -252,7 +260,7 @@ func (c Client) doWithRetry(ctx context.Context, req *http.Request) (*http.Respo
 		}
 	}
 
-	// Should not reach here, but return last error if we do
+	// Should not reach here, but return last error if we do.
 	if lastErr != nil {
 		return nil, fmt.Errorf("%w: %v", ErrMaxRetriesExceeded, lastErr)
 	}
