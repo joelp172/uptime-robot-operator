@@ -65,6 +65,9 @@ stringData:
 		Expect(err).NotTo(HaveOccurred())
 
 		By("creating Account resource for MaintenanceWindow tests")
+		By("ensuring webhook endpoint is ready for MaintenanceWindow tests")
+		waitForWebhookEndpointReady()
+
 		accountYAML := fmt.Sprintf(`
 apiVersion: uptimerobot.com/v1alpha1
 kind: Account
@@ -77,9 +80,7 @@ spec:
     key: apiKey
 `, testRunID)
 		debugLog("Applying Account YAML:\n%s", accountYAML)
-		cmd = exec.Command("kubectl", "apply", "-f", "-")
-		cmd.Stdin = strings.NewReader(accountYAML)
-		output, err = utils.Run(cmd)
+		output, err = applyYAMLWithWebhookRetry("Account", accountYAML)
 		if err != nil {
 			debugLog("Failed to create Account: %v, output: %s", err, output)
 		} else {
@@ -129,9 +130,7 @@ spec:
     id: "%s"
 `, testRunID, contactID)
 		debugLog("Applying Contact YAML:\n%s", contactYAML)
-		cmd = exec.Command("kubectl", "apply", "-f", "-")
-		cmd.Stdin = strings.NewReader(contactYAML)
-		output, err = utils.Run(cmd)
+		output, err = applyYAMLWithWebhookRetry("Contact", contactYAML)
 		if err != nil {
 			debugLog("Failed to create Contact: %v, output: %s", err, output)
 		} else {
@@ -203,25 +202,25 @@ spec:
 			mwID := waitMaintenanceWindowReadyAndGetID(mwName)
 
 			By("verifying MaintenanceWindow status conditions and observedGeneration")
-			cmd := exec.Command("kubectl", "get", "maintenancewindow", mwName, "-n", namespace,
+			cmd := exec.Command("kubectl", "get", "maintenancewindow", mwName,
 				"-o", "jsonpath={.status.observedGeneration}")
 			observedGeneration, err := utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(strings.TrimSpace(observedGeneration)).NotTo(BeEmpty())
 
-			cmd = exec.Command("kubectl", "get", "maintenancewindow", mwName, "-n", namespace,
+			cmd = exec.Command("kubectl", "get", "maintenancewindow", mwName,
 				"-o", "jsonpath={.status.conditions[?(@.type==\"Ready\")].status}")
 			readyStatus, err := utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(readyStatus).To(Equal("True"))
 
-			cmd = exec.Command("kubectl", "get", "maintenancewindow", mwName, "-n", namespace,
+			cmd = exec.Command("kubectl", "get", "maintenancewindow", mwName,
 				"-o", "jsonpath={.status.conditions[?(@.type==\"Synced\")].status}")
 			syncedStatus, err := utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(syncedStatus).To(Equal("True"))
 
-			cmd = exec.Command("kubectl", "get", "maintenancewindow", mwName, "-n", namespace,
+			cmd = exec.Command("kubectl", "get", "maintenancewindow", mwName,
 				"-o", "jsonpath={.status.conditions[?(@.type==\"Error\")].status}")
 			errorStatus, err := utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
