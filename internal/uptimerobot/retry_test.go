@@ -39,7 +39,7 @@ func TestIsRetryableStatusCode(t *testing.T) {
 		{http.StatusUnauthorized, false},       // 401
 		{http.StatusForbidden, false},          // 403
 		{http.StatusNotFound, false},           // 404
-		{http.StatusConflict, true},            // 409 - conflicts may be transient
+		{http.StatusConflict, false},           // 409 - handled by caller-specific logic (e.g. duplicate adoption)
 		{http.StatusTooManyRequests, true},     // 429
 		{http.StatusInternalServerError, true}, // 500
 		{http.StatusBadGateway, true},          // 502

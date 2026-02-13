@@ -41,10 +41,8 @@ const (
 	DefaultJitterFraction = 0.1
 )
 
-var (
-	// ErrMaxRetriesExceeded is returned when max retry attempts are exhausted
-	ErrMaxRetriesExceeded = errors.New("max retry attempts exceeded")
-)
+// ErrMaxRetriesExceeded is returned when max retry attempts are exhausted
+var ErrMaxRetriesExceeded = errors.New("max retry attempts exceeded")
 
 // isRetryableStatusCode checks if an HTTP status code should trigger a retry
 func isRetryableStatusCode(statusCode int) bool {
@@ -54,8 +52,6 @@ func isRetryableStatusCode(statusCode int) bool {
 		http.StatusBadGateway,          // 502
 		http.StatusServiceUnavailable,  // 503
 		http.StatusGatewayTimeout:      // 504
-		return true
-	case http.StatusConflict: // 409 - conflicts may be transient
 		return true
 	default:
 		return false
@@ -183,9 +179,13 @@ func (c Client) doWithRetry(ctx context.Context, req *http.Request) (*http.Respo
 
 		// Build error for status codes >= 400
 		if err == nil && resp.StatusCode >= 400 {
-			body, _ := io.ReadAll(resp.Body)
+			body, readErr := io.ReadAll(resp.Body)
 			_ = resp.Body.Close()
-			lastErr = fmt.Errorf("%w: %s - %s", ErrStatus, resp.Status, string(body))
+			if readErr != nil {
+				lastErr = fmt.Errorf("%w: %s - (failed to read body: %v)", ErrStatus, resp.Status, readErr)
+			} else {
+				lastErr = fmt.Errorf("%w: %s - %s", ErrStatus, resp.Status, string(body))
+			}
 
 			// Check if we should retry based on status code
 			shouldRetry := isRetryableStatusCode(resp.StatusCode)

@@ -469,14 +469,10 @@ func (c Client) CreateMonitor(ctx context.Context, monitor uptimerobotv1.Monitor
 	if err != nil {
 		return CreateMonitorResult{}, err
 	}
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return CreateMonitorResult{}, err
-	}
-	body, _ := io.ReadAll(res.Body)
-	_ = res.Body.Close()
-
-	if res.StatusCode == http.StatusCreated || res.StatusCode == http.StatusOK {
+	res, err := c.do(req)
+	if err == nil {
+		body, _ := io.ReadAll(res.Body)
+		_ = res.Body.Close()
 		var resp MonitorCreateResponse
 		if err := json.Unmarshal(body, &resp); err != nil {
 			return CreateMonitorResult{}, err
@@ -487,7 +483,8 @@ func (c Client) CreateMonitor(ctx context.Context, monitor uptimerobotv1.Monitor
 		}, nil
 	}
 
-	if res.StatusCode == http.StatusConflict {
+	if errors.Is(err, ErrStatus) && strings.Contains(err.Error(), "409 Conflict") {
+		body := extractErrStatusBody(err)
 		// 409 Duplicate: resolve existing monitor ID and adopt it so reconciliation can continue.
 		if id := parseMonitorIDFrom409Body(body); id != "" {
 			m, getErr := c.GetMonitor(ctx, id)
@@ -525,7 +522,7 @@ func (c Client) CreateMonitor(ctx context.Context, monitor uptimerobotv1.Monitor
 			return result, nil
 		}
 	}
-	return CreateMonitorResult{}, fmt.Errorf("%w: %s - %s", ErrStatus, res.Status, string(body))
+	return CreateMonitorResult{}, err
 }
 
 // parseMonitorIDFrom409Body extracts a monitor ID from a 409 response body if present.
@@ -560,6 +557,18 @@ func parseMonitorIDFrom409Body(body []byte) string {
 // normalizeURL trims trailing slash for consistent comparison with API-stored URLs.
 func normalizeURL(u string) string {
 	return strings.TrimSuffix(strings.TrimSpace(u), "/")
+}
+
+func extractErrStatusBody(err error) []byte {
+	if err == nil {
+		return nil
+	}
+	msg := err.Error()
+	parts := strings.SplitN(msg, " - ", 2)
+	if len(parts) < 2 {
+		return nil
+	}
+	return []byte(parts[1])
 }
 
 // selectDuplicateMonitorCandidate returns a single safe duplicate target for 409 adoption.
