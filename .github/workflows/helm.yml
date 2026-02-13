@@ -72,9 +72,18 @@ jobs:
         with:
           cluster_name: chart-test
 
+      - name: Build test image
+        run: docker build -t uptime-robot-operator:test .
+
+      - name: Load image into Kind
+        run: kind load docker-image uptime-robot-operator:test --name chart-test
+
       - name: Install chart
         run: |
-          helm install uptime-robot charts/uptime-robot-operator/ --wait --timeout 2m
+          helm install uptime-robot charts/uptime-robot-operator/ \
+            --set image.repository=uptime-robot-operator \
+            --set image.tag=test \
+            --wait --timeout 2m
 
       - name: Verify installation
         run: |
@@ -91,6 +100,8 @@ jobs:
         run: |
           helm upgrade uptime-robot charts/uptime-robot-operator/ \
             --set replicaCount=2 \
+            --set image.repository=uptime-robot-operator \
+            --set image.tag=test \
             --wait --timeout 2m
 
       - name: Verify upgrade
