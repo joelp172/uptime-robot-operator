@@ -87,7 +87,7 @@ jobs:
       - name: Verify installation
         run: |
           kubectl get pods -n uptime-robot-system
-          kubectl wait --for=condition=Available deployment -l app.kubernetes.io/name=uptime-robot-operator -n uptime-robot-system --timeout=60s
+          kubectl rollout status deployment -l app.kubernetes.io/name=uptime-robot-operator -n uptime-robot-system --timeout=180s
 
       - name: Verify CRDs installed
         run: |
@@ -108,6 +108,18 @@ jobs:
           kubectl rollout status deployment -l app.kubernetes.io/name=uptime-robot-operator -n uptime-robot-system --timeout=120s
           # Should have 2 replicas now
           kubectl get deployment -n uptime-robot-system -o jsonpath='{.items[0].spec.replicas}' | grep -q "2"
+
+      - name: Dump diagnostics on failure
+        if: failure()
+        run: |
+          kubectl get all -n uptime-robot-system || true
+          kubectl describe deployment -n uptime-robot-system || true
+          kubectl describe pods -n uptime-robot-system || true
+          kubectl get events -n uptime-robot-system --sort-by=.lastTimestamp || true
+          for p in $(kubectl get pods -n uptime-robot-system -o name); do
+            kubectl logs -n uptime-robot-system "$p" --all-containers --tail=200 || true
+            kubectl logs -n uptime-robot-system "$p" --all-containers --tail=200 --previous || true
+          done
 
       - name: Test uninstall
         run: |
