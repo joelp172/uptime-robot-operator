@@ -422,6 +422,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		// Determine desired and current status
 		desiredStatus := monitor.Spec.Monitor.Status
 		var currentStatus uint8
+		monitorMissing := false
 		if currentMonitor != nil {
 			// Map API status string to our pause/running state values
 			// The API returns various operational status strings:
@@ -442,16 +443,15 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			}
 		} else if errors.Is(err, uptimerobot.ErrMonitorNotFound) {
 			// Monitor no longer exists in API - EditMonitor will detect this and recreate it
-			// Set current status to running since recreated monitors default to running state
 			log.FromContext(ctx).Info("Monitor not found in API, EditMonitor will recreate if needed", "monitorID", monitor.Status.ID)
-			currentStatus = urtypes.MonitorRunning // Recreated monitors start as running
+			monitorMissing = true
 		} else {
 			// No error but also no monitor - shouldn't happen, but assume running state
 			currentStatus = urtypes.MonitorRunning
 		}
 
 		// Handle status changes using pause/start endpoints
-		if desiredStatus != currentStatus {
+		if !monitorMissing && desiredStatus != currentStatus {
 			switch desiredStatus {
 			case urtypes.MonitorPaused:
 				// Pause the monitor
@@ -511,6 +511,20 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				return ctrl.Result{}, updateErr
 			}
 			return ctrl.Result{}, err
+		}
+		// If monitor was missing and desired state is paused, apply pause after recreate.
+		if monitorMissing && desiredStatus == urtypes.MonitorPaused {
+			if err := urclient.PauseMonitor(ctx, result.ID); err != nil {
+				msg := fmt.Sprintf("Failed to pause recreated monitor: %v", err)
+				SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
+				SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
+				SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, msg, monitor.Generation)
+				if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
+					return ctrl.Result{}, updateErr
+				}
+				return ctrl.Result{}, err
+			}
+			log.FromContext(ctx).Info("Paused recreated monitor", "monitorID", result.ID)
 		}
 
 		monitor.Status.ID = result.ID

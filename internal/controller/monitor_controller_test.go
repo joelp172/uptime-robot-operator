@@ -28,6 +28,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -270,6 +271,40 @@ var _ = Describe("Monitor Controller", func() {
 			Expect(errCond).NotTo(BeNil())
 			Expect(errCond.Status).To(Equal(metav1.ConditionTrue))
 			Expect(errCond.Reason).To(Equal(ReasonAPIError))
+		})
+
+		It("should recreate missing monitor and then apply paused state", func() {
+			controllerReconciler := &MonitorReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			By("Reconciling initially to create the monitor")
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(k8sClient.Get(ctx, namespacedName, monitor)).To(Succeed())
+			Expect(monitor.Status.ID).NotTo(BeEmpty())
+
+			By("Simulating monitor deletion in the API")
+			serverState.MarkMonitorDeleted(monitor.Status.ID)
+
+			By("Setting desired status to paused")
+			Expect(k8sClient.Patch(ctx, monitor, client.RawPatch(types.MergePatchType, []byte(`{"spec":{"monitor":{"status":0}}}`)))).To(Succeed())
+			Expect(k8sClient.Get(ctx, namespacedName, monitor)).To(Succeed())
+			Expect(monitor.Spec.Monitor.Status).To(Equal(uint8(urtypes.MonitorPaused)))
+
+			By("Reconciling and expecting recreate+pause to succeed")
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, namespacedName, monitor)).To(Succeed())
+			Expect(monitor.Status.Ready).To(BeTrue())
+			Expect(monitor.Status.Status).To(Equal(uint8(urtypes.MonitorPaused)))
+			Expect(monitor.Status.State).To(Equal("paused"))
 		})
 
 		It("should persist status when api key lookup fails before first sync", func() {

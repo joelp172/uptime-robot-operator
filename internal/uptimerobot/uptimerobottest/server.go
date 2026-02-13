@@ -71,6 +71,13 @@ func (s *ServerState) MarkMonitorDeleted(id string) {
 	s.deletedMonitors[id] = true
 }
 
+// MarkMonitorActive clears deleted state for a monitor.
+func (s *ServerState) MarkMonitorActive(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.deletedMonitors, id)
+}
+
 // IsMonitorDeleted checks if a monitor has been deleted.
 func (s *ServerState) IsMonitorDeleted(id string) bool {
 	s.mu.RLock()
@@ -156,7 +163,9 @@ func NewServerWithState(state *ServerState) *httptest.Server {
 	mux.HandleFunc("POST /monitors", handleCreateMonitor)
 
 	// PATCH /monitors/{id} - Update monitor
-	mux.HandleFunc("PATCH /monitors/", handleUpdateMonitor)
+	mux.HandleFunc("PATCH /monitors/", func(w http.ResponseWriter, r *http.Request) {
+		handleUpdateMonitor(w, r, state)
+	})
 
 	// DELETE /monitors/{id} - Delete monitor
 	mux.HandleFunc("DELETE /monitors/", func(w http.ResponseWriter, r *http.Request) {
@@ -164,10 +173,14 @@ func NewServerWithState(state *ServerState) *httptest.Server {
 	})
 
 	// POST /monitors/{id}/pause - Pause monitor
-	mux.HandleFunc("POST /monitors/{id}/pause", handlePauseMonitor)
+	mux.HandleFunc("POST /monitors/{id}/pause", func(w http.ResponseWriter, r *http.Request) {
+		handlePauseMonitor(w, r, state)
+	})
 
 	// POST /monitors/{id}/start - Start monitor
-	mux.HandleFunc("POST /monitors/{id}/start", handleStartMonitor)
+	mux.HandleFunc("POST /monitors/{id}/start", func(w http.ResponseWriter, r *http.Request) {
+		handleStartMonitor(w, r, state)
+	})
 
 	// GET /user/me - Get user info
 	mux.HandleFunc("GET /user/me", handleGetUser)
@@ -239,7 +252,12 @@ func handleCreateMonitor(w http.ResponseWriter, r *http.Request) {
 	serveJSONFile(w, "monitor_create.json")
 }
 
-func handleUpdateMonitor(w http.ResponseWriter, r *http.Request) {
+func handleUpdateMonitor(w http.ResponseWriter, r *http.Request, state *ServerState) {
+	monitorID := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/monitors/"), "/")
+	if monitorID != "" && monitorID != r.URL.Path {
+		// Simulate monitor becoming active again after update/recreate path.
+		state.MarkMonitorActive(monitorID)
+	}
 	serveJSONFile(w, "monitor_update.json")
 }
 
@@ -253,14 +271,26 @@ func handleDeleteMonitor(w http.ResponseWriter, r *http.Request, state *ServerSt
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func handlePauseMonitor(w http.ResponseWriter, r *http.Request) {
+func handlePauseMonitor(w http.ResponseWriter, r *http.Request, state *ServerState) {
 	// POST /monitors/{id}/pause - Pause monitor
+	monitorID := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/monitors/"), "/pause")
+	if monitorID != "" && monitorID != r.URL.Path && state.IsMonitorDeleted(monitorID) {
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "monitor not found"})
+		return
+	}
 	// This is idempotent - pausing an already paused monitor returns success
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func handleStartMonitor(w http.ResponseWriter, r *http.Request) {
+func handleStartMonitor(w http.ResponseWriter, r *http.Request, state *ServerState) {
 	// POST /monitors/{id}/start - Start (resume) monitor
+	monitorID := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/monitors/"), "/start")
+	if monitorID != "" && monitorID != r.URL.Path && state.IsMonitorDeleted(monitorID) {
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "monitor not found"})
+		return
+	}
 	// This is idempotent - starting an already active monitor returns success
 	w.WriteHeader(http.StatusNoContent)
 }
