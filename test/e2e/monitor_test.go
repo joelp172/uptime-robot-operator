@@ -64,6 +64,9 @@ var _ = Describe("Monitor Resources", Ordered, Label("monitor"), func() {
 		out, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager: %s", out)
 
+		By("ensuring webhook endpoint is ready")
+		waitForWebhookEndpointReady()
+
 		By("creating the API key secret")
 		apiKey := os.Getenv("UPTIME_ROBOT_API_KEY")
 		Expect(apiKey).NotTo(BeEmpty(), "UPTIME_ROBOT_API_KEY must be set for Monitor tests")
@@ -98,20 +101,11 @@ spec:
     name: uptime-robot-e2e
     key: apiKey
 `, testRunID)
-		cmd = exec.Command("kubectl", "apply", "-f", "-")
-		cmd.Stdin = strings.NewReader(accountYAML)
-		_, err = utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred())
+		out, err = applyYAMLWithWebhookRetry("Account", accountYAML)
+		Expect(err).NotTo(HaveOccurred(), "Failed to create Account: %s", out)
 
 		By("waiting for Account to become ready")
-		Eventually(func(g Gomega) {
-			cmd := exec.Command("kubectl", "get", "account",
-				fmt.Sprintf("e2e-account-%s", testRunID),
-				"-o", "jsonpath={.status.ready}")
-			output, err := utils.Run(cmd)
-			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(output).To(Equal("true"))
-		}, 2*time.Minute, 5*time.Second).Should(Succeed())
+		waitForAccountReady(fmt.Sprintf("e2e-account-%s", testRunID))
 
 		By("getting the first contact ID from Account status")
 		cmd = exec.Command("kubectl", "get", "account",
