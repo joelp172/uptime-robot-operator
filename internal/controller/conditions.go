@@ -40,6 +40,8 @@ const (
 	ReasonSyncSuccess = "SyncSuccess"
 	// ReasonSyncError indicates sync error to UptimeRobot
 	ReasonSyncError = "SyncError"
+	// ReasonSyncSkipped indicates sync was intentionally skipped
+	ReasonSyncSkipped = "SyncSkipped"
 	// ReasonAPIError indicates UptimeRobot API error
 	ReasonAPIError = "APIError"
 	// ReasonSecretNotFound indicates secret not found

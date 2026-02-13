@@ -21,6 +21,7 @@ import (
 	"errors"
 
 	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -88,6 +89,7 @@ func (r *ContactReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	if contact.Status.ID == "" {
 		var id string
+		validated := false
 
 		// If ID is specified directly, use it; otherwise look up by name
 		if contact.Spec.Contact.ID != "" {
@@ -105,6 +107,7 @@ func (r *ContactReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				}
 				return ctrl.Result{}, err
 			}
+			validated = true
 		} else {
 			err := errors.New("contact must specify either id or name")
 			contact.Status.Ready = false
@@ -120,7 +123,11 @@ func (r *ContactReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		contact.Status.Ready = true
 		contact.Status.ID = id
 		SetReadyCondition(&contact.Status.Conditions, true, ReasonReconcileSuccess, "Contact reconciled successfully", contact.Generation)
-		SetSyncedCondition(&contact.Status.Conditions, true, ReasonSyncSuccess, "Successfully validated contact reference", contact.Generation)
+		if validated {
+			SetSyncedCondition(&contact.Status.Conditions, true, ReasonSyncSuccess, "Successfully validated contact reference", contact.Generation)
+		} else {
+			SetCondition(&contact.Status.Conditions, TypeSynced, metav1.ConditionUnknown, ReasonSyncSkipped, "Skipped contact validation; using spec.contact.id", contact.Generation)
+		}
 		SetErrorCondition(&contact.Status.Conditions, false, ReasonReconcileSuccess, "", contact.Generation)
 		if err := r.Status().Update(ctx, contact); err != nil {
 			return ctrl.Result{}, err
@@ -128,7 +135,7 @@ func (r *ContactReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	} else {
 		contact.Status.Ready = true
 		SetReadyCondition(&contact.Status.Conditions, true, ReasonReconcileSuccess, "Contact reconciled successfully", contact.Generation)
-		SetSyncedCondition(&contact.Status.Conditions, true, ReasonSyncSuccess, "Successfully validated contact reference", contact.Generation)
+		SetCondition(&contact.Status.Conditions, TypeSynced, metav1.ConditionUnknown, ReasonSyncSkipped, "Skipped contact validation; using existing status.id", contact.Generation)
 		SetErrorCondition(&contact.Status.Conditions, false, ReasonReconcileSuccess, "", contact.Generation)
 		if err := r.Status().Update(ctx, contact); err != nil {
 			return ctrl.Result{}, err

@@ -172,8 +172,8 @@ var _ = Describe("Contact Controller", func() {
 
 			synced := findCondition(contact.Status.Conditions, TypeSynced)
 			Expect(synced).NotTo(BeNil())
-			Expect(synced.Status).To(Equal(metav1.ConditionTrue))
-			Expect(synced.Reason).To(Equal(ReasonSyncSuccess))
+			Expect(synced.Status).To(Equal(metav1.ConditionUnknown))
+			Expect(synced.Reason).To(Equal(ReasonSyncSkipped))
 
 			errCond = findCondition(contact.Status.Conditions, TypeError)
 			Expect(errCond).NotTo(BeNil())
