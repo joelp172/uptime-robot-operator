@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"os"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -122,6 +123,49 @@ var _ = Describe("MaintenanceWindow Controller", func() {
 			err = k8sClient.Get(ctx, types.NamespacedName{Name: mw.Name, Namespace: mw.Namespace}, mw)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(mw.Status.Ready).To(BeTrue())
+		})
+
+		It("should preserve status.ready when update of an existing maintenance window fails", func() {
+			mw := CreateMaintenanceWindow(ctx, "test-update-failure-mw", account.Name, uptimerobotv1.MaintenanceWindowSpec{
+				Name:      "Test Update Failure MW",
+				Interval:  "daily",
+				StartTime: "02:00:00",
+				Duration:  metav1.Duration{Duration: time.Hour},
+			})
+			defer CleanupMaintenanceWindow(ctx, mw)
+
+			_, err := ReconcileMaintenanceWindow(ctx, mw)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mw.Name, Namespace: mw.Namespace}, mw)).To(Succeed())
+			Expect(mw.Status.Ready).To(BeTrue())
+
+			originalAPI := os.Getenv("UPTIME_ROBOT_API")
+			Expect(os.Setenv("UPTIME_ROBOT_API", "http://127.0.0.1:1")).To(Succeed())
+			DeferCleanup(func() {
+				Expect(os.Setenv("UPTIME_ROBOT_API", originalAPI)).To(Succeed())
+			})
+
+			_, err = ReconcileMaintenanceWindow(ctx, mw)
+			Expect(err).To(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mw.Name, Namespace: mw.Namespace}, mw)).To(Succeed())
+			Expect(mw.Status.Ready).To(BeTrue())
+
+			ready := findCondition(mw.Status.Conditions, TypeReady)
+			Expect(ready).NotTo(BeNil())
+			Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+			Expect(ready.Reason).To(Equal(ReasonAPIError))
+
+			synced := findCondition(mw.Status.Conditions, TypeSynced)
+			Expect(synced).NotTo(BeNil())
+			Expect(synced.Status).To(Equal(metav1.ConditionFalse))
+			Expect(synced.Reason).To(Equal(ReasonSyncError))
+
+			errCond := findCondition(mw.Status.Conditions, TypeError)
+			Expect(errCond).NotTo(BeNil())
+			Expect(errCond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(errCond.Reason).To(Equal(ReasonAPIError))
 		})
 
 		It("should set failure conditions when account secret is missing", func() {

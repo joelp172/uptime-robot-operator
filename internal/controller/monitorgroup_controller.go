@@ -233,7 +233,6 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 				return ctrl.Result{RequeueAfter: groupResource.Spec.SyncInterval.Duration}, nil
 			}
-			groupResource.Status.Ready = false
 			SetReadyCondition(&groupResource.Status.Conditions, false, ReasonAPIError, fmt.Sprintf("Group update failed: %v", updateErr), groupResource.Generation)
 			SetSyncedCondition(&groupResource.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to update group in UptimeRobot: %v", updateErr), groupResource.Generation)
 			SetErrorCondition(&groupResource.Status.Conditions, true, ReasonAPIError, fmt.Sprintf("Group update failed: %v", updateErr), groupResource.Generation)

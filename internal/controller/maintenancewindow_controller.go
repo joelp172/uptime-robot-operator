@@ -282,7 +282,6 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 				}
 				return ctrl.Result{RequeueAfter: mw.Spec.SyncInterval.Duration}, nil
 			}
-			mw.Status.Ready = false
 			msg := fmt.Sprintf("Failed to update maintenance window: %v", err)
 			SetReadyCondition(&mw.Status.Conditions, false, ReasonAPIError, msg, mw.Generation)
 			SetSyncedCondition(&mw.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to sync with UptimeRobot: %v", err), mw.Generation)

@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"os"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -112,6 +113,46 @@ var _ = Describe("MonitorGroup Controller", func() {
 			err = k8sClient.Get(ctx, types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace}, mg)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(mg.Status.Ready).To(BeTrue())
+		})
+
+		It("should preserve status.ready when update of an existing monitor group fails", func() {
+			mg := CreateMonitorGroup(ctx, "test-update-failure-mg", account.Name, uptimerobotv1.MonitorGroupSpec{
+				FriendlyName: "Update Failure Group",
+			})
+			defer CleanupMonitorGroup(ctx, mg)
+
+			_, err := ReconcileMonitorGroup(ctx, mg)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace}, mg)).To(Succeed())
+			Expect(mg.Status.Ready).To(BeTrue())
+
+			originalAPI := os.Getenv("UPTIME_ROBOT_API")
+			Expect(os.Setenv("UPTIME_ROBOT_API", "http://127.0.0.1:1")).To(Succeed())
+			DeferCleanup(func() {
+				Expect(os.Setenv("UPTIME_ROBOT_API", originalAPI)).To(Succeed())
+			})
+
+			_, err = ReconcileMonitorGroup(ctx, mg)
+			Expect(err).To(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace}, mg)).To(Succeed())
+			Expect(mg.Status.Ready).To(BeTrue())
+
+			ready := findCondition(mg.Status.Conditions, TypeReady)
+			Expect(ready).NotTo(BeNil())
+			Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+			Expect(ready.Reason).To(Equal(ReasonAPIError))
+
+			synced := findCondition(mg.Status.Conditions, TypeSynced)
+			Expect(synced).NotTo(BeNil())
+			Expect(synced.Status).To(Equal(metav1.ConditionFalse))
+			Expect(synced.Reason).To(Equal(ReasonSyncError))
+
+			errCond := findCondition(mg.Status.Conditions, TypeError)
+			Expect(errCond).NotTo(BeNil())
+			Expect(errCond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(errCond.Reason).To(Equal(ReasonAPIError))
 		})
 
 		It("should set failure conditions when account secret is missing", func() {
