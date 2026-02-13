@@ -54,6 +54,31 @@ jobs:
             --set image.tag=v1.0.0 \
             --set metrics.enabled=false
 
+      - name: Verify NetworkPolicy is disabled by default
+        run: |
+          helm template test-release charts/uptime-robot-operator/ > rendered-default.yaml
+          ! grep -q '^kind: NetworkPolicy$' rendered-default.yaml
+
+      - name: Verify NetworkPolicy renders when enabled
+        run: |
+          helm template test-release charts/uptime-robot-operator/ \
+            --set networkPolicy.enabled=true > rendered-np-enabled.yaml
+          grep -q '^kind: NetworkPolicy$' rendered-np-enabled.yaml
+          awk '/^# Source: uptime-robot-operator\/templates\/networkpolicy.yaml/{flag=1;next}/^---/{if(flag){exit}}flag' rendered-np-enabled.yaml > rendered-np-only.yaml
+          grep -q '^  ingress:$' rendered-np-only.yaml
+          grep -q '^  egress:$' rendered-np-only.yaml
+
+      - name: Verify NetworkPolicy deny-all empty lists render correctly
+        run: |
+          helm template test-release charts/uptime-robot-operator/ \
+            --set networkPolicy.enabled=true \
+            --set-json networkPolicy.ingress='[]' \
+            --set-json networkPolicy.egress='[]' > rendered-np-deny-all.yaml
+          awk '/^# Source: uptime-robot-operator\/templates\/networkpolicy.yaml/{flag=1;next}/^---/{if(flag){exit}}flag' rendered-np-deny-all.yaml > rendered-np-deny-all-only.yaml
+          grep -q '^  ingress:$' rendered-np-deny-all-only.yaml
+          grep -q '^  egress:$' rendered-np-deny-all-only.yaml
+          grep -q '^    \[\]$' rendered-np-deny-all-only.yaml
+
   install-test:
     name: Install Test
     runs-on: ubuntu-latest

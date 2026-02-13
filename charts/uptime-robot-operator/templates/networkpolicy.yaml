@@ -13,12 +13,18 @@ spec:
   policyTypes:
     - Ingress
     - Egress
+  {{- $ingress := .Values.networkPolicy.ingress }}
   ingress:
-    {{- with .Values.networkPolicy.ingress }}
-    {{- toYaml . | nindent 4 }}
+    {{- if kindIs "slice" $ingress }}
+    {{- toYaml $ingress | nindent 4 }}
+    {{- else }}
+    []
     {{- end }}
+  {{- $egress := .Values.networkPolicy.egress }}
   egress:
-    {{- with .Values.networkPolicy.egress }}
-    {{- toYaml . | nindent 4 }}
+    {{- if kindIs "slice" $egress }}
+    {{- toYaml $egress | nindent 4 }}
+    {{- else }}
+    []
     {{- end }}
 {{- end }}
