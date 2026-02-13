@@ -198,6 +198,42 @@ var _ = Describe("MaintenanceWindow Controller", func() {
 			Expect(findCondition(mw.Status.Conditions, TypeSynced)).To(BeNil())
 		})
 
+		It("should preserve status.ready on transient api key lookup failure for existing maintenance window", func() {
+			mw := CreateMaintenanceWindow(ctx, "test-transient-secret-mw", account.Name, uptimerobotv1.MaintenanceWindowSpec{
+				Name:      "Test Transient Secret MW",
+				Interval:  "daily",
+				StartTime: "02:00:00",
+				Duration:  metav1.Duration{Duration: time.Hour},
+			})
+			defer CleanupMaintenanceWindow(ctx, mw)
+
+			_, err := ReconcileMaintenanceWindow(ctx, mw)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mw.Name, Namespace: mw.Namespace}, mw)).To(Succeed())
+			Expect(mw.Status.Ready).To(BeTrue())
+			Expect(mw.Status.ID).NotTo(BeEmpty())
+
+			Expect(k8sClient.Delete(ctx, secret)).To(Succeed())
+
+			_, err = ReconcileMaintenanceWindow(ctx, mw)
+			Expect(err).To(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mw.Name, Namespace: mw.Namespace}, mw)).To(Succeed())
+			Expect(mw.Status.Ready).To(BeTrue())
+			Expect(mw.Status.ID).NotTo(BeEmpty())
+
+			ready := findCondition(mw.Status.Conditions, TypeReady)
+			Expect(ready).NotTo(BeNil())
+			Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+			Expect(ready.Reason).To(Equal(ReasonSecretNotFound))
+
+			errCond := findCondition(mw.Status.Conditions, TypeError)
+			Expect(errCond).NotTo(BeNil())
+			Expect(errCond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(errCond.Reason).To(Equal(ReasonSecretNotFound))
+		})
+
 		It("should delete maintenance window with prune=true", func() {
 			mw := CreateMaintenanceWindow(ctx, "test-delete-prune-mw", account.Name, uptimerobotv1.MaintenanceWindowSpec{
 				Name:      "Test Delete Prune MW",

@@ -68,7 +68,9 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 
 	account := &uptimerobotv1.Account{}
 	if err := GetAccount(ctx, r.Client, account, mw.Spec.Account.Name); err != nil {
-		mw.Status.Ready = false
+		if mw.Status.ID == "" {
+			mw.Status.Ready = false
+		}
 		SetReadyCondition(&mw.Status.Conditions, false, ReasonReconcileError, fmt.Sprintf("Failed to get account: %v", err), mw.Generation)
 		SetErrorCondition(&mw.Status.Conditions, true, ReasonReconcileError, fmt.Sprintf("Failed to get account: %v", err), mw.Generation)
 		if updateErr := r.Status().Update(ctx, mw); updateErr != nil {
@@ -79,7 +81,9 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 
 	apiKey, err := GetApiKey(ctx, r.Client, account)
 	if err != nil {
-		mw.Status.Ready = false
+		if mw.Status.ID == "" {
+			mw.Status.Ready = false
+		}
 		SetReadyCondition(&mw.Status.Conditions, false, ReasonSecretNotFound, fmt.Sprintf("Failed to get API key: %v", err), mw.Generation)
 		SetErrorCondition(&mw.Status.Conditions, true, ReasonSecretNotFound, fmt.Sprintf("Failed to get API key: %v", err), mw.Generation)
 		if updateErr := r.Status().Update(ctx, mw); updateErr != nil {
