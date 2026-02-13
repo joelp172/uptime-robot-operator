@@ -77,8 +77,10 @@ func (c Client) newRequest(ctx context.Context, method, endpoint string, body an
 	u := c.url + "/" + endpoint
 
 	var bodyReader io.Reader
+	var jsonBody []byte
 	if body != nil {
-		jsonBody, err := json.Marshal(body)
+		var err error
+		jsonBody, err = json.Marshal(body)
 		if err != nil {
 			return nil, err
 		}
@@ -88,6 +90,13 @@ func (c Client) newRequest(ctx context.Context, method, endpoint string, body an
 	req, err := http.NewRequestWithContext(ctx, method, u, bodyReader)
 	if err != nil {
 		return nil, err
+	}
+
+	// Set GetBody for retry support (allows request body to be re-read on retry)
+	if jsonBody != nil {
+		req.GetBody = func() (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader(jsonBody)), nil
+		}
 	}
 
 	// v3 uses Bearer token authentication

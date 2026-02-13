@@ -23,6 +23,7 @@ import (
 	"io"
 	"math"
 	"math/rand/v2"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -67,32 +68,27 @@ func isRetryableError(err error) bool {
 		return false
 	}
 
-	// Check for status errors
-	if errors.Is(err, ErrStatus) {
-		errMsg := err.Error()
-		// Extract status code from error message
-		// Format: "error code from Uptime Robot API: 429 Too Many Requests - ..."
-		if strings.Contains(errMsg, "429") ||
-			strings.Contains(errMsg, "500") ||
-			strings.Contains(errMsg, "502") ||
-			strings.Contains(errMsg, "503") ||
-			strings.Contains(errMsg, "504") ||
-			strings.Contains(errMsg, "409") {
+	// Check for standard Go network errors
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		// Network timeout errors are retryable
+		if netErr.Timeout() {
 			return true
-		}
-		// Non-retryable client errors
-		if strings.Contains(errMsg, "400") ||
-			strings.Contains(errMsg, "401") ||
-			strings.Contains(errMsg, "403") ||
-			strings.Contains(errMsg, "404") {
-			return false
 		}
 	}
 
-	// Network errors are generally retryable
-	if strings.Contains(err.Error(), "connection") ||
-		strings.Contains(err.Error(), "timeout") ||
-		strings.Contains(err.Error(), "EOF") {
+	// Check for specific error types
+	errMsg := err.Error()
+	
+	// Connection errors are generally retryable
+	if strings.Contains(errMsg, "connection refused") ||
+		strings.Contains(errMsg, "connection reset") ||
+		strings.Contains(errMsg, "broken pipe") {
+		return true
+	}
+	
+	// EOF errors during request/response are retryable
+	if strings.Contains(errMsg, "EOF") || strings.Contains(errMsg, "unexpected EOF") {
 		return true
 	}
 
@@ -165,11 +161,18 @@ func (c Client) doWithRetry(ctx context.Context, req *http.Request) (*http.Respo
 	jitterFraction := DefaultJitterFraction
 
 	var lastErr error
-	var lastResp *http.Response
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
-		// Clone the request for retry (in case body needs to be re-read)
+		// Clone the request for retry
+		// Note: We need to handle request body separately since Clone doesn't copy it
 		reqClone := req.Clone(ctx)
+		if req.GetBody != nil {
+			body, err := req.GetBody()
+			if err != nil {
+				return nil, fmt.Errorf("failed to get request body for retry: %w", err)
+			}
+			reqClone.Body = body
+		}
 
 		resp, err := http.DefaultClient.Do(reqClone)
 
@@ -178,59 +181,72 @@ func (c Client) doWithRetry(ctx context.Context, req *http.Request) (*http.Respo
 			return resp, nil
 		}
 
-		// Store error/response for potential retry decision
-		lastErr = err
-		lastResp = resp
-
 		// Build error for status codes >= 400
 		if err == nil && resp.StatusCode >= 400 {
-			defer func() { _ = resp.Body.Close() }()
 			body, _ := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
 			lastErr = fmt.Errorf("%w: %s - %s", ErrStatus, resp.Status, string(body))
-		}
+			
+			// Check if we should retry based on status code
+			shouldRetry := isRetryableStatusCode(resp.StatusCode)
+			
+			// Don't retry if not retryable or if we've exhausted attempts
+			if !shouldRetry || attempt >= maxRetries {
+				return nil, lastErr
+			}
 
-		// Check if we should retry
-		shouldRetry := false
-		if err != nil {
-			shouldRetry = isRetryableError(err)
-		} else if resp != nil {
-			shouldRetry = isRetryableStatusCode(resp.StatusCode)
-		}
+			// Calculate backoff delay
+			var delay time.Duration
 
-		// Don't retry if not retryable or if we've exhausted attempts
-		if !shouldRetry || attempt >= maxRetries {
-			return lastResp, lastErr
-		}
-
-		// Calculate backoff delay
-		var delay time.Duration
-
-		// Check for Retry-After header (especially for 429 responses)
-		if resp != nil && resp.StatusCode == http.StatusTooManyRequests {
-			if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" {
-				if parsed := parseRetryAfter(retryAfter); parsed > 0 {
-					delay = parsed
+			// Check for Retry-After header (especially for 429 responses)
+			if resp.StatusCode == http.StatusTooManyRequests {
+				if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" {
+					if parsed := parseRetryAfter(retryAfter); parsed > 0 {
+						delay = parsed
+					}
 				}
 			}
-		}
 
-		// Use exponential backoff if no Retry-After header or invalid
-		if delay == 0 {
-			delay = calculateBackoff(attempt, baseDelay, maxDelay, jitterFraction)
-		}
+			// Use exponential backoff if no Retry-After header or invalid
+			if delay == 0 {
+				delay = calculateBackoff(attempt, baseDelay, maxDelay, jitterFraction)
+			}
 
-		// Wait before retry, respecting context cancellation
-		select {
-		case <-ctx.Done():
-			return lastResp, ctx.Err()
-		case <-time.After(delay):
-			// Continue to next retry attempt
+			// Wait before retry, respecting context cancellation
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(delay):
+				// Continue to next retry attempt
+			}
+		} else {
+			// Network error case
+			lastErr = err
+			
+			// Check if we should retry based on error type
+			shouldRetry := isRetryableError(err)
+			
+			// Don't retry if not retryable or if we've exhausted attempts
+			if !shouldRetry || attempt >= maxRetries {
+				return nil, lastErr
+			}
+
+			// Calculate backoff delay
+			delay := calculateBackoff(attempt, baseDelay, maxDelay, jitterFraction)
+
+			// Wait before retry, respecting context cancellation
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(delay):
+				// Continue to next retry attempt
+			}
 		}
 	}
 
 	// Should not reach here, but return last error if we do
 	if lastErr != nil {
-		return lastResp, fmt.Errorf("%w: %v", ErrMaxRetriesExceeded, lastErr)
+		return nil, fmt.Errorf("%w: %v", ErrMaxRetriesExceeded, lastErr)
 	}
-	return lastResp, ErrMaxRetriesExceeded
+	return nil, ErrMaxRetriesExceeded
 }

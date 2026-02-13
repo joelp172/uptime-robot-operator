@@ -63,19 +63,12 @@ func TestIsRetryableError(t *testing.T) {
 		expected bool
 	}{
 		{"nil error", nil, false},
-		{"429 error", fmt.Errorf("%w: 429 Too Many Requests - ThrottlerException", ErrStatus), true},
-		{"500 error", fmt.Errorf("%w: 500 Internal Server Error", ErrStatus), true},
-		{"502 error", fmt.Errorf("%w: 502 Bad Gateway", ErrStatus), true},
-		{"503 error", fmt.Errorf("%w: 503 Service Unavailable", ErrStatus), true},
-		{"504 error", fmt.Errorf("%w: 504 Gateway Timeout", ErrStatus), true},
-		{"409 error", fmt.Errorf("%w: 409 Conflict", ErrStatus), true},
-		{"400 error", fmt.Errorf("%w: 400 Bad Request", ErrStatus), false},
-		{"401 error", fmt.Errorf("%w: 401 Unauthorized", ErrStatus), false},
-		{"403 error", fmt.Errorf("%w: 403 Forbidden", ErrStatus), false},
-		{"404 error", fmt.Errorf("%w: 404 Not Found", ErrStatus), false},
-		{"connection error", fmt.Errorf("connection refused"), true},
-		{"timeout error", fmt.Errorf("timeout exceeded"), true},
+		{"connection refused", fmt.Errorf("connection refused"), true},
+		{"connection reset", fmt.Errorf("connection reset by peer"), true},
+		{"broken pipe", fmt.Errorf("broken pipe"), true},
 		{"EOF error", fmt.Errorf("unexpected EOF"), true},
+		{"timeout error", fmt.Errorf("timeout exceeded"), false}, // This needs to be a net.Error to be detected
+		{"other error", fmt.Errorf("some other error"), false},
 	}
 
 	for _, tt := range tests {
@@ -419,5 +412,116 @@ func TestDoWithRetry_ParseRetryAfterRateLimitHeaders(t *testing.T) {
 	// Should respect Retry-After header (2 seconds)
 	if elapsed < 2*time.Second {
 		t.Errorf("expected at least 2 seconds delay (Retry-After), got %v", elapsed)
+	}
+}
+
+func TestDoWithRetry_POSTRequestWithBody(t *testing.T) {
+	client := NewClient("test-api-key")
+	var attemptCount int32
+	var receivedBodies []string
+	
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count := atomic.AddInt32(&attemptCount, 1)
+		
+		// Read and store the request body
+		body := make([]byte, 1024)
+		n, _ := r.Body.Read(body)
+		receivedBodies = append(receivedBodies, string(body[:n]))
+		
+		if count < 3 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"error":"ThrottlerException: Too Many Requests"}`))
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"status":"created"}`))
+	}))
+	defer server.Close()
+
+	// Create a POST request with a body using newRequest (which sets GetBody)
+	testBody := map[string]string{"test": "data", "foo": "bar"}
+	req, err := client.newRequest(context.Background(), http.MethodPost, "test-endpoint", testBody)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+	
+	// Update URL to point to test server
+	req.URL.Scheme = "http"
+	req.URL.Host = strings.TrimPrefix(server.URL, "http://")
+
+	resp, err := client.doWithRetry(context.Background(), req)
+	if err != nil {
+		t.Errorf("doWithRetry() error = %v, want nil", err)
+	}
+	if resp == nil {
+		t.Fatal("doWithRetry() response is nil")
+	}
+	if resp.StatusCode != http.StatusCreated {
+		t.Errorf("doWithRetry() status = %d, want %d", resp.StatusCode, http.StatusCreated)
+	}
+	resp.Body.Close()
+
+	finalAttempts := atomic.LoadInt32(&attemptCount)
+	if finalAttempts != 3 {
+		t.Errorf("expected 3 attempts, got %d", finalAttempts)
+	}
+
+	// Verify that the body was sent on all retry attempts
+	expectedBody := `{"foo":"bar","test":"data"}`
+	for i, body := range receivedBodies {
+		if body != expectedBody {
+			t.Errorf("attempt %d: expected body %q, got %q", i+1, expectedBody, body)
+		}
+	}
+}
+
+func TestDoWithRetry_PATCHRequestWithBody(t *testing.T) {
+	client := NewClient("test-api-key")
+	var attemptCount int32
+	
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count := atomic.AddInt32(&attemptCount, 1)
+		
+		// Verify method and body presence
+		if r.Method != http.MethodPatch {
+			t.Errorf("expected PATCH method, got %s", r.Method)
+		}
+		
+		if count < 2 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`{"error":"Service Unavailable"}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"updated"}`))
+	}))
+	defer server.Close()
+
+	// Create a PATCH request with a body
+	testBody := map[string]interface{}{"updated": true, "value": 42}
+	req, err := client.newRequest(context.Background(), http.MethodPatch, "test-endpoint", testBody)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+	
+	// Update URL to point to test server
+	req.URL.Scheme = "http"
+	req.URL.Host = strings.TrimPrefix(server.URL, "http://")
+
+	resp, err := client.doWithRetry(context.Background(), req)
+	if err != nil {
+		t.Errorf("doWithRetry() error = %v, want nil", err)
+	}
+	if resp == nil {
+		t.Fatal("doWithRetry() response is nil")
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("doWithRetry() status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	resp.Body.Close()
+
+	finalAttempts := atomic.LoadInt32(&attemptCount)
+	if finalAttempts != 2 {
+		t.Errorf("expected 2 attempts, got %d", finalAttempts)
 	}
 }
