@@ -213,6 +213,17 @@ deploy: cert-manager-check manifests kustomize ## Deploy controller to the K8s c
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	$(KUSTOMIZE) build config/default | $(KUBECTL) apply -f -
 	$(MAKE) webhook-cert-wait
+	$(KUBECTL) rollout status deployment/uptime-robot-controller-manager -n uptime-robot-system --timeout=180s
+	@for i in $$(seq 1 36); do \
+		endpoint_ip="$$( $(KUBECTL) get endpoints uptime-robot-webhook-service -n uptime-robot-system -o jsonpath="{.subsets[0].addresses[0].ip}" 2>/dev/null )"; \
+		if [ -n "$$endpoint_ip" ]; then \
+			echo "uptime-robot-webhook-service endpoint ready: $$endpoint_ip"; \
+			exit 0; \
+		fi; \
+		sleep 5; \
+	done; \
+	echo "Timed out waiting for endpoints/uptime-robot-webhook-service to be ready"; \
+	exit 1
 
 .PHONY: deploy-with-cert-manager
 deploy-with-cert-manager: cert-manager-install deploy ## Deploy controller and install pinned cert-manager first.

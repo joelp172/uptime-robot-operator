@@ -1,5 +1,8 @@
 - op: add
   path: /spec/template/spec/containers/0/args/-
+  value: --enable-webhooks=true
+- op: add
+  path: /spec/template/spec/containers/0/args/-
   value: --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs
 - op: add
   path: /spec/template/spec/containers/0/args/-

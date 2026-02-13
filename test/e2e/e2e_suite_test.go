@@ -19,7 +19,9 @@ package e2e
 import (
 	"fmt"
 	"os/exec"
+	"strings"
 	"testing"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -66,12 +68,28 @@ var _ = BeforeSuite(func() {
 	if deploymentExisted {
 		By("restarting controller deployment to pick up new image")
 		cmd = exec.Command("kubectl", "rollout", "restart", "deployment/uptime-robot-controller-manager", "-n", "uptime-robot-system")
-		_, _ = utils.Run(cmd)
+		_, err = utils.Run(cmd)
+		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to restart controller deployment")
 		cmd = exec.Command("kubectl", "rollout", "status", "deployment/uptime-robot-controller-manager", "-n", "uptime-robot-system", "--timeout=2m")
-		_, _ = utils.Run(cmd)
+		_, err = utils.Run(cmd)
+		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Controller deployment failed to become ready after restart")
+		waitForWebhookEndpointReady()
 	}
 })
 
 var _ = AfterSuite(func() {
 	// No cleanup needed
 })
+
+func waitForWebhookEndpointReady() {
+	By("waiting for webhook endpoint to be ready")
+	Eventually(func() string {
+		cmd := exec.Command("kubectl", "get", "endpoints", "uptime-robot-webhook-service", "-n", "uptime-robot-system",
+			"-o", "jsonpath={.subsets[0].addresses[0].ip}")
+		output, err := utils.Run(cmd)
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(output)
+	}, 3*time.Minute, 5*time.Second).ShouldNot(BeEmpty(), "webhook endpoint was not ready in time")
+}
