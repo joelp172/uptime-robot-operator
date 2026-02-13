@@ -113,7 +113,7 @@ var _ = Describe("Contact Controller", func() {
 			Expect(findCondition(contact.Status.Conditions, TypeSynced)).To(BeNil())
 		})
 
-		It("should preserve ready and restore success conditions after transient secret failure", func() {
+		It("should set ready false and restore success conditions after transient secret failure", func() {
 			controllerReconciler := &ContactReconciler{
 				Client: k8sClient,
 				Scheme: k8sClient.Scheme(),
@@ -139,7 +139,7 @@ var _ = Describe("Contact Controller", func() {
 			Expect(err).To(HaveOccurred())
 
 			Expect(k8sClient.Get(ctx, namespacedName, contact)).To(Succeed())
-			Expect(contact.Status.Ready).To(BeTrue())
+			Expect(contact.Status.Ready).To(BeFalse())
 
 			ready := findCondition(contact.Status.Conditions, TypeReady)
 			Expect(ready).NotTo(BeNil())

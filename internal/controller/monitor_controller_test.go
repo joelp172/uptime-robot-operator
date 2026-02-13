@@ -302,7 +302,7 @@ var _ = Describe("Monitor Controller", func() {
 			Expect(findCondition(monitor.Status.Conditions, TypeSynced)).To(BeNil())
 		})
 
-		It("should preserve status.ready on transient api key lookup failure for existing monitor", func() {
+		It("should set status.ready false on transient api key lookup failure for existing monitor", func() {
 			controllerReconciler := &MonitorReconciler{
 				Client: k8sClient,
 				Scheme: k8sClient.Scheme(),
@@ -326,7 +326,7 @@ var _ = Describe("Monitor Controller", func() {
 
 			Expect(k8sClient.Get(ctx, namespacedName, monitor)).To(Succeed())
 			Expect(monitor.Status.ObservedGeneration).To(Equal(monitor.Generation))
-			Expect(monitor.Status.Ready).To(BeTrue())
+			Expect(monitor.Status.Ready).To(BeFalse())
 			Expect(monitor.Status.ID).NotTo(BeEmpty())
 
 			ready := findCondition(monitor.Status.Conditions, TypeReady)

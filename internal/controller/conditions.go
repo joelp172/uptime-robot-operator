@@ -50,6 +50,10 @@ const (
 
 // SetCondition sets or updates a condition in the conditions list
 func SetCondition(conditions *[]metav1.Condition, conditionType string, status metav1.ConditionStatus, reason, message string, observedGeneration int64) {
+	if conditions == nil {
+		return
+	}
+
 	now := metav1.Now()
 
 	// Find existing condition

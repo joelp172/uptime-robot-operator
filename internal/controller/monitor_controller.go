@@ -80,9 +80,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	account := &uptimerobotv1.Account{}
 	if err := GetAccount(ctx, r.Client, account, monitor.Spec.Account.Name); err != nil {
-		if monitor.Status.ID == "" {
-			monitor.Status.Ready = false
-		}
+		monitor.Status.Ready = false
 		msg := fmt.Sprintf("Failed to get account: %v", err)
 		// Don't set Synced here since we haven't attempted sync with UptimeRobot yet.
 		SetReadyCondition(&monitor.Status.Conditions, false, ReasonReconcileError, msg, monitor.Generation)
@@ -95,9 +93,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	apiKey, err := GetApiKey(ctx, r.Client, account)
 	if err != nil {
-		if monitor.Status.ID == "" {
-			monitor.Status.Ready = false
-		}
+		monitor.Status.Ready = false
 		msg := fmt.Sprintf("Failed to get API key: %v", err)
 		// Don't set Synced here since we haven't attempted sync with UptimeRobot yet.
 		SetReadyCondition(&monitor.Status.Conditions, false, ReasonSecretNotFound, msg, monitor.Generation)
@@ -187,7 +183,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 	}
 
-	if monitor.Status.Ready && monitor.Status.Type != monitor.Spec.Monitor.Type {
+	if monitor.Status.ID != "" && monitor.Status.Type != monitor.Spec.Monitor.Type {
 		// Type change requires recreate
 		if err := urclient.DeleteMonitor(ctx, monitor.Status.ID); err != nil {
 			msg := fmt.Sprintf("Failed to delete monitor for type change: %v", err)
@@ -200,6 +196,8 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			return ctrl.Result{}, err
 		}
 		monitor.Status.Ready = false
+		monitor.Status.ID = ""
+		monitor.Status.HeartbeatURL = ""
 	}
 
 	contacts := make([]uptimerobotv1.MonitorContact, 0, len(monitor.Spec.Contacts))
@@ -246,7 +244,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 	}
 
-	if !monitor.Status.Ready {
+	if monitor.Status.ID == "" {
 		// Check if adoption is requested via annotation
 		if adoptID, hasAdoptID := monitor.Annotations[AdoptIDAnnotation]; hasAdoptID && adoptID != "" {
 			// Adopt existing monitor
