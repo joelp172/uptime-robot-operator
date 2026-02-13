@@ -115,6 +115,7 @@ var _ = Describe("SlackIntegration Controller", func() {
 			Expect(slackIntegration.Status.Ready).To(BeTrue())
 			Expect(slackIntegration.Status.ID).NotTo(BeEmpty())
 			Expect(slackIntegration.Status.Type).To(Equal("Slack"))
+			Expect(slackIntegration.Finalizers).To(ContainElement(slackIntegrationFinalizerName))
 
 			ready := findCondition(slackIntegration.Status.Conditions, TypeReady)
 			Expect(ready).NotTo(BeNil())
@@ -173,6 +174,7 @@ var _ = Describe("SlackIntegration Controller", func() {
 
 			Expect(k8sClient.Get(ctx, namespacedName, slackIntegration)).To(Succeed())
 			Expect(slackIntegration.Status.Ready).To(BeFalse())
+			Expect(slackIntegration.Finalizers).To(ContainElement(slackIntegrationFinalizerName))
 
 			ready := findCondition(slackIntegration.Status.Conditions, TypeReady)
 			Expect(ready).NotTo(BeNil())

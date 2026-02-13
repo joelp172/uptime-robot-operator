@@ -105,6 +105,14 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return ctrl.Result{}, nil
 	}
 
+	// Persist finalizer before any remote create/recreate calls to prevent orphaned integrations.
+	if !controllerutil.ContainsFinalizer(resource, slackIntegrationFinalizerName) {
+		controllerutil.AddFinalizer(resource, slackIntegrationFinalizerName)
+		if err := r.Update(ctx, resource); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
 	webhookURL, err := r.resolveWebhookURL(ctx, resource)
 	if err != nil {
 		resource.Status.Ready = false
@@ -187,13 +195,6 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	SetErrorCondition(&resource.Status.Conditions, false, ReasonReconcileSuccess, "", resource.Generation)
 	if err := r.updateSlackIntegrationStatus(ctx, resource); err != nil {
 		return ctrl.Result{}, err
-	}
-
-	if !controllerutil.ContainsFinalizer(resource, slackIntegrationFinalizerName) {
-		controllerutil.AddFinalizer(resource, slackIntegrationFinalizerName)
-		if err := r.Update(ctx, resource); err != nil {
-			return ctrl.Result{}, err
-		}
 	}
 
 	return ctrl.Result{RequeueAfter: resource.Spec.SyncInterval.Duration}, nil
