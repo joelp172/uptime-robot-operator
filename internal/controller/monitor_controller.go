@@ -314,6 +314,24 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				}
 				return ctrl.Result{}, err
 			}
+
+			// If adopted monitor should be paused, apply pause immediately.
+			if monitor.Spec.Monitor.Status == urtypes.MonitorPaused {
+				if err := urclient.PauseMonitor(ctx, result.ID); err != nil {
+					monitor.Status.Ready = false
+					monitor.Status.Status = urtypes.MonitorRunning // Monitor is running since pause failed
+					msg := fmt.Sprintf("Failed to pause adopted monitor: %v", err)
+					SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
+					SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
+					SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, msg, monitor.Generation)
+					if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
+						return ctrl.Result{}, updateErr
+					}
+					return ctrl.Result{}, err
+				}
+				log.FromContext(ctx).Info("Paused adopted monitor", "monitorID", result.ID)
+			}
+
 			// Update status with any changes from the edit (e.g., heartbeat URL)
 			monitor.Status.ID = result.ID
 			monitor.Status.Status = monitor.Spec.Monitor.Status
