@@ -98,20 +98,9 @@ func (c Client) newRequest(ctx context.Context, method, endpoint string, body an
 	return req, nil
 }
 
-// do executes an HTTP request and returns the response.
+// do executes an HTTP request and returns the response with retry logic.
 func (c Client) do(req *http.Request) (*http.Response, error) {
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-
-	if res.StatusCode >= 400 {
-		defer func() { _ = res.Body.Close() }()
-		body, _ := io.ReadAll(res.Body)
-		return nil, fmt.Errorf("%w: %s - %s", ErrStatus, res.Status, string(body))
-	}
-
-	return res, nil
+	return c.doWithRetry(req.Context(), req)
 }
 
 // doJSON executes an HTTP request and decodes the JSON response.
