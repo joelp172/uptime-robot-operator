@@ -79,14 +79,14 @@ func isRetryableError(err error) bool {
 
 	// Check for specific error types
 	errMsg := err.Error()
-	
+
 	// Connection errors are generally retryable
 	if strings.Contains(errMsg, "connection refused") ||
 		strings.Contains(errMsg, "connection reset") ||
 		strings.Contains(errMsg, "broken pipe") {
 		return true
 	}
-	
+
 	// EOF errors during request/response are retryable
 	if strings.Contains(errMsg, "EOF") || strings.Contains(errMsg, "unexpected EOF") {
 		return true
@@ -186,10 +186,10 @@ func (c Client) doWithRetry(ctx context.Context, req *http.Request) (*http.Respo
 			body, _ := io.ReadAll(resp.Body)
 			_ = resp.Body.Close()
 			lastErr = fmt.Errorf("%w: %s - %s", ErrStatus, resp.Status, string(body))
-			
+
 			// Check if we should retry based on status code
 			shouldRetry := isRetryableStatusCode(resp.StatusCode)
-			
+
 			// Don't retry if not retryable or if we've exhausted attempts
 			if !shouldRetry || attempt >= maxRetries {
 				return nil, lastErr
@@ -222,10 +222,10 @@ func (c Client) doWithRetry(ctx context.Context, req *http.Request) (*http.Respo
 		} else {
 			// Network error case
 			lastErr = err
-			
+
 			// Check if we should retry based on error type
 			shouldRetry := isRetryableError(err)
-			
+
 			// Don't retry if not retryable or if we've exhausted attempts
 			if !shouldRetry || attempt >= maxRetries {
 				return nil, lastErr

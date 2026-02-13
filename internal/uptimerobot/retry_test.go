@@ -76,7 +76,7 @@ func TestIsRetryableError(t *testing.T) {
 		{"connection reset", fmt.Errorf("connection reset by peer"), true},
 		{"broken pipe", fmt.Errorf("broken pipe"), true},
 		{"EOF error", fmt.Errorf("unexpected EOF"), true},
-		{"timeout error string", fmt.Errorf("timeout exceeded"), false}, // String matching not used for timeouts
+		{"timeout error string", fmt.Errorf("timeout exceeded"), false},                // String matching not used for timeouts
 		{"timeout error net.Error", mockTimeoutError{fmt.Errorf("i/o timeout")}, true}, // Actual net.Error with Timeout()
 		{"other error", fmt.Errorf("some other error"), false},
 	}
@@ -429,14 +429,14 @@ func TestDoWithRetry_POSTRequestWithBody(t *testing.T) {
 	client := NewClient("test-api-key")
 	var attemptCount int32
 	var receivedBodies []string
-	
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		count := atomic.AddInt32(&attemptCount, 1)
-		
+
 		// Read and store the request body
 		body, _ := io.ReadAll(r.Body)
 		receivedBodies = append(receivedBodies, string(body))
-		
+
 		if count < 3 {
 			w.WriteHeader(http.StatusTooManyRequests)
 			_, _ = w.Write([]byte(`{"error":"ThrottlerException: Too Many Requests"}`))
@@ -453,7 +453,7 @@ func TestDoWithRetry_POSTRequestWithBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create request: %v", err)
 	}
-	
+
 	// Update URL to point to test server
 	req.URL.Scheme = "http"
 	req.URL.Host = strings.TrimPrefix(server.URL, "http://")
@@ -487,15 +487,15 @@ func TestDoWithRetry_POSTRequestWithBody(t *testing.T) {
 func TestDoWithRetry_PATCHRequestWithBody(t *testing.T) {
 	client := NewClient("test-api-key")
 	var attemptCount int32
-	
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		count := atomic.AddInt32(&attemptCount, 1)
-		
+
 		// Verify method and body presence
 		if r.Method != http.MethodPatch {
 			t.Errorf("expected PATCH method, got %s", r.Method)
 		}
-		
+
 		if count < 2 {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_, _ = w.Write([]byte(`{"error":"Service Unavailable"}`))
@@ -512,7 +512,7 @@ func TestDoWithRetry_PATCHRequestWithBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create request: %v", err)
 	}
-	
+
 	// Update URL to point to test server
 	req.URL.Scheme = "http"
 	req.URL.Host = strings.TrimPrefix(server.URL, "http://")
