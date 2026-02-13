@@ -370,8 +370,10 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 	} else {
 		// Existing monitor - update it
-		// First, detect if monitor status needs to change (pause/start)
-		// Get current monitor state from API for drift detection
+		// Fetch current monitor state from API for drift detection
+		// Note: This API call happens on every reconciliation to detect out-of-band changes
+		// (e.g., if someone pauses/starts the monitor directly in UptimeRobot)
+		// This is intentional per requirement for "drift detection to reconcile out-of-band pause/start"
 		currentMonitor, err := urclient.GetMonitor(ctx, monitor.Status.ID)
 		if err != nil && !errors.Is(err, uptimerobot.ErrMonitorNotFound) {
 			msg := fmt.Sprintf("Failed to get current monitor state: %v", err)
@@ -405,10 +407,10 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				currentStatus = urtypes.MonitorRunning
 			}
 		} else if errors.Is(err, uptimerobot.ErrMonitorNotFound) {
-			// Monitor no longer exists in API - don't use cached status for drift detection
-			// Instead, proceed to EditMonitor which will recreate it if needed
-			log.FromContext(ctx).Info("Monitor not found in API, will recreate", "monitorID", monitor.Status.ID)
-			currentStatus = desiredStatus // Avoid unnecessary pause/start calls
+			// Monitor no longer exists in API - EditMonitor will detect this and recreate it
+			// Avoid unnecessary pause/start calls by setting current status to desired status
+			log.FromContext(ctx).Info("Monitor not found in API, EditMonitor will recreate if needed", "monitorID", monitor.Status.ID)
+			currentStatus = desiredStatus // Skip pause/start since monitor will be recreated
 		} else {
 			// No error but also no monitor - shouldn't happen, but default to desired status
 			currentStatus = desiredStatus
