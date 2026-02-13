@@ -217,6 +217,60 @@ var _ = Describe("Monitor Controller", func() {
 			Expect(errCond.Status).To(Equal(metav1.ConditionTrue))
 			Expect(errCond.Reason).To(Equal(ReasonAPIError))
 		})
+
+		It("should preserve status.ready when type-change delete fails", func() {
+			controllerReconciler := &MonitorReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			By("Reconciling initially to create the monitor")
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, namespacedName, monitor)).To(Succeed())
+			Expect(monitor.Status.Ready).To(BeTrue())
+			Expect(monitor.Status.Type).To(Equal(urtypes.TypeHTTPS))
+
+			By("Changing monitor type to trigger delete-and-recreate path")
+			monitor.Spec.Monitor.Type = urtypes.TypePing
+			monitor.Spec.Monitor.URL = "8.8.8.8"
+			Expect(k8sClient.Update(ctx, monitor)).To(Succeed())
+
+			// Force delete-path failure by pointing the client at an unreachable API endpoint.
+			originalAPI := os.Getenv("UPTIME_ROBOT_API")
+			Expect(os.Setenv("UPTIME_ROBOT_API", "http://127.0.0.1:1")).To(Succeed())
+			DeferCleanup(func() {
+				Expect(os.Setenv("UPTIME_ROBOT_API", originalAPI)).To(Succeed())
+			})
+
+			By("Reconciling and expecting delete failure")
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).To(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, namespacedName, monitor)).To(Succeed())
+			Expect(monitor.Status.Ready).To(BeTrue())
+			Expect(monitor.Status.Type).To(Equal(urtypes.TypeHTTPS))
+
+			ready := findCondition(monitor.Status.Conditions, TypeReady)
+			Expect(ready).NotTo(BeNil())
+			Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+			Expect(ready.Reason).To(Equal(ReasonAPIError))
+
+			synced := findCondition(monitor.Status.Conditions, TypeSynced)
+			Expect(synced).NotTo(BeNil())
+			Expect(synced.Status).To(Equal(metav1.ConditionFalse))
+			Expect(synced.Reason).To(Equal(ReasonSyncError))
+
+			errCond := findCondition(monitor.Status.Conditions, TypeError)
+			Expect(errCond).NotTo(BeNil())
+			Expect(errCond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(errCond.Reason).To(Equal(ReasonAPIError))
+		})
 	})
 
 	Context("When adopting an existing monitor", func() {
