@@ -331,7 +331,7 @@ func TestDoWithRetry_NonRetryableError(t *testing.T) {
 				w.WriteHeader(tt.statusCode)
 				_, _ = w.Write([]byte(`{"error":"client error"}`))
 			}))
-			defer server.Close()
+			t.Cleanup(server.Close)
 
 			req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, server.URL, nil)
 			if err != nil {
@@ -423,8 +423,15 @@ func TestDoWithRetry_429RespectsRetryAfterHeader(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	_, _ = client.doWithRetry(ctx, req)
+	_, retryErr := client.doWithRetry(ctx, req)
 	elapsed := time.Since(start)
+
+	if retryErr == nil {
+		t.Fatal("expected deadline error, got nil")
+	}
+	if !strings.Contains(retryErr.Error(), context.DeadlineExceeded.Error()) {
+		t.Errorf("expected deadline exceeded error, got %v", retryErr)
+	}
 
 	// Should respect Retry-After header (2 seconds)
 	if elapsed < 2*time.Second {

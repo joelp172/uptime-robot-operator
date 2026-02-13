@@ -212,11 +212,15 @@ func (c Client) doWithRetry(ctx context.Context, req *http.Request) (*http.Respo
 				delay = calculateBackoff(attempt, baseDelay, maxDelay, jitterFraction)
 			}
 
-			// Wait before retry, respecting context cancellation
+			// Wait before retry, respecting context cancellation.
+			timer := time.NewTimer(delay)
 			select {
 			case <-ctx.Done():
+				if !timer.Stop() {
+					<-timer.C
+				}
 				return nil, ctx.Err()
-			case <-time.After(delay):
+			case <-timer.C:
 				// Continue to next retry attempt
 			}
 		} else {
@@ -234,11 +238,15 @@ func (c Client) doWithRetry(ctx context.Context, req *http.Request) (*http.Respo
 			// Calculate backoff delay
 			delay := calculateBackoff(attempt, baseDelay, maxDelay, jitterFraction)
 
-			// Wait before retry, respecting context cancellation
+			// Wait before retry, respecting context cancellation.
+			timer := time.NewTimer(delay)
 			select {
 			case <-ctx.Done():
+				if !timer.Stop() {
+					<-timer.C
+				}
 				return nil, ctx.Err()
-			case <-time.After(delay):
+			case <-timer.C:
 				// Continue to next retry attempt
 			}
 		}
