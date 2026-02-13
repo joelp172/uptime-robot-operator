@@ -58,7 +58,9 @@ func (r *ContactReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	account := &uptimerobotv1.Account{}
 	if err := GetAccount(ctx, r.Client, account, contact.Spec.Account.Name); err != nil {
-		contact.Status.Ready = false
+		if contact.Status.ID == "" {
+			contact.Status.Ready = false
+		}
 		// Don't set Synced here since we haven't attempted sync with UptimeRobot yet
 		SetReadyCondition(&contact.Status.Conditions, false, ReasonReconcileError, "Failed to get account: "+err.Error(), contact.Generation)
 		SetErrorCondition(&contact.Status.Conditions, true, ReasonReconcileError, "Failed to get account: "+err.Error(), contact.Generation)
@@ -70,7 +72,9 @@ func (r *ContactReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	apiKey, err := GetApiKey(ctx, r.Client, account)
 	if err != nil {
-		contact.Status.Ready = false
+		if contact.Status.ID == "" {
+			contact.Status.Ready = false
+		}
 		// Don't set Synced here since we haven't attempted sync with UptimeRobot yet
 		SetReadyCondition(&contact.Status.Conditions, false, ReasonSecretNotFound, "Failed to get API key: "+err.Error(), contact.Generation)
 		SetErrorCondition(&contact.Status.Conditions, true, ReasonSecretNotFound, "Failed to get API key: "+err.Error(), contact.Generation)
@@ -115,6 +119,14 @@ func (r *ContactReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 		contact.Status.Ready = true
 		contact.Status.ID = id
+		SetReadyCondition(&contact.Status.Conditions, true, ReasonReconcileSuccess, "Contact reconciled successfully", contact.Generation)
+		SetSyncedCondition(&contact.Status.Conditions, true, ReasonSyncSuccess, "Successfully validated contact reference", contact.Generation)
+		SetErrorCondition(&contact.Status.Conditions, false, ReasonReconcileSuccess, "", contact.Generation)
+		if err := r.Status().Update(ctx, contact); err != nil {
+			return ctrl.Result{}, err
+		}
+	} else {
+		contact.Status.Ready = true
 		SetReadyCondition(&contact.Status.Conditions, true, ReasonReconcileSuccess, "Contact reconciled successfully", contact.Generation)
 		SetSyncedCondition(&contact.Status.Conditions, true, ReasonSyncSuccess, "Successfully validated contact reference", contact.Generation)
 		SetErrorCondition(&contact.Status.Conditions, false, ReasonReconcileSuccess, "", contact.Generation)

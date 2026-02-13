@@ -112,6 +112,73 @@ var _ = Describe("Contact Controller", func() {
 
 			Expect(findCondition(contact.Status.Conditions, TypeSynced)).To(BeNil())
 		})
+
+		It("should preserve ready and restore success conditions after transient secret failure", func() {
+			controllerReconciler := &ContactReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			By("Reconciling contact successfully first")
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, namespacedName, contact)).To(Succeed())
+			Expect(contact.Status.Ready).To(BeTrue())
+			Expect(contact.Status.ID).NotTo(BeEmpty())
+
+			By("Simulating transient dependency failure by deleting account secret")
+			restoredSecret := secret.DeepCopy()
+			Expect(k8sClient.Delete(ctx, secret)).To(Succeed())
+
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).To(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, namespacedName, contact)).To(Succeed())
+			Expect(contact.Status.Ready).To(BeTrue())
+
+			ready := findCondition(contact.Status.Conditions, TypeReady)
+			Expect(ready).NotTo(BeNil())
+			Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+			Expect(ready.Reason).To(Equal(ReasonSecretNotFound))
+
+			errCond := findCondition(contact.Status.Conditions, TypeError)
+			Expect(errCond).NotTo(BeNil())
+			Expect(errCond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(errCond.Reason).To(Equal(ReasonSecretNotFound))
+
+			By("Restoring secret and reconciling again")
+			restoredSecret.ResourceVersion = ""
+			restoredSecret.UID = ""
+			Expect(k8sClient.Create(ctx, restoredSecret)).To(Succeed())
+			secret = restoredSecret
+
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, namespacedName, contact)).To(Succeed())
+			Expect(contact.Status.Ready).To(BeTrue())
+
+			ready = findCondition(contact.Status.Conditions, TypeReady)
+			Expect(ready).NotTo(BeNil())
+			Expect(ready.Status).To(Equal(metav1.ConditionTrue))
+			Expect(ready.Reason).To(Equal(ReasonReconcileSuccess))
+
+			synced := findCondition(contact.Status.Conditions, TypeSynced)
+			Expect(synced).NotTo(BeNil())
+			Expect(synced.Status).To(Equal(metav1.ConditionTrue))
+			Expect(synced.Reason).To(Equal(ReasonSyncSuccess))
+
+			errCond = findCondition(contact.Status.Conditions, TypeError)
+			Expect(errCond).NotTo(BeNil())
+			Expect(errCond.Status).To(Equal(metav1.ConditionFalse))
+		})
 	})
 })
 

@@ -80,11 +80,31 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	account := &uptimerobotv1.Account{}
 	if err := GetAccount(ctx, r.Client, account, monitor.Spec.Account.Name); err != nil {
+		if monitor.Status.ID == "" {
+			monitor.Status.Ready = false
+		}
+		msg := fmt.Sprintf("Failed to get account: %v", err)
+		// Don't set Synced here since we haven't attempted sync with UptimeRobot yet.
+		SetReadyCondition(&monitor.Status.Conditions, false, ReasonReconcileError, msg, monitor.Generation)
+		SetErrorCondition(&monitor.Status.Conditions, true, ReasonReconcileError, msg, monitor.Generation)
+		if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
+			return ctrl.Result{}, updateErr
+		}
 		return ctrl.Result{}, err
 	}
 
 	apiKey, err := GetApiKey(ctx, r.Client, account)
 	if err != nil {
+		if monitor.Status.ID == "" {
+			monitor.Status.Ready = false
+		}
+		msg := fmt.Sprintf("Failed to get API key: %v", err)
+		// Don't set Synced here since we haven't attempted sync with UptimeRobot yet.
+		SetReadyCondition(&monitor.Status.Conditions, false, ReasonSecretNotFound, msg, monitor.Generation)
+		SetErrorCondition(&monitor.Status.Conditions, true, ReasonSecretNotFound, msg, monitor.Generation)
+		if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
+			return ctrl.Result{}, updateErr
+		}
 		return ctrl.Result{}, err
 	}
 	urclient := uptimerobot.NewClient(apiKey)
@@ -373,7 +393,6 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	if err := r.reconcileHeartbeatURLPublishTarget(ctx, monitor); err != nil {
-		monitor.Status.Ready = false
 		msg := fmt.Sprintf("Failed to reconcile heartbeat URL publish target: %v", err)
 		// The monitor has already synced with UptimeRobot at this point.
 		// Heartbeat URL publishing is a local follow-up operation and should not flip Synced to false.

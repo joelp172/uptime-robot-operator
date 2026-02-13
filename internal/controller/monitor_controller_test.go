@@ -271,6 +271,74 @@ var _ = Describe("Monitor Controller", func() {
 			Expect(errCond.Status).To(Equal(metav1.ConditionTrue))
 			Expect(errCond.Reason).To(Equal(ReasonAPIError))
 		})
+
+		It("should persist status when api key lookup fails before first sync", func() {
+			controllerReconciler := &MonitorReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			Expect(k8sClient.Delete(ctx, secret)).To(Succeed())
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).To(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, namespacedName, monitor)).To(Succeed())
+			Expect(monitor.Status.ObservedGeneration).To(Equal(monitor.Generation))
+			Expect(monitor.Status.Ready).To(BeFalse())
+
+			ready := findCondition(monitor.Status.Conditions, TypeReady)
+			Expect(ready).NotTo(BeNil())
+			Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+			Expect(ready.Reason).To(Equal(ReasonSecretNotFound))
+
+			errCond := findCondition(monitor.Status.Conditions, TypeError)
+			Expect(errCond).NotTo(BeNil())
+			Expect(errCond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(errCond.Reason).To(Equal(ReasonSecretNotFound))
+
+			Expect(findCondition(monitor.Status.Conditions, TypeSynced)).To(BeNil())
+		})
+
+		It("should preserve status.ready on transient api key lookup failure for existing monitor", func() {
+			controllerReconciler := &MonitorReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, namespacedName, monitor)).To(Succeed())
+			Expect(monitor.Status.Ready).To(BeTrue())
+			Expect(monitor.Status.ID).NotTo(BeEmpty())
+
+			Expect(k8sClient.Delete(ctx, secret)).To(Succeed())
+
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).To(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, namespacedName, monitor)).To(Succeed())
+			Expect(monitor.Status.ObservedGeneration).To(Equal(monitor.Generation))
+			Expect(monitor.Status.Ready).To(BeTrue())
+			Expect(monitor.Status.ID).NotTo(BeEmpty())
+
+			ready := findCondition(monitor.Status.Conditions, TypeReady)
+			Expect(ready).NotTo(BeNil())
+			Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+			Expect(ready.Reason).To(Equal(ReasonSecretNotFound))
+
+			errCond := findCondition(monitor.Status.Conditions, TypeError)
+			Expect(errCond).NotTo(BeNil())
+			Expect(errCond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(errCond.Reason).To(Equal(ReasonSecretNotFound))
+		})
 	})
 
 	Context("When adopting an existing monitor", func() {
@@ -1009,7 +1077,7 @@ var _ = Describe("Monitor Controller", func() {
 
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: monitor.Name, Namespace: monitor.Namespace}, monitor)).To(Succeed())
 			Expect(monitor.Status.HeartbeatURL).NotTo(BeEmpty())
-			Expect(monitor.Status.Ready).To(BeFalse())
+			Expect(monitor.Status.Ready).To(BeTrue())
 			Expect(monitor.Status.LastSyncedTime).NotTo(BeNil())
 
 			ready := findCondition(monitor.Status.Conditions, TypeReady)
