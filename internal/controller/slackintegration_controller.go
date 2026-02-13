@@ -147,7 +147,6 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 		integrations, err := urclient.ListIntegrations(ctx)
 		if err != nil {
-			resource.Status.Ready = false
 			SetReadyCondition(&resource.Status.Conditions, false, ReasonAPIError, fmt.Sprintf("Failed to list integrations: %v", err), resource.Generation)
 			SetSyncedCondition(&resource.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to sync with UptimeRobot: %v", err), resource.Generation)
 			SetErrorCondition(&resource.Status.Conditions, true, ReasonAPIError, fmt.Sprintf("Failed to list integrations: %v", err), resource.Generation)
