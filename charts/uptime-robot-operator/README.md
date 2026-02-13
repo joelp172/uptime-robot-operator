@@ -171,6 +171,8 @@ The NetworkPolicy is disabled by default. When enabled, it restricts network tra
 
 **All other traffic is denied** when the NetworkPolicy is enabled.
 
+**Important:** If you customize the ingress or egress rules and provide an empty list, all traffic in that direction will be blocked. This is intentional for security-by-default behavior.
+
 To enable the NetworkPolicy:
 
 ```bash

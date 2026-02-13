@@ -127,9 +127,9 @@ networkPolicy:
     - ports:
         - port: 443    # HTTPS (UptimeRobot API + Kubernetes API)
           protocol: TCP
-        - port: 53     # DNS
+        - port: 53     # DNS (UDP)
           protocol: UDP
-        - port: 53     # DNS
+        - port: 53     # DNS (TCP for zone transfers and large queries)
           protocol: TCP
 
 # Note: CRDs are managed by Helm's crds/ directory mechanism.
