@@ -41,13 +41,26 @@ func NewClient(apiKey string) Client {
 		api = strings.TrimSuffix(env, "/")
 	}
 
-	return Client{url: api, apiKey: apiKey}
+	return Client{
+		url:            api,
+		apiKey:         apiKey,
+		maxRetries:     DefaultMaxRetries,
+		baseDelay:      DefaultBaseDelay,
+		maxDelay:       DefaultMaxDelay,
+		jitterFraction: DefaultJitterFraction,
+	}
 }
 
 // Client is the UptimeRobot API v3 client.
 type Client struct {
 	url    string
 	apiKey string
+
+	// Optional retry overrides for testing. Zero values use package defaults.
+	maxRetries     int
+	baseDelay      time.Duration
+	maxDelay       time.Duration
+	jitterFraction float64
 }
 
 var (
@@ -77,8 +90,10 @@ func (c Client) newRequest(ctx context.Context, method, endpoint string, body an
 	u := c.url + "/" + endpoint
 
 	var bodyReader io.Reader
+	var jsonBody []byte
 	if body != nil {
-		jsonBody, err := json.Marshal(body)
+		var err error
+		jsonBody, err = json.Marshal(body)
 		if err != nil {
 			return nil, err
 		}
@@ -90,6 +105,13 @@ func (c Client) newRequest(ctx context.Context, method, endpoint string, body an
 		return nil, err
 	}
 
+	// Set GetBody for retry support (allows request body to be re-read on retry)
+	if jsonBody != nil {
+		req.GetBody = func() (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader(jsonBody)), nil
+		}
+	}
+
 	// v3 uses Bearer token authentication
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/json")
@@ -98,20 +120,9 @@ func (c Client) newRequest(ctx context.Context, method, endpoint string, body an
 	return req, nil
 }
 
-// do executes an HTTP request and returns the response.
+// do executes an HTTP request and returns the response with retry logic.
 func (c Client) do(req *http.Request) (*http.Response, error) {
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-
-	if res.StatusCode >= 400 {
-		defer func() { _ = res.Body.Close() }()
-		body, _ := io.ReadAll(res.Body)
-		return nil, fmt.Errorf("%w: %s - %s", ErrStatus, res.Status, string(body))
-	}
-
-	return res, nil
+	return c.doWithRetry(req.Context(), req)
 }
 
 // doJSON executes an HTTP request and decodes the JSON response.
@@ -471,14 +482,10 @@ func (c Client) CreateMonitor(ctx context.Context, monitor uptimerobotv1.Monitor
 	if err != nil {
 		return CreateMonitorResult{}, err
 	}
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return CreateMonitorResult{}, err
-	}
-	body, _ := io.ReadAll(res.Body)
-	_ = res.Body.Close()
-
-	if res.StatusCode == http.StatusCreated || res.StatusCode == http.StatusOK {
+	res, err := c.do(req)
+	if err == nil {
+		body, _ := io.ReadAll(res.Body)
+		_ = res.Body.Close()
 		var resp MonitorCreateResponse
 		if err := json.Unmarshal(body, &resp); err != nil {
 			return CreateMonitorResult{}, err
@@ -489,7 +496,8 @@ func (c Client) CreateMonitor(ctx context.Context, monitor uptimerobotv1.Monitor
 		}, nil
 	}
 
-	if res.StatusCode == http.StatusConflict {
+	if errors.Is(err, ErrStatus) && strings.Contains(err.Error(), "409 Conflict") {
+		body := extractErrStatusBody(err)
 		// 409 Duplicate: resolve existing monitor ID and adopt it so reconciliation can continue.
 		if id := parseMonitorIDFrom409Body(body); id != "" {
 			m, getErr := c.GetMonitor(ctx, id)
@@ -499,19 +507,14 @@ func (c Client) CreateMonitor(ctx context.Context, monitor uptimerobotv1.Monitor
 			return CreateMonitorResult{ID: id}, nil
 		}
 
-		// Try by URL first (most reliable for HTTP/HTTPS duplicates), then by name. Retry once on rate limit.
+		// Try to resolve a duplicate monitor from list results using strict matching.
+		// Never adopt by URL alone; that can incorrectly alias many CRs to one monitor.
 		tryFind := func() (CreateMonitorResult, bool) {
-			if monitor.URL != "" {
-				if id, findErr := c.FindMonitorByURL(ctx, monitor.URL); findErr == nil {
-					// Fetch full monitor details to get URL (especially important for heartbeat monitors)
-					if m, getErr := c.GetMonitor(ctx, id); getErr == nil {
-						return CreateMonitorResult{ID: id, URL: m.URL}, true
-					}
-					// Fallback: return just ID if GetMonitor fails
-					return CreateMonitorResult{ID: id}, true
-				}
+			all, findErr := c.listAllMonitors(ctx)
+			if findErr != nil {
+				return CreateMonitorResult{}, false
 			}
-			if m, findErr := c.FindMonitorByName(ctx, monitor.Name); findErr == nil {
+			if m, ok := selectDuplicateMonitorCandidate(all, monitor); ok {
 				return CreateMonitorResult{ID: strconv.Itoa(m.ID), URL: m.URL}, true
 			}
 			return CreateMonitorResult{}, false
@@ -532,7 +535,7 @@ func (c Client) CreateMonitor(ctx context.Context, monitor uptimerobotv1.Monitor
 			return result, nil
 		}
 	}
-	return CreateMonitorResult{}, fmt.Errorf("%w: %s - %s", ErrStatus, res.Status, string(body))
+	return CreateMonitorResult{}, err
 }
 
 // parseMonitorIDFrom409Body extracts a monitor ID from a 409 response body if present.
@@ -567,6 +570,51 @@ func parseMonitorIDFrom409Body(body []byte) string {
 // normalizeURL trims trailing slash for consistent comparison with API-stored URLs.
 func normalizeURL(u string) string {
 	return strings.TrimSuffix(strings.TrimSpace(u), "/")
+}
+
+func extractErrStatusBody(err error) []byte {
+	if err == nil {
+		return nil
+	}
+	msg := err.Error()
+	parts := strings.SplitN(msg, " - ", 2)
+	if len(parts) < 2 {
+		return nil
+	}
+	return []byte(parts[1])
+}
+
+// selectDuplicateMonitorCandidate returns a single safe duplicate target for 409 adoption.
+// Matching rules:
+// - name is required; URL-only adoption is not allowed.
+// - if URL is provided, both name and URL must match.
+// - if URL is omitted, name must match exactly one monitor.
+func selectDuplicateMonitorCandidate(existing []MonitorResponse, desired uptimerobotv1.MonitorValues) (*MonitorResponse, bool) {
+	name := strings.TrimSpace(desired.Name)
+	if name == "" {
+		return nil, false
+	}
+
+	wantURL := normalizeURL(desired.URL)
+	matches := make([]MonitorResponse, 0, 1)
+	for i := range existing {
+		m := existing[i]
+		if strings.TrimSpace(m.FriendlyName) != name {
+			continue
+		}
+		if wantURL != "" && normalizeURL(m.URL) != wantURL {
+			continue
+		}
+		matches = append(matches, m)
+		if len(matches) > 1 {
+			return nil, false
+		}
+	}
+
+	if len(matches) != 1 {
+		return nil, false
+	}
+	return &matches[0], true
 }
 
 // FindMonitorByURL searches for a monitor by its URL, listing all pages so the monitor is found.
