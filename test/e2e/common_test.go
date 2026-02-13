@@ -197,6 +197,8 @@ func cleanupMonitors() {
 		fmt.Sprintf("e2e-dns-ns-%s", testRunID),
 		fmt.Sprintf("e2e-dns-txt-%s", testRunID),
 		fmt.Sprintf("e2e-contacts-%s", testRunID),
+		fmt.Sprintf("e2e-dup-base-%s", testRunID),
+		fmt.Sprintf("e2e-dup-attempt-%s", testRunID),
 		fmt.Sprintf("e2e-adopt-%s", testRunID),
 		fmt.Sprintf("e2e-adopted-%s", testRunID),
 	}
