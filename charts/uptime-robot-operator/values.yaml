@@ -109,6 +109,29 @@ namespace:
   # Create the namespace as part of the Helm chart
   create: true
 
+# Network policy configuration
+networkPolicy:
+  # Enable network policy for the operator
+  enabled: false
+  # Ingress rules
+  ingress:
+    - ports:
+        - port: 8081   # health probes
+          protocol: TCP
+        - port: 8443   # metrics
+          protocol: TCP
+        - port: 9443   # webhooks
+          protocol: TCP
+  # Egress rules
+  egress:
+    - ports:
+        - port: 443    # HTTPS (UptimeRobot API + Kubernetes API)
+          protocol: TCP
+        - port: 53     # DNS (UDP)
+          protocol: UDP
+        - port: 53     # DNS (TCP for zone transfers and large queries)
+          protocol: TCP
+
 # Note: CRDs are managed by Helm's crds/ directory mechanism.
 # They are automatically installed on first install and preserved on uninstall.
 # This behavior is fixed by Helm and cannot be configured.
