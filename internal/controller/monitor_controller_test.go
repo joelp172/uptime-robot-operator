@@ -172,6 +172,51 @@ var _ = Describe("Monitor Controller", func() {
 			Expect(readyAfter).NotTo(BeNil())
 			Expect(readyAfter.LastTransitionTime).To(Equal(firstReadyTransition))
 		})
+
+		It("should preserve status.ready when edit of an existing monitor fails", func() {
+			controllerReconciler := &MonitorReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, namespacedName, monitor)).To(Succeed())
+			Expect(monitor.Status.Ready).To(BeTrue())
+
+			// Force update-path failure by pointing the client at an unreachable API endpoint.
+			originalAPI := os.Getenv("UPTIME_ROBOT_API")
+			Expect(os.Setenv("UPTIME_ROBOT_API", "http://127.0.0.1:1")).To(Succeed())
+			DeferCleanup(func() {
+				Expect(os.Setenv("UPTIME_ROBOT_API", originalAPI)).To(Succeed())
+			})
+
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).To(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, namespacedName, monitor)).To(Succeed())
+			Expect(monitor.Status.Ready).To(BeTrue())
+
+			ready := findCondition(monitor.Status.Conditions, TypeReady)
+			Expect(ready).NotTo(BeNil())
+			Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+			Expect(ready.Reason).To(Equal(ReasonAPIError))
+
+			synced := findCondition(monitor.Status.Conditions, TypeSynced)
+			Expect(synced).NotTo(BeNil())
+			Expect(synced.Status).To(Equal(metav1.ConditionFalse))
+			Expect(synced.Reason).To(Equal(ReasonSyncError))
+
+			errCond := findCondition(monitor.Status.Conditions, TypeError)
+			Expect(errCond).NotTo(BeNil())
+			Expect(errCond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(errCond.Reason).To(Equal(ReasonAPIError))
+		})
 	})
 
 	Context("When adopting an existing monitor", func() {
@@ -911,11 +956,17 @@ var _ = Describe("Monitor Controller", func() {
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: monitor.Name, Namespace: monitor.Namespace}, monitor)).To(Succeed())
 			Expect(monitor.Status.HeartbeatURL).NotTo(BeEmpty())
 			Expect(monitor.Status.Ready).To(BeFalse())
+			Expect(monitor.Status.LastSyncedTime).NotTo(BeNil())
 
 			ready := findCondition(monitor.Status.Conditions, TypeReady)
 			Expect(ready).NotTo(BeNil())
 			Expect(ready.Status).To(Equal(metav1.ConditionFalse))
 			Expect(ready.Reason).To(Equal(ReasonReconcileError))
+
+			synced := findCondition(monitor.Status.Conditions, TypeSynced)
+			Expect(synced).NotTo(BeNil())
+			Expect(synced.Status).To(Equal(metav1.ConditionTrue))
+			Expect(synced.Reason).To(Equal(ReasonSyncSuccess))
 
 			errCond := findCondition(monitor.Status.Conditions, TypeError)
 			Expect(errCond).NotTo(BeNil())

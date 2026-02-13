@@ -352,7 +352,6 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	} else {
 		result, err := urclient.EditMonitor(ctx, monitor.Status.ID, monitor.Spec.Monitor, contacts)
 		if err != nil {
-			monitor.Status.Ready = false
 			msg := fmt.Sprintf("Failed to edit monitor: %v", err)
 			SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
 			SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
@@ -377,11 +376,13 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if err := r.reconcileHeartbeatURLPublishTarget(ctx, monitor); err != nil {
 		monitor.Status.Ready = false
 		msg := fmt.Sprintf("Failed to reconcile heartbeat URL publish target: %v", err)
-		// Note: We don't set Synced=false here because the monitor successfully synced with UptimeRobot.
-		// Only the local heartbeat URL publishing failed, which doesn't affect the sync status.
-		// The Synced condition will retain its previous successful state (true).
+		// The monitor has already synced with UptimeRobot at this point.
+		// Heartbeat URL publishing is a local follow-up operation and should not flip Synced to false.
 		SetReadyCondition(&monitor.Status.Conditions, false, ReasonReconcileError, msg, monitor.Generation)
+		SetSyncedCondition(&monitor.Status.Conditions, true, ReasonSyncSuccess, "Successfully synced with UptimeRobot", monitor.Generation)
 		SetErrorCondition(&monitor.Status.Conditions, true, ReasonReconcileError, msg, monitor.Generation)
+		now := metav1.Now()
+		monitor.Status.LastSyncedTime = &now
 		if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
 			return ctrl.Result{}, updateErr
 		}
