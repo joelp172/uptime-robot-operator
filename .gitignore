@@ -32,3 +32,5 @@ go.work
 *.swp
 *.swo
 *~
+
+.cache/
