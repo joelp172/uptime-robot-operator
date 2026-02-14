@@ -80,6 +80,63 @@ kubectl delete maintenancewindows,monitors,contacts,accounts --all
 make dev-cluster-delete
 ```
 
+## CI/CD
+
+### Code Coverage
+
+Code coverage is automatically collected and reported on all PRs and commits:
+
+- **Coverage Badge**: Shows main branch coverage (see README)
+- **Threshold**: Minimum 70% coverage required (enforced by Codecov)
+- **PR Comments**: Coverage diff is automatically posted on every PR
+- **Configuration**: See `codecov.yml` for threshold and reporting settings
+
+Local coverage report:
+
+```bash
+make test
+go tool cover -html=cover.out
+```
+
+### E2E Tests in CI
+
+#### Automated E2E Tests (PRs)
+
+Basic E2E tests run automatically on every PR (no API key needed):
+
+- Tests operator deployment, CRD installation, and metrics
+- Runs in Kind cluster
+- Logs are uploaded as artifacts on failure
+- Workflow: `.github/workflows/e2e-pr.yml`
+
+#### Manual E2E Tests (Real API)
+
+Full E2E tests with real UptimeRobot API can be triggered manually:
+
+**Via PR Comment** (requires write access):
+```
+/run-e2e
+```
+
+**Via GitHub UI**:
+1. Go to Actions → E2E Tests
+2. Click "Run workflow"
+3. Select branch
+
+These tests require `UPTIME_ROBOT_API_DEV` secret to be configured.
+
+**Workflow**: `.github/workflows/e2e.yml`
+
+### CI Workflow Overview
+
+| Workflow        | Trigger                                 | Purpose                       |
+|-----------------|-----------------------------------------|-------------------------------|
+| `build.yml`     | PR, push to main                        | Lint, test, build, release    |
+| `e2e-pr.yml`    | PR open/sync                            | Automated basic E2E tests     |
+| `e2e.yml`       | Manual (`/run-e2e` or workflow_dispatch)| Full E2E with real API        |
+| `helm.yml`      | Changes to `charts/**`                  | Helm chart validation         |
+| `gitleaks.yaml` | PR, push                                | Secret scanning               |
+
 ## Local Development
 
 ### Run Operator Locally
