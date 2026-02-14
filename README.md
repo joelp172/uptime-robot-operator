@@ -17,6 +17,15 @@ Manage [UptimeRobot](https://uptimerobot.com/?red=joelpi) monitors as Kubernetes
 - Alert contact management
 - **Adopt existing monitors** - Migrate monitors created outside Kubernetes without losing history
 
+## Security
+
+All images are:
+- **Signed with Cosign** — Keyless signing via GitHub Actions OpenID Connect (OIDC)
+- **Scanned for vulnerabilities** — Trivy scanning; critical/high severity blocks the build
+- **SBOM included** — Software Bill of Materials (SBOM) in SPDX and CycloneDX formats
+
+See [SECURITY.md](SECURITY.md) for verification instructions and deployment best practices.
+
 ## Quick Start
 
 Install the operator:
@@ -81,6 +90,7 @@ EOF
 |----------|---------|
 | [Installation](docs/installation.md) | Install via kubectl or Helm |
 | [Getting Started](docs/getting-started.md) | Create your first monitor (tutorial) |
+| [Security](SECURITY.md) | Verify images and deployment best practices |
 | [Monitors](docs/monitors.md) | Configure monitor types and alerts |
 | [Migration Guide](docs/migration-guide.md) | Adopt existing UptimeRobot resources |
 | [Maintenance Windows](docs/maintenance-windows.md) | Schedule planned downtime |

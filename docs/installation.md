@@ -16,7 +16,24 @@ Apply the latest release manifests:
 kubectl apply -f https://github.com/joelp172/uptime-robot-operator/releases/latest/download/install.yaml
 ```
 
-Verify the operator is running:
+### Verify image signature (optional)
+
+**Prerequisites:** [Cosign](https://docs.sigstore.dev/cosign/installation) installed.
+
+Verify the image referenced by the install manifest before deployment:
+
+```bash
+curl -L -o install.yaml https://github.com/joelp172/uptime-robot-operator/releases/latest/download/install.yaml
+IMAGE_REF=$(grep "image: ghcr.io/joelp172/uptime-robot-operator" install.yaml | head -n1 | awk '{print $2}')
+cosign verify \
+  --certificate-identity-regexp="^https://github.com/joelp172/uptime-robot-operator/" \
+  --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+  "${IMAGE_REF}"
+```
+
+See [SECURITY.md](../SECURITY.md) for verification details and deployment best practices.
+
+### Verify the operator is running
 
 ```bash
 kubectl get pods -n uptime-robot-system

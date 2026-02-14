@@ -74,14 +74,93 @@ jobs:
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
+  security-scan-pr:
+    name: Security Scan (PR)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    needs: [lint, verify-crds, test]
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build Image (no push)
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          pull: true
+          push: false
+          load: true
+          tags: ghcr.io/joelp172/uptime-robot-operator:pr-${{ github.event.pull_request.number }}
+          labels: |
+            org.opencontainers.image.source=${{ github.event.repository.html_url }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      
+      # Security Scanning and SBOM Generation for PRs
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@0.34.0
+        with:
+          image-ref: ghcr.io/joelp172/uptime-robot-operator:pr-${{ github.event.pull_request.number }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+      
+      - name: Upload Trivy results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+      
+      - name: Run Trivy vulnerability scanner (table format)
+        uses: aquasecurity/trivy-action@0.34.0
+        with:
+          image-ref: ghcr.io/joelp172/uptime-robot-operator:pr-${{ github.event.pull_request.number }}
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+      
+      - name: Generate SBOM (SPDX)
+        uses: aquasecurity/trivy-action@0.34.0
+        with:
+          image-ref: ghcr.io/joelp172/uptime-robot-operator:pr-${{ github.event.pull_request.number }}
+          format: 'spdx-json'
+          output: 'sbom-spdx.json'
+      
+      - name: Generate SBOM (CycloneDX)
+        uses: aquasecurity/trivy-action@0.34.0
+        with:
+          image-ref: ghcr.io/joelp172/uptime-robot-operator:pr-${{ github.event.pull_request.number }}
+          format: 'cyclonedx'
+          output: 'sbom-cyclonedx.json'
+      
+      - name: Upload SBOM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-pr-${{ github.event.pull_request.number }}
+          path: |
+            sbom-spdx.json
+            sbom-cyclonedx.json
+
   build:
     name: Build
     runs-on: ubuntu-latest
     needs: [lint, verify-crds, test]
     if: github.event_name == 'push'
     permissions:
-      contents: write
+      contents: read
       packages: write
+      id-token: write  # Required for cosign keyless signing
+      security-events: write  # Required for uploading SARIF results
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -105,6 +184,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
       - name: Build and Push
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -115,6 +195,76 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      
+      # Security Scanning and SBOM Generation
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@0.34.0
+        with:
+          image-ref: ghcr.io/joelp172/uptime-robot-operator@${{ steps.build.outputs.digest }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+      
+      - name: Upload Trivy results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+      
+      - name: Run Trivy vulnerability scanner (table format)
+        uses: aquasecurity/trivy-action@0.34.0
+        with:
+          image-ref: ghcr.io/joelp172/uptime-robot-operator@${{ steps.build.outputs.digest }}
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+      
+      - name: Generate SBOM (SPDX)
+        uses: aquasecurity/trivy-action@0.34.0
+        with:
+          image-ref: ghcr.io/joelp172/uptime-robot-operator@${{ steps.build.outputs.digest }}
+          format: 'spdx-json'
+          output: 'sbom-spdx.json'
+      
+      - name: Generate SBOM (CycloneDX)
+        uses: aquasecurity/trivy-action@0.34.0
+        with:
+          image-ref: ghcr.io/joelp172/uptime-robot-operator@${{ steps.build.outputs.digest }}
+          format: 'cyclonedx'
+          output: 'sbom-cyclonedx.json'
+      
+      - name: Upload SBOM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ github.sha }}
+          path: |
+            sbom-spdx.json
+            sbom-cyclonedx.json
+      
+      # Image Signing with Cosign
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v4.0.0
+      
+      - name: Sign container images
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          for tag in ${TAGS}; do
+            echo "Signing ${tag}"
+            cosign sign --yes "${tag}"
+          done
+      
+      - name: Attest SBOM to images
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          for tag in ${TAGS}; do
+            echo "Attesting SBOM to ${tag}"
+            cosign attest --yes --predicate sbom-spdx.json --type spdx "${tag}"
+            cosign attest --yes --predicate sbom-cyclonedx.json --type cyclonedx "${tag}"
+          done
 
   release:
     name: Release
