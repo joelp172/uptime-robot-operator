@@ -90,6 +90,8 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
 
+      # NOTE: The scan gate intentionally only builds/scans linux/amd64 for performance;
+      # ARM variants (linux/arm/v7, linux/arm64/v8) are built later without pre-push scanning.
       - name: Build Image (scan gate, no push)
         id: build_scan
         uses: docker/build-push-action@v6
