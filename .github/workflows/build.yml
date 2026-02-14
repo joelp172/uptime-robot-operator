@@ -183,6 +183,44 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
+      - name: Build Image (scan gate, no push)
+        id: build_scan
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          pull: true
+          push: false
+          load: true
+          platforms: linux/amd64
+          tags: uptime-robot-operator:scan-${{ github.sha }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run Trivy vulnerability scanner (SARIF)
+        uses: aquasecurity/trivy-action@0.34.0
+        with:
+          image-ref: uptime-robot-operator:scan-${{ github.sha }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      - name: Run Trivy vulnerability scanner (table format)
+        uses: aquasecurity/trivy-action@0.34.0
+        with:
+          image-ref: uptime-robot-operator:scan-${{ github.sha }}
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
       - name: Build and Push
         id: build
         uses: docker/build-push-action@v6
@@ -195,31 +233,6 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      
-      # Security Scanning and SBOM Generation
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@0.34.0
-        with:
-          image-ref: ghcr.io/joelp172/uptime-robot-operator@${{ steps.build.outputs.digest }}
-          format: 'sarif'
-          output: 'trivy-results.sarif'
-          severity: 'CRITICAL,HIGH'
-      
-      - name: Upload Trivy results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
-        with:
-          sarif_file: 'trivy-results.sarif'
-      
-      - name: Run Trivy vulnerability scanner (table format)
-        uses: aquasecurity/trivy-action@0.34.0
-        with:
-          image-ref: ghcr.io/joelp172/uptime-robot-operator@${{ steps.build.outputs.digest }}
-          format: 'table'
-          exit-code: '1'
-          ignore-unfixed: true
-          vuln-type: 'os,library'
-          severity: 'CRITICAL,HIGH'
       
       - name: Generate SBOM (SPDX)
         uses: aquasecurity/trivy-action@0.34.0
