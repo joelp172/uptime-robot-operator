@@ -26,16 +26,16 @@ To verify a signed image, install Cosign and run:
 
 # Verify the image signature
 cosign verify \
-  --certificate-identity-regexp="^https://github.com/joelp172/uptime-robot-operator/" \
+  --certificate-identity="https://github.com/joelp172/uptime-robot-operator/.github/workflows/build.yml@refs/heads/main" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
   ghcr.io/joelp172/uptime-robot-operator:latest
 ```
 
-For a specific version:
+For a specific version (use the release workflow identity):
 
 ```bash
 cosign verify \
-  --certificate-identity-regexp="^https://github.com/joelp172/uptime-robot-operator/" \
+  --certificate-identity="https://github.com/joelp172/uptime-robot-operator/.github/workflows/release.yml@refs/tags/v1.0.0" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
   ghcr.io/joelp172/uptime-robot-operator:v1.0.0
 ```
@@ -69,14 +69,14 @@ SBOMs are also attested to the container images and can be verified:
 # Verify SPDX SBOM attestation
 cosign verify-attestation \
   --type spdx \
-  --certificate-identity-regexp="^https://github.com/joelp172/uptime-robot-operator/" \
+  --certificate-identity="https://github.com/joelp172/uptime-robot-operator/.github/workflows/build.yml@refs/heads/main" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
   ghcr.io/joelp172/uptime-robot-operator:latest | jq -r .payload | base64 -d | jq .
 
 # Verify CycloneDX SBOM attestation
 cosign verify-attestation \
   --type cyclonedx \
-  --certificate-identity-regexp="^https://github.com/joelp172/uptime-robot-operator/" \
+  --certificate-identity="https://github.com/joelp172/uptime-robot-operator/.github/workflows/build.yml@refs/heads/main" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
   ghcr.io/joelp172/uptime-robot-operator:latest | jq -r .payload | base64 -d | jq .
 ```
@@ -106,8 +106,7 @@ If you discover a security vulnerability in this project, please report it by:
 
 1. **DO NOT** open a public issue
 2. Use GitHub's private vulnerability reporting feature: https://github.com/joelp172/uptime-robot-operator/security/advisories/new
-3. Alternatively, contact the maintainers via GitHub discussions marked as private
-4. Include:
+3. Include:
    - Description of the vulnerability
    - Steps to reproduce
    - Potential impact
@@ -141,9 +140,9 @@ set -e
 
 IMAGE="ghcr.io/joelp172/uptime-robot-operator:v1.0.0"
 
-# Verify signature
+# Verify signature (adjust workflow identity based on whether it's from build.yml or release.yml)
 cosign verify \
-  --certificate-identity-regexp="^https://github.com/joelp172/uptime-robot-operator/" \
+  --certificate-identity="https://github.com/joelp172/uptime-robot-operator/.github/workflows/release.yml@refs/tags/v1.0.0" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
   "${IMAGE}"
 

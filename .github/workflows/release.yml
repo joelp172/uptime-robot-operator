@@ -106,7 +106,7 @@ jobs:
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@0.34.0
         with:
-          image-ref: 'ghcr.io/joelp172/uptime-robot-operator:v${{ needs.release.outputs.new_release_version }}'
+          image-ref: ghcr.io/joelp172/uptime-robot-operator@${{ steps.build.outputs.digest }}
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH'
@@ -120,7 +120,7 @@ jobs:
       - name: Run Trivy vulnerability scanner (table format)
         uses: aquasecurity/trivy-action@0.34.0
         with:
-          image-ref: 'ghcr.io/joelp172/uptime-robot-operator:v${{ needs.release.outputs.new_release_version }}'
+          image-ref: ghcr.io/joelp172/uptime-robot-operator@${{ steps.build.outputs.digest }}
           format: 'table'
           exit-code: '1'
           ignore-unfixed: true
@@ -130,14 +130,14 @@ jobs:
       - name: Generate SBOM (SPDX)
         uses: aquasecurity/trivy-action@0.34.0
         with:
-          image-ref: 'ghcr.io/joelp172/uptime-robot-operator:v${{ needs.release.outputs.new_release_version }}'
+          image-ref: ghcr.io/joelp172/uptime-robot-operator@${{ steps.build.outputs.digest }}
           format: 'spdx-json'
           output: 'sbom-spdx.json'
       
       - name: Generate SBOM (CycloneDX)
         uses: aquasecurity/trivy-action@0.34.0
         with:
-          image-ref: 'ghcr.io/joelp172/uptime-robot-operator:v${{ needs.release.outputs.new_release_version }}'
+          image-ref: ghcr.io/joelp172/uptime-robot-operator@${{ steps.build.outputs.digest }}
           format: 'cyclonedx'
           output: 'sbom-cyclonedx.json'
       
