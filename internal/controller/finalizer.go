@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"math"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -157,16 +158,13 @@ func HandleFinalizerCleanup(ctx context.Context, opts CleanupOptions) (CleanupRe
 		// Use exponential backoff: min(30s * 2^shift, 5m)
 		// where shift is based on how much time has elapsed relative to the total timeout.
 		backoffFactor := float64(elapsed) / float64(opts.CleanupTimeout)
-		shift := int(backoffFactor * backoffExponent)
+		shift := int(math.Round(backoffFactor * backoffExponent))
 		if shift > maxBackoffShift {
 			shift = maxBackoffShift
 		}
 		backoff := 30 * time.Second * time.Duration(1<<shift)
 		if backoff > 5*time.Minute {
 			backoff = 5 * time.Minute
-		}
-		if backoff < 30*time.Second {
-			backoff = 30 * time.Second
 		}
 
 		errorMsg := fmt.Sprintf("Cleanup failed: %v (will retry in %v)", err, backoff.Round(time.Second))
