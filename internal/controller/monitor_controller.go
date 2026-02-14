@@ -520,6 +520,9 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		// If monitor was missing and desired state is paused, apply pause after recreate.
 		if monitorMissing && desiredStatus == urtypes.MonitorPaused {
 			if err := urclient.PauseMonitor(ctx, result.ID); err != nil {
+				// Pause failed - recreated monitor is still running, update status to reflect actual state
+				monitor.Status.Status = urtypes.MonitorRunning
+				monitor.Status.State = monitorStateLabel(urtypes.MonitorRunning)
 				msg := fmt.Sprintf("Failed to pause recreated monitor: %v", err)
 				SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
 				SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
