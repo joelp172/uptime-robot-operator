@@ -30,6 +30,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -43,7 +44,8 @@ import (
 // MonitorReconciler reconciles a Monitor object
 type MonitorReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme   *runtime.Scheme
+	Recorder record.EventRecorder
 }
 
 const (
@@ -71,6 +73,7 @@ func monitorStateLabel(status uint8) string {
 //+kubebuilder:rbac:groups=uptimerobot.com,resources=monitors/finalizers,verbs=update
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -118,7 +121,23 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if !monitor.DeletionTimestamp.IsZero() {
 		// Object is being deleted
 		if controllerutil.ContainsFinalizer(monitor, myFinalizerName) {
-			if monitor.Spec.Prune && monitor.Status.Ready {
+			// Initialize cleanup tracking on first deletion attempt
+			if err := InitializeCleanupTracking(ctx, r.Client, monitor); err != nil {
+				return ctrl.Result{}, err
+			}
+
+			// Reload the monitor to get the updated annotations
+			if err := r.Get(ctx, req.NamespacedName, monitor); err != nil {
+				return ctrl.Result{}, client.IgnoreNotFound(err)
+			}
+
+			// Define the cleanup function
+			cleanupFunc := func(ctx context.Context) error {
+				if !monitor.Spec.Prune || !monitor.Status.Ready {
+					// Skip cleanup if Prune is false or resource is not ready
+					return nil
+				}
+
 				// Check if another Monitor resource has adopted this monitor ID
 				// If so, don't delete it from UptimeRobot
 				shouldDelete := true
@@ -127,7 +146,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					// Scoping to namespace prevents false positives from other namespaces
 					var namespaceMonitors uptimerobotv1.MonitorList
 					if err := r.List(ctx, &namespaceMonitors, client.InNamespace(monitor.Namespace)); err != nil {
-						return ctrl.Result{}, err
+						return err
 					}
 					for i := range namespaceMonitors.Items {
 						otherMonitor := &namespaceMonitors.Items[i]
@@ -170,12 +189,31 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				}
 
 				if shouldDelete {
-					if err := urclient.DeleteMonitor(ctx, monitor.Status.ID); err != nil {
-						return ctrl.Result{}, err
-					}
+					return urclient.DeleteMonitor(ctx, monitor.Status.ID)
 				}
+				return nil
 			}
 
+			// Handle cleanup with retry and timeout logic
+			result, _ := HandleFinalizerCleanup(ctx, CleanupOptions{
+				Object:             monitor,
+				Conditions:         &monitor.Status.Conditions,
+				ObservedGeneration: monitor.Generation,
+				Recorder:           r.Recorder,
+				CleanupFunc:        cleanupFunc,
+			})
+
+			// Update status with cleanup progress
+			if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
+				return ctrl.Result{}, updateErr
+			}
+
+			// If cleanup failed and we shouldn't force-remove, requeue
+			if !result.Success && !result.ForceRemove {
+				return ctrl.Result{RequeueAfter: result.RequeueAfter}, nil
+			}
+
+			// Remove finalizer (either success or force-remove)
 			controllerutil.RemoveFinalizer(monitor, myFinalizerName)
 			if err := r.Update(ctx, monitor); err != nil {
 				return ctrl.Result{}, err
