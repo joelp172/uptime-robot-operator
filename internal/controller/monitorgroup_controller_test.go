@@ -24,6 +24,7 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -366,8 +367,9 @@ func CreateMonitorGroup(ctx context.Context, name string, accountName string, sp
 // ReconcileMonitorGroup reconciles a MonitorGroup resource
 func ReconcileMonitorGroup(ctx context.Context, mg *uptimerobotv1.MonitorGroup) (reconcile.Result, error) {
 	reconciler := &MonitorGroupReconciler{
-		Client: k8sClient,
-		Scheme: k8sClient.Scheme(),
+		Client:   k8sClient,
+		Scheme:   k8sClient.Scheme(),
+		Recorder: record.NewFakeRecorder(100),
 	}
 	return reconciler.Reconcile(ctx, reconcile.Request{
 		NamespacedName: types.NamespacedName{

@@ -24,6 +24,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -203,18 +204,36 @@ func HandleFinalizerCleanup(ctx context.Context, opts CleanupOptions) (CleanupRe
 // InitializeCleanupTracking sets the cleanup start time annotation if not already set
 func InitializeCleanupTracking(ctx context.Context, k8sClient client.Client, obj client.Object) error {
 	annotations := obj.GetAnnotations()
-	if annotations == nil {
-		annotations = make(map[string]string)
+	if _, exists := annotations[CleanupStartTimeAnnotation]; exists {
+		return nil
 	}
 
-	// Only set if not already present
-	if _, exists := annotations[CleanupStartTimeAnnotation]; !exists {
-		annotations[CleanupStartTimeAnnotation] = time.Now().Format(time.RFC3339)
-		obj.SetAnnotations(annotations)
-		return k8sClient.Update(ctx, obj)
-	}
+	key := client.ObjectKeyFromObject(obj)
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		current := obj.DeepCopyObject().(client.Object)
+		if err := k8sClient.Get(ctx, key, current); err != nil {
+			return err
+		}
 
-	return nil
+		currentAnnotations := current.GetAnnotations()
+		if currentAnnotations == nil {
+			currentAnnotations = make(map[string]string)
+		}
+		if _, exists := currentAnnotations[CleanupStartTimeAnnotation]; exists {
+			obj.SetAnnotations(currentAnnotations)
+			return nil
+		}
+
+		currentAnnotations[CleanupStartTimeAnnotation] = time.Now().Format(time.RFC3339)
+		current.SetAnnotations(currentAnnotations)
+		if err := k8sClient.Update(ctx, current); err != nil {
+			return err
+		}
+
+		obj.SetAnnotations(current.GetAnnotations())
+		obj.SetResourceVersion(current.GetResourceVersion())
+		return nil
+	})
 }
 
 // SetDeletingCondition sets the Deleting condition

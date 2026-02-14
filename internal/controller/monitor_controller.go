@@ -195,7 +195,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			}
 
 			// Handle cleanup with retry and timeout logic
-			result, err := HandleFinalizerCleanup(ctx, CleanupOptions{
+			result, _ := HandleFinalizerCleanup(ctx, CleanupOptions{
 				Object:             monitor,
 				Conditions:         &monitor.Status.Conditions,
 				ObservedGeneration: monitor.Generation,
@@ -210,7 +210,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 			// If cleanup failed and we shouldn't force-remove, requeue
 			if !result.Success && !result.ForceRemove {
-				return ctrl.Result{RequeueAfter: result.RequeueAfter}, err
+				return ctrl.Result{RequeueAfter: result.RequeueAfter}, nil
 			}
 
 			// Remove finalizer (either success or force-remove)
