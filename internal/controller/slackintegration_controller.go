@@ -25,6 +25,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -39,7 +40,8 @@ const slackIntegrationFinalizerName = "uptimerobot.com/slackintegration-finalize
 // SlackIntegrationReconciler reconciles a SlackIntegration object.
 type SlackIntegrationReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme   *runtime.Scheme
+	Recorder record.EventRecorder
 }
 
 //+kubebuilder:rbac:groups=uptimerobot.com,resources=slackintegrations,verbs=get;list;watch;create;update;patch;delete
@@ -87,16 +89,50 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	if !resource.DeletionTimestamp.IsZero() {
 		if controllerutil.ContainsFinalizer(resource, slackIntegrationFinalizerName) {
-			if resource.Spec.Prune && resource.Status.ID != "" {
+			// Initialize cleanup tracking on first deletion attempt
+			if err := InitializeCleanupTracking(ctx, r.Client, resource); err != nil {
+				return ctrl.Result{}, err
+			}
+
+			// Reload the slack integration to get the updated annotations
+			if err := r.Get(ctx, req.NamespacedName, resource); err != nil {
+				return ctrl.Result{}, client.IgnoreNotFound(err)
+			}
+
+			// Define the cleanup function
+			cleanupFunc := func(ctx context.Context) error {
+				if !resource.Spec.Prune || resource.Status.ID == "" {
+					// Skip cleanup if Prune is false or resource has no ID
+					return nil
+				}
 				id, convErr := strconv.Atoi(resource.Status.ID)
 				if convErr != nil {
 					// Keep finalizer so prune is retried instead of leaking remote integrations.
-					return ctrl.Result{}, fmt.Errorf("invalid slackintegration status.id %q: %w", resource.Status.ID, convErr)
+					return fmt.Errorf("invalid slackintegration status.id %q: %w", resource.Status.ID, convErr)
 				}
-				if err := urclient.DeleteIntegration(ctx, id); err != nil {
-					return ctrl.Result{}, err
-				}
+				return urclient.DeleteIntegration(ctx, id)
 			}
+
+			// Handle cleanup with retry and timeout logic
+			result, err := HandleFinalizerCleanup(ctx, CleanupOptions{
+				Object:             resource,
+				Conditions:         &resource.Status.Conditions,
+				ObservedGeneration: resource.Generation,
+				Recorder:           r.Recorder,
+				CleanupFunc:        cleanupFunc,
+			})
+
+			// Update status with cleanup progress
+			if updateErr := r.updateSlackIntegrationStatus(ctx, resource); updateErr != nil {
+				return ctrl.Result{}, updateErr
+			}
+
+			// If cleanup failed and we shouldn't force-remove, requeue
+			if !result.Success && !result.ForceRemove {
+				return ctrl.Result{RequeueAfter: result.RequeueAfter}, err
+			}
+
+			// Remove finalizer (either success or force-remove)
 			controllerutil.RemoveFinalizer(resource, slackIntegrationFinalizerName)
 			if err := r.Update(ctx, resource); err != nil {
 				return ctrl.Result{}, err

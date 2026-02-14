@@ -24,6 +24,7 @@ import (
 	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -40,7 +41,8 @@ import (
 // MonitorGroupReconciler orchestrates MonitorGroup lifecycle
 type MonitorGroupReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme   *runtime.Scheme
+	Recorder record.EventRecorder
 }
 
 //+kubebuilder:rbac:groups=uptimerobot.com,resources=monitorgroups,verbs=get;list;watch;create;update;patch;delete
@@ -94,18 +96,45 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	const cleanupMarker = "uptimerobot.com/finalizer"
 	if !groupResource.DeletionTimestamp.IsZero() {
 		if controllerutil.ContainsFinalizer(groupResource, cleanupMarker) {
-			if groupResource.Spec.Prune && groupResource.Status.Ready {
-				if purgeErr := backendClient.PurgeGroupFromBackend(ctx, groupResource.Status.ID); purgeErr != nil {
-					SetReadyCondition(&groupResource.Status.Conditions, false, ReasonAPIError, fmt.Sprintf("Failed to delete group from UptimeRobot: %v", purgeErr), groupResource.Generation)
-					SetSyncedCondition(&groupResource.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to delete group from UptimeRobot: %v", purgeErr), groupResource.Generation)
-					SetErrorCondition(&groupResource.Status.Conditions, true, ReasonAPIError, fmt.Sprintf("Failed to delete group from UptimeRobot: %v", purgeErr), groupResource.Generation)
-					if updateErr := r.Status().Update(ctx, groupResource); updateErr != nil {
-						return ctrl.Result{}, updateErr
-					}
-					return ctrl.Result{}, purgeErr
-				}
+			// Initialize cleanup tracking on first deletion attempt
+			if err := InitializeCleanupTracking(ctx, r.Client, groupResource); err != nil {
+				return ctrl.Result{}, err
 			}
 
+			// Reload the monitor group to get the updated annotations
+			if err := r.Get(ctx, req.NamespacedName, groupResource); err != nil {
+				return ctrl.Result{}, client.IgnoreNotFound(err)
+			}
+
+			// Define the cleanup function
+			cleanupFunc := func(ctx context.Context) error {
+				if !groupResource.Spec.Prune || !groupResource.Status.Ready {
+					// Skip cleanup if Prune is false or resource is not ready
+					return nil
+				}
+				return backendClient.PurgeGroupFromBackend(ctx, groupResource.Status.ID)
+			}
+
+			// Handle cleanup with retry and timeout logic
+			result, err := HandleFinalizerCleanup(ctx, CleanupOptions{
+				Object:             groupResource,
+				Conditions:         &groupResource.Status.Conditions,
+				ObservedGeneration: groupResource.Generation,
+				Recorder:           r.Recorder,
+				CleanupFunc:        cleanupFunc,
+			})
+
+			// Update status with cleanup progress
+			if updateErr := r.Status().Update(ctx, groupResource); updateErr != nil {
+				return ctrl.Result{}, updateErr
+			}
+
+			// If cleanup failed and we shouldn't force-remove, requeue
+			if !result.Success && !result.ForceRemove {
+				return ctrl.Result{RequeueAfter: result.RequeueAfter}, err
+			}
+
+			// Remove finalizer (either success or force-remove)
 			controllerutil.RemoveFinalizer(groupResource, cleanupMarker)
 			if updateErr := r.Update(ctx, groupResource); updateErr != nil {
 				return ctrl.Result{}, updateErr

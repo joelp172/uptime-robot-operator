@@ -28,6 +28,8 @@ const (
 	TypeSynced = "Synced"
 	// TypeError indicates that the last reconciliation encountered an error
 	TypeError = "Error"
+	// TypeDeleting indicates that the resource is being deleted (moved from finalizer.go to avoid duplication)
+	TypeDeleting = "Deleting"
 )
 
 // Standard condition reasons
