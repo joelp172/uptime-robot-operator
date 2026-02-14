@@ -94,7 +94,7 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 				return ctrl.Result{}, err
 			}
 
-			// Reload the slack integration to get the updated annotations
+			// Reload the SlackIntegration to get the updated annotations
 			if err := r.Get(ctx, req.NamespacedName, resource); err != nil {
 				return ctrl.Result{}, client.IgnoreNotFound(err)
 			}

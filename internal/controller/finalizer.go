@@ -149,7 +149,7 @@ func HandleFinalizerCleanup(ctx context.Context, opts CleanupOptions) (CleanupRe
 		// Calculate backoff for retry
 		// Use exponential backoff: min(30s * 2^(elapsed/timeout), 5m)
 		backoffFactor := float64(elapsed) / float64(opts.CleanupTimeout)
-		backoff := time.Duration(30*1000*1000*1000) * time.Duration(1<<int(backoffFactor*3)) // 30s, 60s, 120s, 240s, ...
+		backoff := 30 * time.Second * time.Duration(1<<int(backoffFactor*3)) // 30s, 60s, 120s, 240s, ...
 		if backoff > 5*time.Minute {
 			backoff = 5 * time.Minute
 		}
