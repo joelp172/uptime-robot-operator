@@ -86,7 +86,7 @@ make dev-cluster-delete
 
 Code coverage is automatically collected and reported on all PRs and commits:
 
-- **Coverage Badge**: ![codecov](https://codecov.io/gh/joelp172/uptime-robot-operator/branch/main/graph/badge.svg)
+- **Coverage Badge**: Shows main branch coverage (see README)
 - **Threshold**: Minimum 70% coverage required (enforced by Codecov)
 - **PR Comments**: Coverage diff is automatically posted on every PR
 - **Configuration**: See `codecov.yml` for threshold and reporting settings
