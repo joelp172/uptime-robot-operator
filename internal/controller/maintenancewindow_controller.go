@@ -25,6 +25,7 @@ import (
 	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -45,13 +46,15 @@ const (
 // MaintenanceWindowReconciler reconciles a MaintenanceWindow object
 type MaintenanceWindowReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme   *runtime.Scheme
+	Recorder record.EventRecorder
 }
 
 //+kubebuilder:rbac:groups=uptimerobot.com,resources=maintenancewindows,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=uptimerobot.com,resources=maintenancewindows/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=uptimerobot.com,resources=maintenancewindows/finalizers,verbs=update
 //+kubebuilder:rbac:groups=uptimerobot.com,resources=monitors,verbs=get;list;watch
+//+kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -97,12 +100,45 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	if !mw.DeletionTimestamp.IsZero() {
 		// Object is being deleted
 		if controllerutil.ContainsFinalizer(mw, myFinalizerName) {
-			if mw.Spec.Prune && mw.Status.Ready {
-				if err := urclient.DeleteMaintenanceWindow(ctx, mw.Status.ID); err != nil {
-					return ctrl.Result{}, err
-				}
+			// Initialize cleanup tracking on first deletion attempt
+			if err := InitializeCleanupTracking(ctx, r.Client, mw); err != nil {
+				return ctrl.Result{}, err
 			}
 
+			// Reload the maintenance window to get the updated annotations
+			if err := r.Get(ctx, req.NamespacedName, mw); err != nil {
+				return ctrl.Result{}, client.IgnoreNotFound(err)
+			}
+
+			// Define the cleanup function
+			cleanupFunc := func(ctx context.Context) error {
+				if !mw.Spec.Prune || !mw.Status.Ready {
+					// Skip cleanup if Prune is false or resource is not ready
+					return nil
+				}
+				return urclient.DeleteMaintenanceWindow(ctx, mw.Status.ID)
+			}
+
+			// Handle cleanup with retry and timeout logic
+			result, _ := HandleFinalizerCleanup(ctx, CleanupOptions{
+				Object:             mw,
+				Conditions:         &mw.Status.Conditions,
+				ObservedGeneration: mw.Generation,
+				Recorder:           r.Recorder,
+				CleanupFunc:        cleanupFunc,
+			})
+
+			// Update status with cleanup progress
+			if updateErr := r.Status().Update(ctx, mw); updateErr != nil {
+				return ctrl.Result{}, updateErr
+			}
+
+			// If cleanup failed and we shouldn't force-remove, requeue
+			if !result.Success && !result.ForceRemove {
+				return ctrl.Result{RequeueAfter: result.RequeueAfter}, nil
+			}
+
+			// Remove finalizer (either success or force-remove)
 			controllerutil.RemoveFinalizer(mw, myFinalizerName)
 			if err := r.Update(ctx, mw); err != nil {
 				return ctrl.Result{}, err

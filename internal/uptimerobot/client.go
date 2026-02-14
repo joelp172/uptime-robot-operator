@@ -901,7 +901,11 @@ func (c Client) UpdateMaintenanceWindow(ctx context.Context, id string, req Upda
 // DeleteMaintenanceWindow deletes a maintenance window using the v3 API.
 func (c Client) DeleteMaintenanceWindow(ctx context.Context, id string) error {
 	endpoint := fmt.Sprintf("maintenance-windows/%s", id)
-	return c.doJSON(ctx, http.MethodDelete, endpoint, nil, nil)
+	err := c.doJSON(ctx, http.MethodDelete, endpoint, nil, nil)
+	if err != nil && IsNotFound(err) {
+		return nil
+	}
+	return err
 }
 
 // ListMaintenanceWindows lists all maintenance windows using the v3 API.
@@ -940,7 +944,11 @@ func (c Client) MutateGroupInBackend(ctx context.Context, groupIDString string, 
 // PurgeGroupFromBackend destroys collection via DELETE
 func (c Client) PurgeGroupFromBackend(ctx context.Context, groupIDString string) error {
 	endpointPath := fmt.Sprintf("monitor-groups/%s", groupIDString)
-	return c.doJSON(ctx, http.MethodDelete, endpointPath, nil, nil)
+	err := c.doJSON(ctx, http.MethodDelete, endpointPath, nil, nil)
+	if err != nil && IsNotFound(err) {
+		return nil
+	}
+	return err
 }
 
 // EnumerateGroupsFromBackend fetches all collections via GET

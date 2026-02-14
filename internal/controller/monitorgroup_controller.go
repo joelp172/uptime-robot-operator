@@ -24,6 +24,7 @@ import (
 	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -40,13 +41,15 @@ import (
 // MonitorGroupReconciler orchestrates MonitorGroup lifecycle
 type MonitorGroupReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme   *runtime.Scheme
+	Recorder record.EventRecorder
 }
 
 //+kubebuilder:rbac:groups=uptimerobot.com,resources=monitorgroups,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=uptimerobot.com,resources=monitorgroups/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=uptimerobot.com,resources=monitorgroups/finalizers,verbs=update
 //+kubebuilder:rbac:groups=uptimerobot.com,resources=monitors,verbs=get;list;watch
+//+kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
 
 // Reconcile implements the reconciliation loop
 func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -61,7 +64,68 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// Update observedGeneration
 	groupResource.Status.ObservedGeneration = groupResource.Generation
 
-	// Step 2: Locate credential vault
+	// Step 2: Handle deletion workflow first so missing account/secret does not block finalization.
+	const cleanupMarker = "uptimerobot.com/finalizer"
+	if !groupResource.DeletionTimestamp.IsZero() {
+		if controllerutil.ContainsFinalizer(groupResource, cleanupMarker) {
+			// Initialize cleanup tracking on first deletion attempt
+			if err := InitializeCleanupTracking(ctx, r.Client, groupResource); err != nil {
+				return ctrl.Result{}, err
+			}
+
+			// Reload the monitor group to get the updated annotations
+			if err := r.Get(ctx, req.NamespacedName, groupResource); err != nil {
+				return ctrl.Result{}, client.IgnoreNotFound(err)
+			}
+
+			// Define the cleanup function
+			cleanupFunc := func(ctx context.Context) error {
+				if !groupResource.Spec.Prune || groupResource.Status.ID == "" {
+					// Skip cleanup if Prune is false or resource has no backend ID
+					return nil
+				}
+				credentialVault := &uptimerobotv1.Account{}
+				if vaultErr := GetAccount(ctx, r.Client, credentialVault, groupResource.Spec.Account.Name); vaultErr != nil {
+					return fmt.Errorf("failed to get account for cleanup: %w", vaultErr)
+				}
+				apiToken, tokenErr := GetApiKey(ctx, r.Client, credentialVault)
+				if tokenErr != nil {
+					return fmt.Errorf("failed to get api key for cleanup: %w", tokenErr)
+				}
+				backendClient := uptimerobot.NewClient(apiToken)
+				return backendClient.PurgeGroupFromBackend(ctx, groupResource.Status.ID)
+			}
+
+			// Handle cleanup with retry and timeout logic
+			result, _ := HandleFinalizerCleanup(ctx, CleanupOptions{
+				Object:             groupResource,
+				Conditions:         &groupResource.Status.Conditions,
+				ObservedGeneration: groupResource.Generation,
+				Recorder:           r.Recorder,
+				CleanupFunc:        cleanupFunc,
+			})
+
+			// Update status with cleanup progress
+			if updateErr := r.Status().Update(ctx, groupResource); updateErr != nil {
+				return ctrl.Result{}, updateErr
+			}
+
+			// If cleanup failed and we shouldn't force-remove, requeue
+			if !result.Success && !result.ForceRemove {
+				return ctrl.Result{RequeueAfter: result.RequeueAfter}, nil
+			}
+
+			// Remove finalizer (either success or force-remove)
+			controllerutil.RemoveFinalizer(groupResource, cleanupMarker)
+			if updateErr := r.Update(ctx, groupResource); updateErr != nil {
+				return ctrl.Result{}, updateErr
+			}
+		}
+
+		return ctrl.Result{}, nil
+	}
+
+	// Step 3: Locate credential vault
 	credentialVault := &uptimerobotv1.Account{}
 	if vaultErr := GetAccount(ctx, r.Client, credentialVault, groupResource.Spec.Account.Name); vaultErr != nil {
 		if groupResource.Status.ID == "" {
@@ -75,7 +139,7 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, vaultErr
 	}
 
-	// Step 3: Extract API token from secret
+	// Step 4: Extract API token from secret
 	apiToken, tokenErr := GetApiKey(ctx, r.Client, credentialVault)
 	if tokenErr != nil {
 		if groupResource.Status.ID == "" {
@@ -89,31 +153,6 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, tokenErr
 	}
 	backendClient := uptimerobot.NewClient(apiToken)
-
-	// Step 4: Handle deletion workflow
-	const cleanupMarker = "uptimerobot.com/finalizer"
-	if !groupResource.DeletionTimestamp.IsZero() {
-		if controllerutil.ContainsFinalizer(groupResource, cleanupMarker) {
-			if groupResource.Spec.Prune && groupResource.Status.Ready {
-				if purgeErr := backendClient.PurgeGroupFromBackend(ctx, groupResource.Status.ID); purgeErr != nil {
-					SetReadyCondition(&groupResource.Status.Conditions, false, ReasonAPIError, fmt.Sprintf("Failed to delete group from UptimeRobot: %v", purgeErr), groupResource.Generation)
-					SetSyncedCondition(&groupResource.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to delete group from UptimeRobot: %v", purgeErr), groupResource.Generation)
-					SetErrorCondition(&groupResource.Status.Conditions, true, ReasonAPIError, fmt.Sprintf("Failed to delete group from UptimeRobot: %v", purgeErr), groupResource.Generation)
-					if updateErr := r.Status().Update(ctx, groupResource); updateErr != nil {
-						return ctrl.Result{}, updateErr
-					}
-					return ctrl.Result{}, purgeErr
-				}
-			}
-
-			controllerutil.RemoveFinalizer(groupResource, cleanupMarker)
-			if updateErr := r.Update(ctx, groupResource); updateErr != nil {
-				return ctrl.Result{}, updateErr
-			}
-		}
-
-		return ctrl.Result{}, nil
-	}
 
 	// Step 5: Attach finalizer for cleanup tracking
 	if !controllerutil.ContainsFinalizer(groupResource, cleanupMarker) {

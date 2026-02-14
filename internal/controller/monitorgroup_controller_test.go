@@ -24,6 +24,7 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -271,8 +272,9 @@ var _ = Describe("MonitorGroup Controller", func() {
 				Expect(os.Setenv("UPTIME_ROBOT_API", originalAPI)).To(Succeed())
 			})
 
-			_, err = ReconcileMonitorGroup(ctx, mg)
-			Expect(err).To(HaveOccurred())
+			result, err := ReconcileMonitorGroup(ctx, mg)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(BeNumerically(">", 0))
 
 			By("Ensuring the resource is still present with finalizer for retry")
 			err = k8sClient.Get(ctx, types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace}, mg)
@@ -281,20 +283,12 @@ var _ = Describe("MonitorGroup Controller", func() {
 			Expect(mg.Finalizers).To(ContainElement("uptimerobot.com/finalizer"))
 			Expect(mg.Status.Ready).To(BeTrue())
 
-			ready := findCondition(mg.Status.Conditions, TypeReady)
-			Expect(ready).NotTo(BeNil())
-			Expect(ready.Status).To(Equal(metav1.ConditionFalse))
-			Expect(ready.Reason).To(Equal(ReasonAPIError))
-
-			synced := findCondition(mg.Status.Conditions, TypeSynced)
-			Expect(synced).NotTo(BeNil())
-			Expect(synced.Status).To(Equal(metav1.ConditionFalse))
-			Expect(synced.Reason).To(Equal(ReasonSyncError))
-
-			errCond := findCondition(mg.Status.Conditions, TypeError)
-			Expect(errCond).NotTo(BeNil())
-			Expect(errCond.Status).To(Equal(metav1.ConditionTrue))
-			Expect(errCond.Reason).To(Equal(ReasonAPIError))
+			// Check that Deleting condition is set with error
+			deleting := findCondition(mg.Status.Conditions, TypeDeleting)
+			Expect(deleting).NotTo(BeNil())
+			Expect(deleting.Status).To(Equal(metav1.ConditionTrue))
+			Expect(deleting.Reason).To(Equal(ReasonCleanupError))
+			Expect(deleting.Message).To(ContainSubstring("Cleanup failed"))
 
 			By("Restoring API and allowing finalization to complete")
 			Expect(os.Setenv("UPTIME_ROBOT_API", originalAPI)).To(Succeed())
@@ -374,8 +368,9 @@ func CreateMonitorGroup(ctx context.Context, name string, accountName string, sp
 // ReconcileMonitorGroup reconciles a MonitorGroup resource
 func ReconcileMonitorGroup(ctx context.Context, mg *uptimerobotv1.MonitorGroup) (reconcile.Result, error) {
 	reconciler := &MonitorGroupReconciler{
-		Client: k8sClient,
-		Scheme: k8sClient.Scheme(),
+		Client:   k8sClient,
+		Scheme:   k8sClient.Scheme(),
+		Recorder: record.NewFakeRecorder(100),
 	}
 	return reconciler.Reconcile(ctx, reconcile.Request{
 		NamespacedName: types.NamespacedName{
