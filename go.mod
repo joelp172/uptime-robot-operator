@@ -1,6 +1,6 @@
 module github.com/joelp172/uptime-robot-operator
 
-go 1.24.1
+go 1.24.13
 
 require (
 	github.com/dmarkham/enumer v1.5.11

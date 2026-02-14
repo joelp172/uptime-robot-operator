@@ -45,12 +45,13 @@ import (
 // http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
 
 var (
-	ctx       context.Context
-	cancel    context.CancelFunc
-	testEnv   *envtest.Environment
-	cfg       *rest.Config
-	k8sClient client.Client
-	srv       *httptest.Server
+	ctx         context.Context
+	cancel      context.CancelFunc
+	testEnv     *envtest.Environment
+	cfg         *rest.Config
+	k8sClient   client.Client
+	srv         *httptest.Server
+	serverState *uptimerobottest.ServerState
 )
 
 func TestControllers(t *testing.T) {
@@ -93,12 +94,24 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(k8sClient).NotTo(BeNil())
 
-	srv = uptimerobottest.NewServer()
+	serverState = uptimerobottest.NewServerState()
+	srv = uptimerobottest.NewServerWithState(serverState)
 	Expect(os.Setenv("UPTIME_ROBOT_API", srv.URL)).To(Succeed())
 
 	Expect(k8sClient.Create(context.Background(), &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{Name: ClusterResourceNamespace},
 	})).To(Succeed())
+})
+
+var _ = BeforeEach(func() {
+	// Keep API mock state isolated between specs. Several tests intentionally
+	// mark monitor IDs as deleted; without reset this leaks into later specs.
+	if serverState != nil {
+		serverState.Reset()
+	}
+	if srv != nil {
+		Expect(os.Setenv("UPTIME_ROBOT_API", srv.URL)).To(Succeed())
+	}
 })
 
 var _ = AfterSuite(func() {

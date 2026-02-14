@@ -1,0 +1,121 @@
+---
+name: E2E Tests (PR)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches:
+      - main
+  workflow_dispatch: {}
+
+concurrency:
+  group: e2e-pr-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: '1.24.13'
+  KIND_VERSION: 'v0.25.0'
+  KIND_CLUSTER_NAME: 'e2e-pr-test'
+
+jobs:
+  e2e-basic:
+    name: E2E Tests (Basic)
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Setup Kind
+        uses: helm/kind-action@v1
+        with:
+          version: ${{ env.KIND_VERSION }}
+          cluster_name: ${{ env.KIND_CLUSTER_NAME }}
+          wait: 120s
+
+      - name: Verify cluster
+        run: |
+          kubectl cluster-info
+          kubectl get nodes
+
+      - name: Build operator image
+        run: |
+          make docker-build IMG=uptime-robot-operator:e2e
+
+      - name: Load image into Kind
+        run: |
+          kind load docker-image uptime-robot-operator:e2e --name ${{ env.KIND_CLUSTER_NAME }}
+
+      - name: Install CRDs
+        run: |
+          make install
+
+      - name: Install cert-manager
+        run: |
+          make cert-manager-install
+          make cert-manager-wait
+
+      - name: Deploy operator
+        run: |
+          make deploy IMG=uptime-robot-operator:e2e
+
+      - name: Wait for operator to be ready
+        run: |
+          kubectl wait --for=condition=Available deployment/uptime-robot-controller-manager -n uptime-robot-system --timeout=2m
+
+      - name: Run basic E2E tests
+        env:
+          KIND_CLUSTER: ${{ env.KIND_CLUSTER_NAME }}
+        run: |
+          echo "Running basic E2E tests (no real API calls)..."
+          make test-e2e
+
+      - name: Collect logs on failure
+        if: failure()
+        run: |
+          mkdir -p e2e-logs
+          echo "=== Operator Logs ===" | tee e2e-logs/operator-logs.txt
+          kubectl logs -n uptime-robot-system deployment/uptime-robot-controller-manager --tail=500 >> e2e-logs/operator-logs.txt || true
+          echo "" | tee -a e2e-logs/operator-logs.txt
+          echo "=== Events ===" | tee e2e-logs/events.txt
+          kubectl get events -n uptime-robot-system --sort-by='.lastTimestamp' >> e2e-logs/events.txt || true
+          echo "" | tee -a e2e-logs/events.txt
+          echo "=== All Resources ===" | tee e2e-logs/resources.txt
+          kubectl get accounts,contacts,monitors,maintenancewindows,monitorgroups,slackintegrations -A -o wide >> e2e-logs/resources.txt || true
+          echo "" | tee -a e2e-logs/resources.txt
+          echo "=== Pod Status ===" | tee e2e-logs/pod-status.txt
+          kubectl get pods -n uptime-robot-system -o wide >> e2e-logs/pod-status.txt || true
+          echo "" | tee -a e2e-logs/pod-status.txt
+          echo "=== Describe Monitors ===" | tee e2e-logs/monitors-describe.txt
+          kubectl describe monitors -A >> e2e-logs/monitors-describe.txt || true
+
+      - name: Upload E2E logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-logs-${{ github.run_number }}
+          path: e2e-logs/
+          retention-days: 7
+
+      - name: Cleanup
+        if: always()
+        run: |
+          # Delete test resources
+          kubectl delete monitors --all --ignore-not-found=true || true
+          kubectl delete contacts --all --ignore-not-found=true || true
+          kubectl delete accounts --all --ignore-not-found=true || true
+          kubectl delete maintenancewindows --all --ignore-not-found=true || true
+          kubectl delete monitorgroups --all --ignore-not-found=true || true
+          kubectl delete slackintegrations --all --ignore-not-found=true || true
+          # Undeploy operator
+          make undeploy ignore-not-found=true || true
+          make uninstall ignore-not-found=true || true

@@ -20,12 +20,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot"
 	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot/urtypes"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -39,18 +44,36 @@ import (
 // MonitorReconciler reconciles a Monitor object
 type MonitorReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme   *runtime.Scheme
+	Recorder record.EventRecorder
 }
+
+const (
+	// AdoptIDAnnotation is used to specify an existing monitor ID to adopt
+	AdoptIDAnnotation       = "uptimerobot.com/adopt-id"
+	defaultHeartbeatBaseURL = "https://heartbeat.uptimerobot.com"
+	heartbeatBaseURLEnvVar  = "UPTIMEROBOT_HEARTBEAT_BASE_URL"
+	pausedVerifyRequeue     = 10 * time.Second
+)
 
 var (
 	ErrContactMissingID = errors.New("contact missing ID")
 	ErrSecretMissingKey = errors.New("secret missing key")
 )
 
+func monitorStateLabel(status uint8) string {
+	if status == urtypes.MonitorPaused {
+		return "paused"
+	}
+	return "running"
+}
+
 //+kubebuilder:rbac:groups=uptimerobot.com,resources=monitors,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=uptimerobot.com,resources=monitors/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=uptimerobot.com,resources=monitors/finalizers,verbs=update
-//+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
+//+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -59,19 +82,37 @@ var (
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.20.2/pkg/reconcile
 func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
+	verifyPausedSoon := false
 
 	monitor := &uptimerobotv1.Monitor{}
 	if err := r.Get(ctx, req.NamespacedName, monitor); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+	monitor.Status.ObservedGeneration = monitor.Generation
 
 	account := &uptimerobotv1.Account{}
 	if err := GetAccount(ctx, r.Client, account, monitor.Spec.Account.Name); err != nil {
+		monitor.Status.Ready = false
+		msg := fmt.Sprintf("Failed to get account: %v", err)
+		// Don't set Synced here since we haven't attempted sync with UptimeRobot yet.
+		SetReadyCondition(&monitor.Status.Conditions, false, ReasonReconcileError, msg, monitor.Generation)
+		SetErrorCondition(&monitor.Status.Conditions, true, ReasonReconcileError, msg, monitor.Generation)
+		if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
+			return ctrl.Result{}, updateErr
+		}
 		return ctrl.Result{}, err
 	}
 
 	apiKey, err := GetApiKey(ctx, r.Client, account)
 	if err != nil {
+		monitor.Status.Ready = false
+		msg := fmt.Sprintf("Failed to get API key: %v", err)
+		// Don't set Synced here since we haven't attempted sync with UptimeRobot yet.
+		SetReadyCondition(&monitor.Status.Conditions, false, ReasonSecretNotFound, msg, monitor.Generation)
+		SetErrorCondition(&monitor.Status.Conditions, true, ReasonSecretNotFound, msg, monitor.Generation)
+		if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
+			return ctrl.Result{}, updateErr
+		}
 		return ctrl.Result{}, err
 	}
 	urclient := uptimerobot.NewClient(apiKey)
@@ -80,12 +121,99 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if !monitor.DeletionTimestamp.IsZero() {
 		// Object is being deleted
 		if controllerutil.ContainsFinalizer(monitor, myFinalizerName) {
-			if monitor.Spec.Prune && monitor.Status.Ready {
-				if err := urclient.DeleteMonitor(ctx, monitor.Status.ID); err != nil {
-					return ctrl.Result{}, err
-				}
+			// Initialize cleanup tracking on first deletion attempt
+			if err := InitializeCleanupTracking(ctx, r.Client, monitor); err != nil {
+				return ctrl.Result{}, err
 			}
 
+			// Reload the monitor to get the updated annotations
+			if err := r.Get(ctx, req.NamespacedName, monitor); err != nil {
+				return ctrl.Result{}, client.IgnoreNotFound(err)
+			}
+
+			// Define the cleanup function
+			cleanupFunc := func(ctx context.Context) error {
+				if !monitor.Spec.Prune || !monitor.Status.Ready {
+					// Skip cleanup if Prune is false or resource is not ready
+					return nil
+				}
+
+				// Check if another Monitor resource has adopted this monitor ID
+				// If so, don't delete it from UptimeRobot
+				shouldDelete := true
+				if monitor.Status.ID != "" {
+					// List monitors in the same namespace to check for adopters
+					// Scoping to namespace prevents false positives from other namespaces
+					var namespaceMonitors uptimerobotv1.MonitorList
+					if err := r.List(ctx, &namespaceMonitors, client.InNamespace(monitor.Namespace)); err != nil {
+						return err
+					}
+					for i := range namespaceMonitors.Items {
+						otherMonitor := &namespaceMonitors.Items[i]
+						// Skip the current monitor being deleted
+						if otherMonitor.UID == monitor.UID {
+							continue
+						}
+						// Skip monitors that are themselves being deleted
+						if !otherMonitor.DeletionTimestamp.IsZero() {
+							continue
+						}
+						// Skip monitors using a different account (different UptimeRobot accounts can have same IDs)
+						if otherMonitor.Spec.Account.Name != monitor.Spec.Account.Name {
+							continue
+						}
+
+						// Check if another monitor has adopted this ID
+						// A monitor is considered an adopter if:
+						// 1. It has the adopt-id annotation matching this monitor's ID (intent to adopt)
+						// 2. OR it has status.ready=true and status.id matching this monitor's ID (successfully adopted)
+						isAdopter := false
+						if adoptID, hasAdoptID := otherMonitor.Annotations[AdoptIDAnnotation]; hasAdoptID && adoptID == monitor.Status.ID {
+							// Has adopt-id annotation - intent to adopt
+							isAdopter = true
+						} else if otherMonitor.Status.Ready && otherMonitor.Status.ID == monitor.Status.ID {
+							// Successfully adopted (status.ready=true and same ID)
+							isAdopter = true
+						}
+
+						if isAdopter {
+							log.FromContext(ctx).Info("Monitor ID is managed by another resource, skipping deletion from UptimeRobot",
+								"monitorID", monitor.Status.ID,
+								"otherMonitor", otherMonitor.Name,
+								"otherNamespace", otherMonitor.Namespace,
+								"otherAccount", otherMonitor.Spec.Account.Name)
+							shouldDelete = false
+							break
+						}
+					}
+				}
+
+				if shouldDelete {
+					return urclient.DeleteMonitor(ctx, monitor.Status.ID)
+				}
+				return nil
+			}
+
+			// Handle cleanup with retry and timeout logic
+			result, _ := HandleFinalizerCleanup(ctx, CleanupOptions{
+				Object:             monitor,
+				Conditions:         &monitor.Status.Conditions,
+				ObservedGeneration: monitor.Generation,
+				Recorder:           r.Recorder,
+				CleanupFunc:        cleanupFunc,
+			})
+
+			// Update status with cleanup progress
+			if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
+				return ctrl.Result{}, updateErr
+			}
+
+			// If cleanup failed and we shouldn't force-remove, requeue
+			if !result.Success && !result.ForceRemove {
+				return ctrl.Result{RequeueAfter: result.RequeueAfter}, nil
+			}
+
+			// Remove finalizer (either success or force-remove)
 			controllerutil.RemoveFinalizer(monitor, myFinalizerName)
 			if err := r.Update(ctx, monitor); err != nil {
 				return ctrl.Result{}, err
@@ -95,12 +223,28 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, nil
 	}
 
-	if monitor.Status.Ready && monitor.Status.Type != monitor.Spec.Monitor.Type {
+	if !controllerutil.ContainsFinalizer(monitor, myFinalizerName) {
+		controllerutil.AddFinalizer(monitor, myFinalizerName)
+		if err := r.Update(ctx, monitor); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
+	if monitor.Status.ID != "" && monitor.Status.Type != monitor.Spec.Monitor.Type {
 		// Type change requires recreate
 		if err := urclient.DeleteMonitor(ctx, monitor.Status.ID); err != nil {
+			msg := fmt.Sprintf("Failed to delete monitor for type change: %v", err)
+			SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
+			SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
+			SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, msg, monitor.Generation)
+			if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
+				return ctrl.Result{}, updateErr
+			}
 			return ctrl.Result{}, err
 		}
 		monitor.Status.Ready = false
+		monitor.Status.ID = ""
+		monitor.Status.HeartbeatURL = ""
 	}
 
 	contacts := make([]uptimerobotv1.MonitorContact, 0, len(monitor.Spec.Contacts))
@@ -147,46 +291,664 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 	}
 
-	if !monitor.Status.Ready {
-		id, err := urclient.CreateMonitor(ctx, monitor.Spec.Monitor, contacts)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
+	if monitor.Status.ID == "" {
+		// Check if adoption is requested via annotation
+		if adoptID, hasAdoptID := monitor.Annotations[AdoptIDAnnotation]; hasAdoptID && adoptID != "" {
+			// Adopt existing monitor
+			log.FromContext(ctx).Info("Adopting existing monitor", "monitorID", adoptID)
 
-		monitor.Status.Ready = true
-		monitor.Status.ID = id
-		monitor.Status.Type = monitor.Spec.Monitor.Type
-		monitor.Status.Status = monitor.Spec.Monitor.Status
-		if err := r.Status().Update(ctx, monitor); err != nil {
-			return ctrl.Result{}, err
-		}
+			// Verify monitor exists
+			existingMonitor, err := urclient.GetMonitor(ctx, adoptID)
+			if err != nil {
+				monitor.Status.Ready = false
+				if errors.Is(err, uptimerobot.ErrMonitorNotFound) {
+					msg := fmt.Sprintf("cannot adopt monitor: monitor with ID %s not found", adoptID)
+					// This is validation during adoption - treat same as type mismatch validation
+					SetReadyCondition(&monitor.Status.Conditions, false, ReasonReconcileError, msg, monitor.Generation)
+					SetErrorCondition(&monitor.Status.Conditions, true, ReasonReconcileError, msg, monitor.Generation)
+					if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
+						return ctrl.Result{}, updateErr
+					}
+					return ctrl.Result{}, errors.New(msg)
+				}
+				msg := fmt.Sprintf("failed to get monitor for adoption: %v", err)
+				SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
+				SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
+				SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, msg, monitor.Generation)
+				if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
+					return ctrl.Result{}, updateErr
+				}
+				return ctrl.Result{}, fmt.Errorf("failed to get monitor for adoption: %w", err)
+			}
 
-		if monitor.Spec.Monitor.Status == urtypes.MonitorPaused {
-			if _, err := urclient.EditMonitor(ctx, id, monitor.Spec.Monitor, contacts); err != nil {
+			// Verify monitor type matches spec
+			existingType := urtypes.MonitorTypeFromAPIString(existingMonitor.Type)
+			if existingType != monitor.Spec.Monitor.Type {
+				monitor.Status.Ready = false
+				msg := fmt.Sprintf("cannot adopt monitor: type mismatch - existing monitor is %s but spec defines %s", existingType.String(), monitor.Spec.Monitor.Type.String())
+				// Don't set Synced here since this is a validation error before sync attempt
+				SetReadyCondition(&monitor.Status.Conditions, false, ReasonReconcileError, msg, monitor.Generation)
+				SetErrorCondition(&monitor.Status.Conditions, true, ReasonReconcileError, msg, monitor.Generation)
+				if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
+					return ctrl.Result{}, updateErr
+				}
+				return ctrl.Result{}, errors.New(msg)
+			}
+
+			// Adopt the monitor by setting status
+			monitor.Status.Ready = true
+			monitor.Status.ID = adoptID
+			monitor.Status.Type = monitor.Spec.Monitor.Type
+			monitor.Status.Status = monitor.Spec.Monitor.Status
+			monitor.Status.State = monitorStateLabel(monitor.Spec.Monitor.Status)
+			// Set HeartbeatURL for heartbeat monitors
+			if monitor.Spec.Monitor.Type == urtypes.TypeHeartbeat && existingMonitor.URL != "" {
+				monitor.Status.HeartbeatURL = buildHeartbeatURL(configuredHeartbeatBaseURL(), monitor.Status.ID, existingMonitor.URL)
+			}
+			if err := r.updateMonitorStatus(ctx, monitor); err != nil {
+				return ctrl.Result{}, err
+			}
+
+			// Apply the spec to the adopted monitor immediately
+			result, err := urclient.EditMonitor(ctx, adoptID, monitor.Spec.Monitor, contacts)
+			if err != nil {
+				monitor.Status.Ready = false
+				msg := fmt.Sprintf("Failed to edit adopted monitor: %v", err)
+				SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
+				SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
+				SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, msg, monitor.Generation)
+				if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
+					return ctrl.Result{}, updateErr
+				}
+				return ctrl.Result{}, err
+			}
+
+			// If adopted monitor should be paused, apply pause immediately.
+			if monitor.Spec.Monitor.Status == urtypes.MonitorPaused {
+				if err := urclient.PauseMonitor(ctx, result.ID); err != nil {
+					monitor.Status.Ready = false
+					monitor.Status.Status = urtypes.MonitorRunning // Monitor is running since pause failed
+					monitor.Status.State = monitorStateLabel(urtypes.MonitorRunning)
+					msg := fmt.Sprintf("Failed to pause adopted monitor: %v", err)
+					SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
+					SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
+					SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, msg, monitor.Generation)
+					if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
+						return ctrl.Result{}, updateErr
+					}
+					return ctrl.Result{}, err
+				}
+				log.FromContext(ctx).Info("Paused adopted monitor", "monitorID", result.ID)
+				verifyPausedSoon = true
+			}
+
+			// Update status with any changes from the edit (e.g., heartbeat URL)
+			monitor.Status.ID = result.ID
+			monitor.Status.Status = monitor.Spec.Monitor.Status
+			monitor.Status.State = monitorStateLabel(monitor.Spec.Monitor.Status)
+			if monitor.Spec.Monitor.Type == urtypes.TypeHeartbeat && result.URL != "" {
+				monitor.Status.HeartbeatURL = buildHeartbeatURL(configuredHeartbeatBaseURL(), monitor.Status.ID, result.URL)
+			}
+			if err := r.updateMonitorStatus(ctx, monitor); err != nil {
+				return ctrl.Result{}, err
+			}
+
+			log.FromContext(ctx).Info("Successfully adopted and updated monitor", "monitorID", adoptID)
+		} else {
+			// Create new monitor
+			result, err := urclient.CreateMonitor(ctx, monitor.Spec.Monitor, contacts)
+			if err != nil {
+				monitor.Status.Ready = false
+				msg := fmt.Sprintf("Failed to create monitor: %v", err)
+				SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
+				SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
+				SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, msg, monitor.Generation)
+				if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
+					return ctrl.Result{}, updateErr
+				}
+				return ctrl.Result{}, err
+			}
+
+			monitor.Status.Ready = true
+			monitor.Status.ID = result.ID
+			monitor.Status.Type = monitor.Spec.Monitor.Type
+			// Set HeartbeatURL for heartbeat monitors (API returns token, we need full URL)
+			if monitor.Spec.Monitor.Type == urtypes.TypeHeartbeat && result.URL != "" {
+				monitor.Status.HeartbeatURL = buildHeartbeatURL(configuredHeartbeatBaseURL(), monitor.Status.ID, result.URL)
+			}
+
+			// If monitor should be created in paused state, pause it before setting status
+			if monitor.Spec.Monitor.Status == urtypes.MonitorPaused {
+				if err := urclient.PauseMonitor(ctx, result.ID); err != nil {
+					monitor.Status.Ready = false
+					monitor.Status.Status = urtypes.MonitorRunning // Monitor is running since pause failed
+					monitor.Status.State = monitorStateLabel(urtypes.MonitorRunning)
+					msg := fmt.Sprintf("Failed to pause newly created monitor: %v", err)
+					SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
+					SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
+					SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, msg, monitor.Generation)
+					if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
+						return ctrl.Result{}, updateErr
+					}
+					return ctrl.Result{}, err
+				}
+				log.FromContext(ctx).Info("Paused newly created monitor", "monitorID", result.ID)
+				verifyPausedSoon = true
+			}
+
+			// Set status to reflect actual state after pause operation
+			monitor.Status.Status = monitor.Spec.Monitor.Status
+			monitor.Status.State = monitorStateLabel(monitor.Spec.Monitor.Status)
+			if err := r.updateMonitorStatus(ctx, monitor); err != nil {
 				return ctrl.Result{}, err
 			}
 		}
 	} else {
-		id, err := urclient.EditMonitor(ctx, monitor.Status.ID, monitor.Spec.Monitor, contacts)
+		// Existing monitor - update it
+		// Fetch current monitor state from API for drift detection
+		// Note: This API call happens on every reconciliation to detect out-of-band changes
+		// (e.g., if someone pauses/starts the monitor directly in UptimeRobot)
+		// This is intentional per requirement for "drift detection to reconcile out-of-band pause/start"
+		currentMonitor, err := urclient.GetMonitor(ctx, monitor.Status.ID)
+		if err != nil && !errors.Is(err, uptimerobot.ErrMonitorNotFound) {
+			msg := fmt.Sprintf("Failed to get current monitor state: %v", err)
+			SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
+			SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
+			SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, msg, monitor.Generation)
+			if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
+				return ctrl.Result{}, updateErr
+			}
+			return ctrl.Result{}, err
+		}
+
+		// Determine desired and current status
+		desiredStatus := monitor.Spec.Monitor.Status
+		var currentStatus uint8
+		monitorMissing := false
+		if currentMonitor != nil {
+			// Map API status string to our pause/running state values
+			// The API returns various operational status strings:
+			// - "PAUSED": Monitor is explicitly paused
+			// - "UP": Monitor is running and responding successfully
+			// - "DOWN", "SEEMS DOWN": Monitor is running but experiencing issues
+			// Note: "STARTED" may be returned by the API in some cases and is treated as running
+			// For pause/start purposes, only "PAUSED" maps to MonitorPaused (0),
+			// all other states indicate the monitor is running (1), even if failing.
+			switch strings.ToUpper(currentMonitor.Status) {
+			case "PAUSED":
+				currentStatus = urtypes.MonitorPaused
+			case "UP", "DOWN", "STARTED", "SEEMS DOWN":
+				currentStatus = urtypes.MonitorRunning
+			default:
+				// Unknown status, assume running
+				currentStatus = urtypes.MonitorRunning
+			}
+		} else if errors.Is(err, uptimerobot.ErrMonitorNotFound) {
+			// Monitor no longer exists in API - EditMonitor will detect this and recreate it
+			log.FromContext(ctx).Info("Monitor not found in API, EditMonitor will recreate if needed", "monitorID", monitor.Status.ID)
+			monitorMissing = true
+		} else {
+			// No error but also no monitor - shouldn't happen, but assume running state
+			currentStatus = urtypes.MonitorRunning
+		}
+
+		// Handle status changes using pause/start endpoints
+		if !monitorMissing && desiredStatus != currentStatus {
+			switch desiredStatus {
+			case urtypes.MonitorPaused:
+				// Pause the monitor
+				if err := urclient.PauseMonitor(ctx, monitor.Status.ID); err != nil {
+					// Pause failed - monitor is still running, update status to reflect actual state
+					monitor.Status.Status = urtypes.MonitorRunning
+					monitor.Status.State = monitorStateLabel(urtypes.MonitorRunning)
+					msg := fmt.Sprintf("Failed to pause monitor: %v", err)
+					SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
+					SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
+					SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, msg, monitor.Generation)
+					if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
+						return ctrl.Result{}, updateErr
+					}
+					return ctrl.Result{}, err
+				}
+				log.FromContext(ctx).Info("Paused monitor", "monitorID", monitor.Status.ID)
+				verifyPausedSoon = true
+				// Update status to reflect the actual paused state
+				monitor.Status.Status = urtypes.MonitorPaused
+				monitor.Status.State = monitorStateLabel(urtypes.MonitorPaused)
+				if err := r.updateMonitorStatus(ctx, monitor); err != nil {
+					return ctrl.Result{}, err
+				}
+			case urtypes.MonitorRunning:
+				// Start the monitor
+				if err := urclient.StartMonitor(ctx, monitor.Status.ID); err != nil {
+					// Start failed - monitor is still paused, update status to reflect actual state
+					monitor.Status.Status = urtypes.MonitorPaused
+					monitor.Status.State = monitorStateLabel(urtypes.MonitorPaused)
+					msg := fmt.Sprintf("Failed to start monitor: %v", err)
+					SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
+					SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
+					SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, msg, monitor.Generation)
+					if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
+						return ctrl.Result{}, updateErr
+					}
+					return ctrl.Result{}, err
+				}
+				log.FromContext(ctx).Info("Started monitor", "monitorID", monitor.Status.ID)
+				// Update status to reflect the actual running state
+				monitor.Status.Status = urtypes.MonitorRunning
+				monitor.Status.State = monitorStateLabel(urtypes.MonitorRunning)
+				if err := r.updateMonitorStatus(ctx, monitor); err != nil {
+					return ctrl.Result{}, err
+				}
+			}
+		}
+
+		// Update other monitor fields
+		result, err := urclient.EditMonitor(ctx, monitor.Status.ID, monitor.Spec.Monitor, contacts)
 		if err != nil {
+			msg := fmt.Sprintf("Failed to edit monitor: %v", err)
+			SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
+			SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
+			SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, msg, monitor.Generation)
+			if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
+				return ctrl.Result{}, updateErr
+			}
 			return ctrl.Result{}, err
 		}
+		// If monitor was missing and desired state is paused, apply pause after recreate.
+		if monitorMissing && desiredStatus == urtypes.MonitorPaused {
+			if err := urclient.PauseMonitor(ctx, result.ID); err != nil {
+				// Pause failed - recreated monitor is still running, update status to reflect actual state
+				monitor.Status.Status = urtypes.MonitorRunning
+				monitor.Status.State = monitorStateLabel(urtypes.MonitorRunning)
+				msg := fmt.Sprintf("Failed to pause recreated monitor: %v", err)
+				SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
+				SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
+				SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, msg, monitor.Generation)
+				if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
+					return ctrl.Result{}, updateErr
+				}
+				return ctrl.Result{}, err
+			}
+			log.FromContext(ctx).Info("Paused recreated monitor", "monitorID", result.ID)
+			verifyPausedSoon = true
+		}
 
-		monitor.Status.ID = id
+		monitor.Status.ID = result.ID
 		monitor.Status.Status = monitor.Spec.Monitor.Status
-		if err := r.Status().Update(ctx, monitor); err != nil {
+		monitor.Status.State = monitorStateLabel(monitor.Spec.Monitor.Status)
+		// Update HeartbeatURL for heartbeat monitors (API returns token, we need full URL)
+		if monitor.Spec.Monitor.Type == urtypes.TypeHeartbeat && result.URL != "" {
+			monitor.Status.HeartbeatURL = buildHeartbeatURL(configuredHeartbeatBaseURL(), monitor.Status.ID, result.URL)
+		}
+		if err := r.updateMonitorStatus(ctx, monitor); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
 
-	if !controllerutil.ContainsFinalizer(monitor, myFinalizerName) {
-		controllerutil.AddFinalizer(monitor, myFinalizerName)
-		if err := r.Update(ctx, monitor); err != nil {
-			return ctrl.Result{}, err
+	if err := r.reconcileHeartbeatURLPublishTarget(ctx, monitor); err != nil {
+		msg := fmt.Sprintf("Failed to reconcile heartbeat URL publish target: %v", err)
+		// The monitor has already synced with UptimeRobot at this point.
+		// Heartbeat URL publishing is a local follow-up operation and should not flip Synced to false.
+		SetReadyCondition(&monitor.Status.Conditions, false, ReasonReconcileError, msg, monitor.Generation)
+		SetSyncedCondition(&monitor.Status.Conditions, true, ReasonSyncSuccess, "Successfully synced with UptimeRobot", monitor.Generation)
+		SetErrorCondition(&monitor.Status.Conditions, true, ReasonReconcileError, msg, monitor.Generation)
+		now := metav1.Now()
+		monitor.Status.LastSyncedTime = &now
+		if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
+			return ctrl.Result{}, updateErr
 		}
+		return ctrl.Result{}, err
 	}
 
+	SetReadyCondition(&monitor.Status.Conditions, true, ReasonReconcileSuccess, "Monitor reconciled successfully", monitor.Generation)
+	SetSyncedCondition(&monitor.Status.Conditions, true, ReasonSyncSuccess, "Successfully synced with UptimeRobot", monitor.Generation)
+	SetErrorCondition(&monitor.Status.Conditions, false, ReasonReconcileSuccess, "", monitor.Generation)
+	now := metav1.Now()
+	monitor.Status.LastSyncedTime = &now
+	if err := r.updateMonitorStatus(ctx, monitor); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if verifyPausedSoon {
+		// UptimeRobot may transiently report STARTED/UP right after pause requests.
+		// Requeue quickly to verify and enforce paused state without requiring re-apply.
+		return ctrl.Result{RequeueAfter: pausedVerifyRequeue}, nil
+	}
 	return ctrl.Result{RequeueAfter: monitor.Spec.SyncInterval.Duration}, nil
+}
+
+func configuredHeartbeatBaseURL() string {
+	return normalizeHeartbeatBaseURL(os.Getenv(heartbeatBaseURLEnvVar))
+}
+
+func normalizeHeartbeatBaseURL(baseURL string) string {
+	trimmed := strings.TrimSpace(baseURL)
+	if trimmed == "" {
+		return defaultHeartbeatBaseURL
+	}
+	if !strings.HasPrefix(trimmed, "http://") && !strings.HasPrefix(trimmed, "https://") {
+		trimmed = "https://" + trimmed
+	}
+	return strings.TrimSuffix(trimmed, "/")
+}
+
+func buildHeartbeatURL(baseURL, monitorID, apiURL string) string {
+	trimmed := strings.TrimSpace(apiURL)
+	if trimmed == "" {
+		return ""
+	}
+	if strings.HasPrefix(trimmed, "http://") || strings.HasPrefix(trimmed, "https://") {
+		return trimmed
+	}
+	normalizedBaseURL := normalizeHeartbeatBaseURL(baseURL)
+	if isPrefixedHeartbeatKey(trimmed) {
+		return fmt.Sprintf("%s/%s", normalizedBaseURL, trimmed)
+	}
+	if monitorID != "" {
+		return fmt.Sprintf("%s/m%s-%s", normalizedBaseURL, monitorID, trimmed)
+	}
+	return fmt.Sprintf("%s/%s", normalizedBaseURL, trimmed)
+}
+
+func isPrefixedHeartbeatKey(value string) bool {
+	if len(value) < 3 {
+		return false
+	}
+	if value[0] != 'm' {
+		return false
+	}
+	rest := value[1:]
+	dashIdx := strings.IndexByte(rest, '-')
+	if dashIdx <= 0 {
+		return false
+	}
+	for _, c := range rest[:dashIdx] {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func (r *MonitorReconciler) reconcileHeartbeatURLPublishTarget(ctx context.Context, monitor *uptimerobotv1.Monitor) error {
+	currentTargetType := monitor.Status.HeartbeatURLPublishTargetType
+	currentTargetName := strings.TrimSpace(monitor.Status.HeartbeatURLPublishTargetName)
+	currentTargetKey := strings.TrimSpace(monitor.Status.HeartbeatURLPublishTargetKey)
+
+	publish := monitor.Spec.HeartbeatURLPublish
+	heartbeatURL := buildHeartbeatURL(configuredHeartbeatBaseURL(), monitor.Status.ID, monitor.Status.HeartbeatURL)
+	shouldPublish := monitor.Spec.Monitor.Type == urtypes.TypeHeartbeat && heartbeatURL != ""
+	if !shouldPublish {
+		return r.cleanupHeartbeatURLPublishTarget(ctx, monitor)
+	}
+	if publish == nil {
+		return r.cleanupHeartbeatURLPublishTarget(ctx, monitor)
+	}
+
+	targetType := publish.Type
+	if targetType == "" {
+		targetType = uptimerobotv1.HeartbeatURLPublishTypeSecret
+	}
+	targetName := publish.Name
+	if targetName == "" {
+		targetName = fmt.Sprintf("%s-heartbeat-url", monitor.Name)
+	}
+	targetKey := publish.Key
+	if targetKey == "" {
+		targetKey = "heartbeatURL"
+	}
+
+	targetObjectChanged := currentTargetType != targetType ||
+		currentTargetName != targetName
+	if targetObjectChanged && currentTargetName != "" {
+		if err := r.cleanupHeartbeatURLPublishTargetObject(ctx, monitor, currentTargetType, currentTargetName); err != nil {
+			return err
+		}
+	}
+
+	switch targetType {
+	case uptimerobotv1.HeartbeatURLPublishTypeConfigMap:
+		if err := r.reconcileHeartbeatURLConfigMap(ctx, monitor, targetName, targetKey, currentTargetKey, heartbeatURL); err != nil {
+			return err
+		}
+	case uptimerobotv1.HeartbeatURLPublishTypeSecret:
+		if err := r.reconcileHeartbeatURLSecret(ctx, monitor, targetName, targetKey, currentTargetKey, heartbeatURL); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("unsupported heartbeatURLPublish type %q", targetType)
+	}
+
+	if monitor.Status.HeartbeatURLPublishTargetType == targetType &&
+		monitor.Status.HeartbeatURLPublishTargetName == targetName &&
+		monitor.Status.HeartbeatURLPublishTargetKey == targetKey {
+		return nil
+	}
+	monitor.Status.HeartbeatURLPublishTargetType = targetType
+	monitor.Status.HeartbeatURLPublishTargetName = targetName
+	monitor.Status.HeartbeatURLPublishTargetKey = targetKey
+	log.FromContext(ctx).V(1).Info("Published heartbeat URL target",
+		"monitor", monitor.Name,
+		"targetType", targetType,
+		"targetName", targetName,
+		"targetKey", targetKey)
+	return r.updateMonitorStatus(ctx, monitor)
+}
+
+func (r *MonitorReconciler) cleanupHeartbeatURLPublishTarget(ctx context.Context, monitor *uptimerobotv1.Monitor) error {
+	targetType := monitor.Status.HeartbeatURLPublishTargetType
+	targetName := strings.TrimSpace(monitor.Status.HeartbeatURLPublishTargetName)
+	if targetType == "" && targetName == "" && monitor.Status.HeartbeatURLPublishTargetKey == "" {
+		return nil
+	}
+
+	if targetName != "" {
+		if err := r.cleanupHeartbeatURLPublishTargetObject(ctx, monitor, targetType, targetName); err != nil {
+			return err
+		}
+	}
+
+	monitor.Status.HeartbeatURLPublishTargetType = ""
+	monitor.Status.HeartbeatURLPublishTargetName = ""
+	monitor.Status.HeartbeatURLPublishTargetKey = ""
+	return r.updateMonitorStatus(ctx, monitor)
+}
+
+func (r *MonitorReconciler) cleanupHeartbeatURLPublishTargetObject(ctx context.Context, monitor *uptimerobotv1.Monitor, targetType uptimerobotv1.HeartbeatURLPublishType, targetName string) error {
+	switch targetType {
+	case uptimerobotv1.HeartbeatURLPublishTypeSecret:
+		secret := &corev1.Secret{}
+		err := r.Get(ctx, client.ObjectKey{Name: targetName, Namespace: monitor.Namespace}, secret)
+		if err != nil && !apierrors.IsNotFound(err) {
+			return err
+		}
+		if err == nil && metav1.IsControlledBy(secret, monitor) {
+			if err := r.Delete(ctx, secret); err != nil && !apierrors.IsNotFound(err) {
+				return err
+			}
+		}
+	case uptimerobotv1.HeartbeatURLPublishTypeConfigMap:
+		configMap := &corev1.ConfigMap{}
+		err := r.Get(ctx, client.ObjectKey{Name: targetName, Namespace: monitor.Namespace}, configMap)
+		if err != nil && !apierrors.IsNotFound(err) {
+			return err
+		}
+		if err == nil && metav1.IsControlledBy(configMap, monitor) {
+			if err := r.Delete(ctx, configMap); err != nil && !apierrors.IsNotFound(err) {
+				return err
+			}
+		}
+	default:
+		log.FromContext(ctx).Info("Skipping heartbeat publish cleanup for unknown target type",
+			"monitor", monitor.Name,
+			"targetType", targetType,
+			"targetName", targetName)
+	}
+	return nil
+}
+
+func (r *MonitorReconciler) reconcileHeartbeatURLSecret(ctx context.Context, monitor *uptimerobotv1.Monitor, name, key, previousKey, heartbeatURL string) error {
+	logger := log.FromContext(ctx)
+	secret := &corev1.Secret{}
+	objKey := client.ObjectKey{Name: name, Namespace: monitor.Namespace}
+	err := r.Get(ctx, objKey, secret)
+	if err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("failed to get Secret %s/%s for monitor %s: %w", monitor.Namespace, name, monitor.Name, err)
+	}
+
+	if apierrors.IsNotFound(err) {
+		secret = &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: monitor.Namespace,
+			},
+			Type: corev1.SecretTypeOpaque,
+			Data: map[string][]byte{
+				key: []byte(heartbeatURL),
+			},
+		}
+		if err := controllerutil.SetControllerReference(monitor, secret, r.Scheme); err != nil {
+			return fmt.Errorf("failed to set owner reference on Secret %s/%s for monitor %s: %w", monitor.Namespace, name, monitor.Name, err)
+		}
+		if err := r.Create(ctx, secret); err != nil {
+			return fmt.Errorf("failed to create Secret %s/%s for monitor %s: %w", monitor.Namespace, name, monitor.Name, err)
+		}
+		logger.V(1).Info("Created heartbeat URL Secret",
+			"monitor", monitor.Name,
+			"namespace", monitor.Namespace,
+			"secret", name,
+			"key", key)
+		return nil
+	}
+
+	if !metav1.IsControlledBy(secret, monitor) {
+		return fmt.Errorf("refusing to publish heartbeat URL to existing Secret %q: object is not managed by Monitor %q", name, monitor.Name)
+	}
+
+	if secret.Data == nil {
+		secret.Data = map[string][]byte{}
+	}
+	needsUpdate := false
+	if string(secret.Data[key]) != heartbeatURL {
+		secret.Data[key] = []byte(heartbeatURL)
+		needsUpdate = true
+	}
+	// If key changed on the same managed Secret, remove the previously managed key.
+	if previousKey != "" && previousKey != key {
+		if _, exists := secret.Data[previousKey]; exists {
+			delete(secret.Data, previousKey)
+			needsUpdate = true
+		}
+	}
+	if !needsUpdate {
+		return nil
+	}
+	if err := r.Update(ctx, secret); err != nil {
+		return fmt.Errorf("failed to update Secret %s/%s for monitor %s: %w", monitor.Namespace, name, monitor.Name, err)
+	}
+	logger.V(1).Info("Updated heartbeat URL Secret",
+		"monitor", monitor.Name,
+		"namespace", monitor.Namespace,
+		"secret", name,
+		"key", key)
+	return nil
+}
+
+func (r *MonitorReconciler) reconcileHeartbeatURLConfigMap(ctx context.Context, monitor *uptimerobotv1.Monitor, name, key, previousKey, heartbeatURL string) error {
+	logger := log.FromContext(ctx)
+	configMap := &corev1.ConfigMap{}
+	objKey := client.ObjectKey{Name: name, Namespace: monitor.Namespace}
+	err := r.Get(ctx, objKey, configMap)
+	if err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("failed to get ConfigMap %s/%s for monitor %s: %w", monitor.Namespace, name, monitor.Name, err)
+	}
+
+	if apierrors.IsNotFound(err) {
+		configMap = &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: monitor.Namespace,
+			},
+			Data: map[string]string{
+				key: heartbeatURL,
+			},
+		}
+		if err := controllerutil.SetControllerReference(monitor, configMap, r.Scheme); err != nil {
+			return fmt.Errorf("failed to set owner reference on ConfigMap %s/%s for monitor %s: %w", monitor.Namespace, name, monitor.Name, err)
+		}
+		if err := r.Create(ctx, configMap); err != nil {
+			return fmt.Errorf("failed to create ConfigMap %s/%s for monitor %s: %w", monitor.Namespace, name, monitor.Name, err)
+		}
+		logger.V(1).Info("Created heartbeat URL ConfigMap",
+			"monitor", monitor.Name,
+			"namespace", monitor.Namespace,
+			"configMap", name,
+			"key", key)
+		return nil
+	}
+
+	if !metav1.IsControlledBy(configMap, monitor) {
+		return fmt.Errorf("refusing to publish heartbeat URL to existing ConfigMap %q: object is not managed by Monitor %q", name, monitor.Name)
+	}
+
+	if configMap.Data == nil {
+		configMap.Data = map[string]string{}
+	}
+	needsUpdate := false
+	if configMap.Data[key] != heartbeatURL {
+		configMap.Data[key] = heartbeatURL
+		needsUpdate = true
+	}
+	// If key changed on the same managed ConfigMap, remove the previously managed key.
+	if previousKey != "" && previousKey != key {
+		if _, exists := configMap.Data[previousKey]; exists {
+			delete(configMap.Data, previousKey)
+			needsUpdate = true
+		}
+	}
+	if !needsUpdate {
+		return nil
+	}
+	if err := r.Update(ctx, configMap); err != nil {
+		return fmt.Errorf("failed to update ConfigMap %s/%s for monitor %s: %w", monitor.Namespace, name, monitor.Name, err)
+	}
+	logger.V(1).Info("Updated heartbeat URL ConfigMap",
+		"monitor", monitor.Name,
+		"namespace", monitor.Namespace,
+		"configMap", name,
+		"key", key)
+	return nil
+}
+
+// updateMonitorStatus writes status, retrying on conflict so a successful create is not
+// followed by a second create (409) when the initial status update fails.
+func (r *MonitorReconciler) updateMonitorStatus(ctx context.Context, monitor *uptimerobotv1.Monitor) error {
+	err := r.Status().Update(ctx, monitor)
+	if err == nil {
+		return nil
+	}
+	if !apierrors.IsConflict(err) {
+		return err
+	}
+	// Conflict: re-get latest version and reapply status update so we don't trigger another create.
+	latest := &uptimerobotv1.Monitor{}
+	if getErr := r.Get(ctx, client.ObjectKeyFromObject(monitor), latest); getErr != nil {
+		return getErr
+	}
+	latest.Status.Ready = monitor.Status.Ready
+	latest.Status.ID = monitor.Status.ID
+	latest.Status.Type = monitor.Status.Type
+	latest.Status.Status = monitor.Status.Status
+	latest.Status.State = monitor.Status.State
+	latest.Status.HeartbeatURL = monitor.Status.HeartbeatURL
+	latest.Status.HeartbeatURLPublishTargetType = monitor.Status.HeartbeatURLPublishTargetType
+	latest.Status.HeartbeatURLPublishTargetName = monitor.Status.HeartbeatURLPublishTargetName
+	latest.Status.HeartbeatURLPublishTargetKey = monitor.Status.HeartbeatURLPublishTargetKey
+	latest.Status.ObservedGeneration = monitor.Status.ObservedGeneration
+	latest.Status.Conditions = monitor.Status.Conditions
+	latest.Status.LastSyncedTime = monitor.Status.LastSyncedTime
+	return r.Status().Update(ctx, latest)
 }
 
 // SetupWithManager sets up the controller with the Manager.

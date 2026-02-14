@@ -1,0 +1,137 @@
+# Default values for uptime-robot-operator.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# Number of operator replicas to deploy
+replicaCount: 1
+
+image:
+  # Container image repository
+  repository: ghcr.io/joelp172/uptime-robot-operator
+  # Image pull policy
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: ''
+
+# Image pull secrets for private registries
+imagePullSecrets: []
+
+# Override the name of the chart
+nameOverride: ''
+# Override the full name of the chart
+fullnameOverride: ''
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Automatically mount a ServiceAccount's API credentials?
+  automount: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ''
+
+# Pod annotations
+podAnnotations:
+  kubectl.kubernetes.io/default-container: manager
+
+# Pod security context
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+# Security context for the container
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - 'ALL'
+  readOnlyRootFilesystem: true
+
+# Resource limits and requests for the operator
+# Uncomment and adjust as needed for your environment
+resources: {}
+
+# Liveness probe configuration
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: 8081
+  initialDelaySeconds: 15
+  periodSeconds: 20
+
+# Readiness probe configuration
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: 8081
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+# Node labels for pod assignment
+nodeSelector: {}
+
+# Tolerations for pod assignment
+tolerations: []
+
+# Affinity for pod assignment
+affinity: {}
+
+# Enable leader election for controller manager
+leaderElection:
+  enabled: true
+
+# Webhook configuration
+webhooks:
+  # Enable validating webhooks. Keep disabled unless webhook certs are provisioned.
+  enabled: false
+
+# Health probe bind address
+healthProbeBindAddress: ':8081'
+
+# Metrics service configuration
+metrics:
+  # Enable metrics service
+  enabled: true
+  # Metrics service port
+  port: 8443
+  # Service type
+  type: ClusterIP
+
+# Namespace where the operator will be installed
+# If not set, defaults to "uptime-robot-system"
+namespaceOverride: ''
+
+# Namespace creation configuration
+namespace:
+  # Create the namespace as part of the Helm chart
+  create: true
+
+# Network policy configuration
+networkPolicy:
+  # Enable network policy for the operator
+  enabled: false
+  # Ingress rules
+  ingress:
+    - ports:
+        - port: 8081   # health probes
+          protocol: TCP
+        - port: 8443   # metrics
+          protocol: TCP
+        - port: 9443   # webhooks
+          protocol: TCP
+  # Egress rules
+  egress:
+    - ports:
+        - port: 443    # HTTPS (UptimeRobot API + Kubernetes API)
+          protocol: TCP
+        - port: 53     # DNS (UDP)
+          protocol: UDP
+        - port: 53     # DNS (TCP for zone transfers and large queries)
+          protocol: TCP
+
+# Note: CRDs are managed by Helm's crds/ directory mechanism.
+# They are automatically installed on first install and preserved on uninstall.
+# This behavior is fixed by Helm and cannot be configured.

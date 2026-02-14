@@ -1,0 +1,130 @@
+---
+alwaysApply: true
+---
+
+# API Validation First
+
+## Rule: Validate Against Real API Before Code Changes
+
+Before implementing any new features or changes related to the UptimeRobot API, **always validate the expected behaviour against the real API first**.
+
+## Process
+
+### 1. Create Test Script First
+
+When adding new API functionality:
+
+1. **Write a curl-based test script** to validate the API behaviour
+2. **Test against the real UptimeRobot API** using a test account
+3. **Document the actual API responses** (fields, types, error messages)
+4. **Verify edge cases** (validation errors, missing fields, etc.)
+
+### 2. Only Then Update Code
+
+After confirming API behaviour:
+
+1. Update Go types to match actual API responses
+2. Update controller logic based on validated behaviour
+3. Update mock server to match real API
+4. Write unit/e2e tests based on validated behaviour
+
+## Example Workflow
+
+### ❌ Wrong Approach
+```
+1. Read API docs
+2. Implement based on assumptions
+3. Discover issues later in testing
+4. Fix implementation
+```
+
+### ✅ Correct Approach
+```
+1. Read API docs
+2. Create test script with curl commands
+3. Run against real API and observe behaviour
+4. Document findings (especially edge cases)
+5. Implement based on validated behaviour
+6. Write tests matching real API
+```
+
+## Test Script Location
+
+Store API validation scripts in the repository root:
+- `test-maintenance-windows-api.sh`
+- `test-monitors-api.sh`
+- `test-alert-contacts-api.sh`
+
+## What to Validate
+
+### Required Validations
+
+- **Field requirements**: Which fields are required vs optional
+- **Field types**: Actual JSON types returned
+- **Field presence**: Which fields are always present, conditionally present, or omitted
+- **Validation rules**: What the API rejects and why
+- **Error responses**: Exact error messages and status codes
+- **Edge cases**: Empty arrays, null values, special values (e.g., -1 for last day)
+
+### Example Validations
+
+```bash
+# Test field requirements
+curl -X POST "https://api.uptimerobot.com/v3/maintenance-windows" \
+  -H "Authorization: Bearer $UPTIME_ROBOT_API_KEY" \
+  -d '{"name": "Test", "interval": "weekly"}' # Missing required fields?
+
+# Test field restrictions
+curl -X POST "https://api.uptimerobot.com/v3/maintenance-windows" \
+  -H "Authorization: Bearer $UPTIME_ROBOT_API_KEY" \
+  -d '{"name": "Test", "interval": "daily", "date": "2026-02-10"}' # Is date rejected?
+
+# Test response format
+curl -X GET "https://api.uptimerobot.com/v3/maintenance-windows/123" \
+  -H "Authorization: Bearer $UPTIME_ROBOT_API_KEY" # What fields are in response?
+```
+
+## Benefits
+
+1. **Avoid assumptions**: API docs may be incomplete or outdated
+2. **Catch edge cases early**: Discover validation rules not in docs
+3. **Prevent rework**: Get implementation right the first time
+4. **Document behaviour**: Test scripts serve as living documentation
+5. **Faster debugging**: Know exactly how API behaves
+
+## Real Example
+
+When implementing MaintenanceWindow CRD:
+
+1. ✅ Created `test-maintenance-windows-api.sh`
+2. ✅ Discovered `date` field is rejected for non-"once" intervals
+3. ✅ Found API returns `userId`, `status`, `created` fields
+4. ✅ Observed `days` array is sorted by API
+5. ✅ Updated types and controller based on findings
+6. ✅ All tests passed on first try
+
+Without validation first:
+1. ❌ Would have sent `date` for all intervals
+2. ❌ Would have failed in e2e tests
+3. ❌ Would have needed rework
+4. ❌ Would have wasted time debugging
+
+## Checklist
+
+Before implementing API-related changes:
+
+- [ ] Create test script with curl commands
+- [ ] Test all CRUD operations (if applicable)
+- [ ] Test all variations (intervals, types, etc.)
+- [ ] Test validation errors
+- [ ] Document actual responses
+- [ ] Verify edge cases
+- [ ] Compare with API docs (note discrepancies)
+- [ ] Only then update code
+
+## Exception
+
+Skip API validation only if:
+- Change is purely internal (no API interaction)
+- Change is to existing validated behaviour
+- Change is a bug fix for known API behaviour

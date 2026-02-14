@@ -1,0 +1,305 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "POST /integrations",
+  "description": "Create an Integration in UptimeRobot API v3",
+  "type": "object",
+  "required": ["type", "data"],
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": [
+        "Slack",
+        "Telegram",
+        "MSTeams",
+        "Webhook",
+        "Zapier",
+        "Pagerduty",
+        "GoogleChat",
+        "Discord",
+        "Splunk",
+        "PushBullet",
+        "Pushover",
+        "Mattermost"
+      ]
+    },
+    "data": {
+      "type": "object"
+    }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "type": { "const": "Slack" },
+        "data": {
+          "allOf": [
+            { "$ref": "#/definitions/commonData" },
+            {
+              "type": "object",
+              "required": ["webhookURL", "customValue"],
+              "properties": {
+                "webhookURL": { "type": "string", "maxLength": 1500 },
+                "customValue": { "type": "string", "maxLength": 5000 }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": { "const": "Telegram" },
+        "data": { "$ref": "#/definitions/commonData" }
+      }
+    },
+    {
+      "properties": {
+        "type": { "const": "MSTeams" },
+        "data": {
+          "allOf": [
+            { "$ref": "#/definitions/commonData" },
+            {
+              "type": "object",
+              "required": ["webhookURL"],
+              "properties": {
+                "webhookURL": {
+                  "type": "string",
+                  "description": "The Microsoft Teams Webhook URL",
+                  "maxLength": 1500
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": { "const": "Webhook" },
+        "data": {
+          "allOf": [
+            { "$ref": "#/definitions/commonData" },
+            {
+              "type": "object",
+              "required": ["urlToNotify", "postValue"],
+              "properties": {
+                "urlToNotify": { "type": "string", "maxLength": 1500 },
+                "sendAsQueryString": { "type": "boolean" },
+                "postValue": { "type": "string", "maxLength": 5000 },
+                "sendAsJSON": { "type": "boolean" },
+                "sendAsPostParameters": { "type": "boolean" }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": { "const": "Zapier" },
+        "data": {
+          "allOf": [
+            { "$ref": "#/definitions/commonData" },
+            {
+              "type": "object",
+              "required": ["hookURL"],
+              "properties": {
+                "hookURL": { "type": "string", "maxLength": 1500 }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": { "const": "Pagerduty" },
+        "data": {
+          "allOf": [
+            { "$ref": "#/definitions/commonData" },
+            {
+              "type": "object",
+              "required": ["integrationKey"],
+              "properties": {
+                "integrationKey": {
+                  "type": "string",
+                  "description": "The PagerDuty Integration Key",
+                  "minLength": 32
+                },
+                "location": {
+                  "type": "string",
+                  "description": "The PagerDuty Service region",
+                  "enum": ["us", "eu"]
+                },
+                "autoResolve": {
+                  "type": "boolean",
+                  "description": "Auto-resolve incidents after up event"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": { "const": "GoogleChat" },
+        "data": {
+          "allOf": [
+            { "$ref": "#/definitions/commonData" },
+            {
+              "type": "object",
+              "required": ["roomURL", "customMessage"],
+              "properties": {
+                "roomURL": {
+                  "type": "string",
+                  "description": "The Google Chat Room URL",
+                  "maxLength": 1500
+                },
+                "customMessage": {
+                  "type": "string",
+                  "description": "Optional. Text that will be added to body of each notification.",
+                  "maxLength": 5000
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": { "const": "Discord" },
+        "data": {
+          "allOf": [
+            { "$ref": "#/definitions/commonData" },
+            {
+              "type": "object",
+              "required": ["webhookURL", "customValue"],
+              "properties": {
+                "webhookURL": {
+                  "type": "string",
+                  "description": "The Discord Webhook URL to send the alert to",
+                  "maxLength": 1500
+                },
+                "customValue": {
+                  "type": "string",
+                  "description": "Optional. Text that will be added to body of each notification.",
+                  "maxLength": 5000
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": { "const": "Splunk" },
+        "data": {
+          "allOf": [
+            { "$ref": "#/definitions/commonData" },
+            {
+              "type": "object",
+              "required": ["urlToNotify"],
+              "properties": {
+                "urlToNotify": { "type": "string", "maxLength": 1500 }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": { "const": "PushBullet" },
+        "data": {
+          "allOf": [
+            { "$ref": "#/definitions/commonData" },
+            {
+              "type": "object",
+              "required": ["accessToken"],
+              "properties": {
+                "accessToken": {
+                  "type": "string",
+                  "description": "The Pushbullet Access Token",
+                  "maxLength": 1500
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": { "const": "Pushover" },
+        "data": {
+          "allOf": [
+            { "$ref": "#/definitions/commonData" },
+            {
+              "type": "object",
+              "required": ["userKey"],
+              "properties": {
+                "userKey": {
+                  "type": "string",
+                  "description": "The Pushover User Key",
+                  "maxLength": 1500
+                },
+                "priority": {
+                  "type": "string",
+                  "enum": ["Lowest", "Low", "Normal", "High", "Emergency"]
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": { "const": "Mattermost" },
+        "data": {
+          "allOf": [
+            { "$ref": "#/definitions/commonData" },
+            {
+              "type": "object",
+              "required": ["webhookURL", "customValue"],
+              "properties": {
+                "webhookURL": {
+                  "type": "string",
+                  "description": "The Mattermost Webhook URL",
+                  "maxLength": 1500
+                },
+                "customValue": {
+                  "type": "string",
+                  "description": "Optional. Text that will be added to body of each notification.",
+                  "maxLength": 5000
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "definitions": {
+    "commonData": {
+      "type": "object",
+      "properties": {
+        "friendlyName": {
+          "type": "string",
+          "description": "The friendly name of the integration",
+          "maxLength": 60
+        },
+        "enableNotificationsFor": {
+          "type": "string",
+          "enum": ["UpAndDown", "Down", "Up", "None"]
+        },
+        "sslExpirationReminder": {
+          "type": "boolean",
+          "description": "Send a notification about SSL & Domain expiry"
+        }
+      }
+    }
+  }
+}

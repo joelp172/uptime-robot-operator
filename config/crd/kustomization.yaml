@@ -5,6 +5,9 @@ resources:
   - bases/uptimerobot.com_monitors.yaml
   - bases/uptimerobot.com_contacts.yaml
   - bases/uptimerobot.com_accounts.yaml
+  - bases/uptimerobot.com_maintenancewindows.yaml
+  - bases/uptimerobot.com_monitorgroups.yaml
+  - bases/uptimerobot.com_slackintegrations.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 # patches:

@@ -1,0 +1,67 @@
+Thank you for installing {{ .Chart.Name }}!
+
+Your release is named {{ .Release.Name }}.
+
+The Uptime Robot Operator has been deployed to the {{ include "uptime-robot-operator.namespace" . }} namespace.
+
+To get started:
+
+1. Create a Secret with your UptimeRobot API key:
+
+   kubectl create secret generic uptimerobot-api-key \
+     --namespace {{ include "uptime-robot-operator.namespace" . }} \
+     --from-literal=apiKey=YOUR_API_KEY
+
+2. Create an Account resource:
+
+   kubectl apply -f - <<EOF
+   apiVersion: uptimerobot.com/v1alpha1
+   kind: Account
+   metadata:
+     name: default
+   spec:
+     isDefault: true
+     apiKeySecretRef:
+       name: uptimerobot-api-key
+       key: apiKey
+   EOF
+
+3. Get your alert contact ID from the Account status:
+
+   kubectl get account default -o jsonpath='{.status.alertContacts[0].id}'
+
+4. Create a Contact resource:
+
+   kubectl apply -f - <<EOF
+   apiVersion: uptimerobot.com/v1alpha1
+   kind: Contact
+   metadata:
+     name: default
+   spec:
+     isDefault: true
+     contact:
+       id: "YOUR_CONTACT_ID"
+   EOF
+
+5. Create a Monitor resource:
+
+   kubectl apply -f - <<EOF
+   apiVersion: uptimerobot.com/v1alpha1
+   kind: Monitor
+   metadata:
+     name: my-website
+     namespace: default
+   spec:
+     monitor:
+       name: My Website
+       url: https://example.com
+       interval: 5m
+   EOF
+
+For more information, visit:
+  - Documentation: https://github.com/joelp172/uptime-robot-operator/tree/main/docs
+  - GitHub: https://github.com/joelp172/uptime-robot-operator
+
+To check the status of the operator:
+
+  kubectl get pods -n {{ include "uptime-robot-operator.namespace" . }}

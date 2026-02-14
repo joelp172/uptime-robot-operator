@@ -1,71 +1,29 @@
 # Getting Started
 
-This guide walks you through installing the Uptime Robot Operator and creating your first monitor.
+Create your first UptimeRobot monitor in Kubernetes. By the end, you'll have a working monitor that alerts you when your website goes down.
 
 ## Prerequisites
 
 - Kubernetes cluster v1.19+
-- kubectl configured to access your cluster
-- UptimeRobot account with API access
+- kubectl configured
+- Operator installed ([installation guide](installation.md))
+- UptimeRobot API key ([get one here](https://uptimerobot.com/?red=joelpi) - Integrations > API)
 
-## Step 1: Get Your API Key
+## Step 1: Store Your API Key
 
-1. Log in to [UptimeRobot Dashboard](https://dashboard.uptimerobot.com/)
-2. Navigate to **Integrations** > **API**
-3. Create or copy your **Main API Key**
-
-## Step 2: Install the Operator
-
-Install the operator and CRDs:
-
-```bash
-kubectl apply -f https://raw.githubusercontent.com/joelp172/uptime-robot-operator/main/dist/install.yaml
-```
-
-Verify the operator is running:
-
-```bash
-kubectl get pods -n uptime-robot-system
-```
-
-Expected output:
-
-```
-NAME                                               READY   STATUS    RESTARTS   AGE
-uptime-robot-controller-manager-xxx                1/1     Running   0          30s
-```
-
-## Step 3: Create the API Key Secret
-
-Create a Secret in the `uptime-robot-system` namespace (where the operator runs):
+Create a Secret with your UptimeRobot API key:
 
 ```bash
 kubectl create secret generic uptimerobot-api-key \
   --namespace uptime-robot-system \
-  --from-literal=apiKey=YOUR_API_KEY_HERE
+  --from-literal=apiKey=YOUR_API_KEY
 ```
 
-Replace `YOUR_API_KEY_HERE` with your actual API key.
+Replace `YOUR_API_KEY` with your actual key from UptimeRobot.
 
-**Important:** The Secret must be in the `uptime-robot-system` namespace. Account and Contact resources are cluster-scoped and reference this Secret.
+## Step 2: Configure Your Account
 
-## Step 4: Create an Account
-
-The Account resource connects the operator to your UptimeRobot account. It is cluster-scoped (no namespace required):
-
-```yaml
-apiVersion: uptimerobot.com/v1alpha1
-kind: Account
-metadata:
-  name: default
-spec:
-  isDefault: true
-  apiKeySecretRef:
-    name: uptimerobot-api-key
-    key: apiKey
-```
-
-Apply it:
+Create an Account resource that connects the operator to UptimeRobot:
 
 ```bash
 kubectl apply -f - <<EOF
@@ -81,35 +39,21 @@ spec:
 EOF
 ```
 
-Verify the account is ready:
+Wait for the account to be ready:
 
 ```bash
-kubectl get accounts
+kubectl wait --for=condition=Ready account/default --timeout=30s
 ```
 
-Expected output:
+## Step 3: Set Up Alert Contact
 
-```
-NAME      READY   DEFAULT   EMAIL                    AGE
-default   true    true      your@email.com           10s
-```
-
-## Step 5: Create a Contact
-
-Monitors require an alert contact for notifications. First, find your contact IDs from the Account status:
+Get your contact ID from the account:
 
 ```bash
-kubectl get account default -o jsonpath='{range .status.alertContacts[*]}{.id}{"\t"}{.type}{"\t"}{.value}{"\n"}{end}'
+kubectl get account default -o jsonpath='{.status.alertContacts[0].id}'
 ```
 
-Expected output:
-
-```
-1234567   Email   your@email.com
-7654321   MobileApp   ...
-```
-
-Create a Contact resource using one of the IDs:
+Create a Contact resource with this ID:
 
 ```bash
 kubectl apply -f - <<EOF
@@ -120,43 +64,15 @@ metadata:
 spec:
   isDefault: true
   contact:
-    id: "1234567"
+    id: "PASTE_YOUR_CONTACT_ID_HERE"
 EOF
 ```
 
-Replace `1234567` with your actual contact ID.
+Replace `PASTE_YOUR_CONTACT_ID_HERE` with the ID from the previous command.
 
-Verify the contact is ready:
+## Step 4: Create a Monitor
 
-```bash
-kubectl get contacts
-```
-
-Expected output:
-
-```
-NAME      READY   DEFAULT   FRIENDLY NAME   AGE
-default   true    true                      10s
-```
-
-## Step 6: Create Your First Monitor
-
-Create a basic HTTPS monitor:
-
-```yaml
-apiVersion: uptimerobot.com/v1alpha1
-kind: Monitor
-metadata:
-  name: my-website
-spec:
-  monitor:
-    name: My Website
-    url: https://example.com
-    type: HTTPS
-    interval: 5m
-```
-
-Apply it:
+Create an HTTPS monitor for your website:
 
 ```bash
 kubectl apply -f - <<EOF
@@ -164,50 +80,43 @@ apiVersion: uptimerobot.com/v1alpha1
 kind: Monitor
 metadata:
   name: my-website
+  namespace: default
 spec:
   monitor:
     name: My Website
     url: https://example.com
-    type: HTTPS
     interval: 5m
 EOF
 ```
 
-The monitor uses the default contact for notifications (created in Step 5).
+The monitor automatically uses your default contact for alerts.
 
-Verify the monitor was created:
+## Step 5: Verify
+
+Check that your monitor is running:
 
 ```bash
-kubectl get monitors
+kubectl get monitor my-website
 ```
 
-Expected output:
+You should see:
 
 ```
 NAME         READY   FRIENDLY NAME   URL                   AGE
-my-website   true    My Website      https://example.com   10s
+my-website   true    My Website      https://example.com   30s
 ```
 
-The monitor now appears in your [UptimeRobot Dashboard](https://dashboard.uptimerobot.com/).
+Log in to [UptimeRobot Dashboard](https://dashboard.uptimerobot.com/) to see your monitor.
+
+## What You've Achieved
+
+You now have:
+- A monitor checking your website every 5 minutes
+- Automatic alerts when the site goes down
+- GitOps-ready configuration (commit the YAML to git)
 
 ## Next Steps
 
-- [API Reference](api-reference.md) - Learn about all available fields
-- [Configure Alerts](configure-alerts.md) - Set up alert notifications
-- Explore other monitor types: Keyword, DNS, Heartbeat, Port, Ping
-
-## Uninstall
-
-Remove all monitors and the operator:
-
-```bash
-# Delete all monitors (this also deletes them from UptimeRobot if prune: true)
-kubectl delete monitors --all
-
-# Delete accounts and contacts
-kubectl delete accounts --all
-kubectl delete contacts --all
-
-# Remove the operator
-kubectl delete -f https://raw.githubusercontent.com/joelp172/uptime-robot-operator/main/dist/install.yaml
-```
+- [Configure different monitor types](monitors.md) - Keyword, DNS, Heartbeat, Port, Ping
+- [Schedule maintenance windows](maintenance-windows.md) - Prevent false alerts during deployments
+- [API Reference](api-reference.md) - All available configuration options

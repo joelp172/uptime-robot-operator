@@ -1,0 +1,54 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "POST /maintenance-windows",
+  "description": "Create a new maintenance window in UptimeRobot API v3",
+  "type": "object",
+  "required": ["name", "interval", "date", "time", "duration"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Friendly name of the maintenance window",
+      "maxLength": 255
+    },
+    "autoAddMonitors": {
+      "type": "boolean",
+      "description": "If true, all monitors are automatically added to this maintenance window"
+    },
+    "interval": {
+      "type": "string",
+      "description": "Recurrence interval of the maintenance window",
+      "enum": ["once", "daily", "weekly", "monthly"]
+    },
+    "date": {
+      "type": "string",
+      "description": "Start date of the maintenance window in YYYY-MM-DD format (years 19xx or 20xx only)",
+      "pattern": "^(19|20)\\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$"
+    },
+    "time": {
+      "type": "string",
+      "description": "Start time of the maintenance window in HH:mm:ss format",
+      "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d$"
+    },
+    "duration": {
+      "type": "number",
+      "description": "Duration of the maintenance window in minutes. Maintenance window will be active for this duration",
+      "minimum": 1
+    },
+    "days": {
+      "type": "array",
+      "description": "Days for weekly/monthly maintenance windows. For weekly: day of week (0=Sunday, 1=Monday, etc.). For monthly: day of month (1-31, use -1 for last day). Example: [2, 4, 5] for Tue/Thu/Fri or [10, 17, 26] for specific dates",
+      "items": {
+        "type": "number",
+        "minimum": -1,
+        "maximum": 31
+      }
+    },
+    "monitorIds": {
+      "type": "array",
+      "description": "List of monitor IDs to be assigned to the maintenance window",
+      "items": {
+        "type": "number"
+      }
+    }
+  }
+}

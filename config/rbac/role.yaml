@@ -7,18 +7,23 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - configmaps
+  - secrets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
   - events
   verbs:
   - create
   - patch
-- apiGroups:
-  - ""
-  resources:
-  - secrets
-  verbs:
-  - get
-  - list
-  - watch
 - apiGroups:
   - networking.k8s.io
   resources:
@@ -50,7 +55,10 @@ rules:
   resources:
   - accounts
   - contacts
+  - maintenancewindows
+  - monitorgroups
   - monitors
+  - slackintegrations
   verbs:
   - create
   - delete
@@ -64,7 +72,10 @@ rules:
   resources:
   - accounts/finalizers
   - contacts/finalizers
+  - maintenancewindows/finalizers
+  - monitorgroups/finalizers
   - monitors/finalizers
+  - slackintegrations/finalizers
   verbs:
   - update
 - apiGroups:
@@ -72,7 +83,10 @@ rules:
   resources:
   - accounts/status
   - contacts/status
+  - maintenancewindows/status
+  - monitorgroups/status
   - monitors/status
+  - slackintegrations/status
   verbs:
   - get
   - patch

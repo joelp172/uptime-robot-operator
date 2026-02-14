@@ -7,4 +7,7 @@ resources:
 - uptime-robot_v1alpha1_monitor_dns.yaml
 - uptime-robot_v1alpha1_monitor_heartbeat.yaml
 - uptime-robot_v1alpha1_monitor_keyword.yaml
+- uptime-robot_v1alpha1_maintenancewindow.yaml
+- uptime-robot_v1alpha1_monitorgroup.yaml
+- uptime-robot_v1alpha1_slackintegration.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

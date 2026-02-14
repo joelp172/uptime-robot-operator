@@ -1,0 +1,13 @@
+{
+  "id": 308434,
+  "userId": 123456,
+  "name": "Example Maintenance Window",
+  "interval": "once",
+  "date": "2026-02-10",
+  "time": "02:00:00",
+  "duration": 60,
+  "autoAddMonitors": false,
+  "days": [],
+  "status": "active",
+  "created": "2026-02-05T18:00:00Z"
+}

@@ -1,46 +1,49 @@
 # Uptime Robot Operator
 
 [![Build](https://github.com/joelp172/uptime-robot-operator/actions/workflows/build.yml/badge.svg)](https://github.com/joelp172/uptime-robot-operator/actions/workflows/build.yml)
+[![codecov](https://codecov.io/gh/joelp172/uptime-robot-operator/branch/main/graph/badge.svg)](https://codecov.io/gh/joelp172/uptime-robot-operator)
+[![Release](https://img.shields.io/github/v/release/joelp172/uptime-robot-operator)](https://github.com/joelp172/uptime-robot-operator/releases/latest)
+[![License](https://img.shields.io/github/license/joelp172/uptime-robot-operator)](LICENSE)
+[![Go Report Card](https://goreportcard.com/badge/github.com/joelp172/uptime-robot-operator)](https://goreportcard.com/report/github.com/joelp172/uptime-robot-operator)
 
-A Kubernetes operator that manages [UptimeRobot](https://uptimerobot.com/) monitors declaratively using Custom Resources. Monitors are automatically reconciled to prevent configuration drift.
+Manage [UptimeRobot](https://uptimerobot.com/?red=joelpi) monitors as Kubernetes resources. Automatic drift detection, self-healing, and GitOps-ready.
 
 ## Features
 
-- Declarative monitor management via Kubernetes CRDs
-- Automatic drift detection and correction
-- Support for all UptimeRobot monitor types: HTTPS, Keyword, Ping, Port, Heartbeat, DNS
-- Alert contact configuration
-- Garbage collection of deleted monitors
+- Declarative monitor configuration via CRDs
+- Drift detection and automatic correction
+- All monitor types: HTTPS, Keyword, Ping, Port, Heartbeat, DNS
+- Maintenance window scheduling
+- Alert contact management
+- **Adopt existing monitors** - Migrate monitors created outside Kubernetes without losing history
+
+## Security
+
+All images are:
+- **Signed with Cosign** — Keyless signing via GitHub Actions OpenID Connect (OIDC)
+- **Scanned for vulnerabilities** — Trivy scanning; critical/high severity blocks the build
+- **SBOM included** — Software Bill of Materials (SBOM) in SPDX and CycloneDX formats
+
+See [SECURITY.md](SECURITY.md) for verification instructions and deployment best practices.
 
 ## Quick Start
 
-### Prerequisites
-
-- Kubernetes cluster v1.19+
-- kubectl configured to access your cluster
-- UptimeRobot API key ([get one here](https://dashboard.uptimerobot.com/integrations))
-
-### Install
+Install the operator:
 
 ```bash
-kubectl apply -f https://raw.githubusercontent.com/joelp172/uptime-robot-operator/main/dist/install.yaml
+kubectl apply -f https://github.com/joelp172/uptime-robot-operator/releases/latest/download/install.yaml
 ```
 
-### Configure API Key
-
-Create a Secret in the `uptime-robot-system` namespace (where the operator runs):
+Create your first monitor:
 
 ```bash
+# Store your API key
 kubectl create secret generic uptimerobot-api-key \
   --namespace uptime-robot-system \
   --from-literal=apiKey=YOUR_API_KEY
-```
 
-### Create Account
-
-Account and Contact are cluster-scoped resources (no namespace required). The Secret they reference must be in `uptime-robot-system`.
-
-```yaml
+# Configure account
+kubectl apply -f - <<EOF
 apiVersion: uptimerobot.com/v1alpha1
 kind: Account
 metadata:
@@ -50,19 +53,13 @@ spec:
   apiKeySecretRef:
     name: uptimerobot-api-key
     key: apiKey
-```
+EOF
 
-### Create Contact
-
-First, find your alert contact ID from the Account status:
-
-```bash
+# Get your contact ID
 kubectl get account default -o jsonpath='{.status.alertContacts[0].id}'
-```
 
-Then create a Contact resource referencing it:
-
-```yaml
+# Create contact (replace YOUR_CONTACT_ID)
+kubectl apply -f - <<EOF
 apiVersion: uptimerobot.com/v1alpha1
 kind: Contact
 metadata:
@@ -71,11 +68,10 @@ spec:
   isDefault: true
   contact:
     id: "YOUR_CONTACT_ID"
-```
+EOF
 
-### Create Monitor
-
-```yaml
+# Create monitor
+kubectl apply -f - <<EOF
 apiVersion: uptimerobot.com/v1alpha1
 kind: Monitor
 metadata:
@@ -85,35 +81,43 @@ spec:
     name: My Website
     url: https://example.com
     interval: 5m
+EOF
 ```
 
 ## Documentation
 
-- [Getting Started Guide](docs/getting-started.md) - Full installation and configuration tutorial
-- [API Reference](docs/api-reference.md) - Complete CRD specification
-- [How to Configure Alerts](docs/configure-alerts.md) - Set up alert contacts and notifications
+| Document | Purpose |
+|----------|---------|
+| [Installation](docs/installation.md) | Install via kubectl or Helm |
+| [Getting Started](docs/getting-started.md) | Create your first monitor (tutorial) |
+| [Security](SECURITY.md) | Verify images and deployment best practices |
+| [Monitors](docs/monitors.md) | Configure monitor types and alerts |
+| [Migration Guide](docs/migration-guide.md) | Adopt existing UptimeRobot resources |
+| [Maintenance Windows](docs/maintenance-windows.md) | Schedule planned downtime |
+| [Architecture](docs/architecture.md) | System architecture and data flows |
+| [Troubleshooting](docs/troubleshooting.md) | Diagnose and fix common issues |
+| [API Reference](docs/api-reference.md) | Complete CRD field reference |
+| [Development](docs/development.md) | Contributing and testing |
 
 ## Monitor Types
 
-| Type | Description |
-|------|-------------|
-| HTTPS | HTTP/HTTPS endpoint monitoring |
-| Keyword | Check for specific text in page content |
-| Ping | ICMP ping monitoring |
-| Port | TCP port monitoring |
-| Heartbeat | Expects periodic pings from your services |
-| DNS | DNS record verification |
+| Type | Use Case |
+|------|----------|
+| HTTPS | HTTP/HTTPS endpoints |
+| Keyword | Page content verification |
+| Ping | ICMP availability |
+| Port | TCP port connectivity |
+| Heartbeat | Cron jobs and scheduled tasks |
+| DNS | DNS record validation |
 
 ## How It Works
 
-The operator watches for Monitor custom resources and creates corresponding monitors in UptimeRobot via the API. It periodically reconciles the state to detect and correct drift (changes made outside Kubernetes).
-
-When you delete a Monitor resource with `prune: true` (the default), the operator automatically deletes the corresponding monitor in UptimeRobot.
+The operator reconciles Monitor resources with UptimeRobot via the API. It detects drift (manual changes in UptimeRobot) and corrects them to match your Kubernetes configuration. When you delete a Monitor resource, the operator removes it from UptimeRobot (configurable via `prune` field).
 
 ## Contributing
 
-Contributions are welcome. Please open an issue or submit a pull request.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and PR guidelines.
 
 ## License
 
-Apache License 2.0. See [LICENSE](LICENSE) for details.
+Apache License 2.0 - see [LICENSE](LICENSE)

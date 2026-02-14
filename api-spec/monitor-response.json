@@ -1,0 +1,254 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "UptimeRobot Monitor Response",
+  "description": "Schema for UptimeRobot API monitor object response",
+  "type": "object",
+  "properties": {
+    "id": { "type": "integer", "minimum": 0 },
+    "friendlyName": { "type": "string", "minLength": 1 },
+    "url": { "type": "string" },
+    "type": {},
+    "interval": { "type": "number", "minimum": 30, "maximum": 2678400 },
+    "status": {},
+    "sslBrand": { "type": ["string", "null"] },
+    "sslExpiryDateTime": {},
+    "domainExpireDate": {},
+    "checkSSLErrors": { "type": "boolean" },
+    "sslExpirationReminder": { "type": ["boolean", "null"] },
+    "domainExpirationReminder": { "type": ["boolean", "null"] },
+    "followRedirections": { "type": "boolean" },
+    "authType": {},
+    "httpUsername": { "type": "string" },
+    "httpPassword": { "type": "string" },
+    "customHttpHeaders": {
+      "type": ["object", "null"],
+      "additionalProperties": {
+        "oneOf": [{ "type": "string" }, { "type": "number" }]
+      }
+    },
+    "httpMethodType": {},
+    "successHttpResponseCodes": { "type": "array", "items": { "type": "string" } },
+    "timeout": { "type": ["number", "null"], "minimum": 0, "maximum": 60 },
+    "postValueData": {},
+    "postValueType": { "type": ["string", "null"], "enum": ["KEY_VALUE", "RAW_JSON"] },
+    "port": { "type": ["number", "null"], "minimum": 0, "maximum": 65535 },
+    "gracePeriod": { "type": ["number", "null"], "minimum": 0, "maximum": 86400 },
+    "keywordValue": { "type": ["string", "null"], "maxLength": 500 },
+    "keywordCaseType": { "oneOf": [{ "type": "number", "minimum": 0, "maximum": 0 }, { "type": "number", "minimum": 1, "maximum": 1 }] },
+    "keywordType": {},
+    "responseTimeThreshold": { "type": "number" },
+    "config": {
+      "type": ["object", "null"],
+      "properties": {
+        "dnsRecords": {
+          "type": "object",
+          "properties": {
+            "CNAME": { "type": "array", "items": { "type": "string" } },
+            "MX": { "type": "array", "items": { "type": "string" } },
+            "NS": { "type": "array", "items": { "type": "string" } },
+            "A": { "type": "array", "items": { "type": "string" } },
+            "AAAA": { "type": "array", "items": { "type": "string" } },
+            "TXT": { "type": "array", "items": { "type": "string" } },
+            "SRV": { "type": "array", "items": { "type": "string" } },
+            "PTR": { "type": "array", "items": { "type": "string" } },
+            "SOA": { "type": "array", "items": { "type": "string" } },
+            "SPF": { "type": "array", "items": { "type": "string" } },
+            "DNSKEY": { "type": "array", "items": { "type": "string" } },
+            "DS": { "type": "array", "items": { "type": "string" } },
+            "NSEC": { "type": "array", "items": { "type": "string" } },
+            "NSEC3": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "apiAssertions": {
+          "type": "object",
+          "properties": {
+            "logic": { "type": "string", "enum": ["AND", "OR"] },
+            "checks": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 5,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "property": { "type": "string" },
+                  "comparison": { "type": "string", "enum": ["equals", "not_equals", "contains", "not_contains", "greater_than", "less_than", "is_null", "is_not_null"] },
+                  "target": {}
+                }
+              }
+            }
+          }
+        },
+        "sslExpirationPeriodDays": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 0, "maximum": 365 },
+          "maxItems": 10
+        }
+      }
+    },
+    "maintenanceWindows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "number", "minimum": 0 },
+          "userId": { "type": "number", "minimum": 0 },
+          "name": { "type": "string", "minLength": 3 },
+          "interval": { "type": "string", "enum": ["once", "daily", "weekly", "monthly"] },
+          "date": { "type": ["string", "null"] },
+          "time": { "type": "string", "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d$" },
+          "duration": { "type": "number", "minimum": 1 },
+          "autoAddMonitors": { "type": "boolean" },
+          "days": { "type": "array", "items": { "type": "number" } },
+          "status": { "type": "string", "enum": ["active", "paused"] },
+          "created": {}
+        }
+      }
+    },
+    "psps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer", "minimum": 0 },
+          "friendlyName": { "type": "string", "minLength": 1 },
+          "customDomain": { "type": ["string", "null"] },
+          "isPasswordSet": { "type": "boolean" },
+          "monitorIds": { "type": "array", "items": { "type": "number" } },
+          "monitorsCount": { "type": ["number", "null"] },
+          "status": {},
+          "urlKey": { "type": "string", "minLength": 1 },
+          "homepageLink": { "type": ["string", "null"], "minLength": 3 },
+          "gaCode": { "type": ["string", "null"] },
+          "shareAnalyticsConsent": { "type": "boolean" },
+          "useSmallCookieConsentModal": { "type": "boolean" },
+          "icon": { "type": ["string", "null"] },
+          "noIndex": { "type": "boolean" },
+          "logo": { "type": ["string", "null"] },
+          "hideUrlLinks": { "type": "boolean" },
+          "subscription": { "type": "boolean" },
+          "showCookieBar": { "type": "boolean" },
+          "pinnedAnnouncementId": { "type": ["integer", "null"], "minimum": 0 },
+          "customSettings": {
+            "type": ["object", "null"],
+            "properties": {
+              "font": {
+                "type": ["object", "null"],
+                "properties": { "family": { "type": ["string", "null"] } }
+              },
+              "page": {
+                "type": "object",
+                "properties": {
+                  "layout": { "type": "string" },
+                  "theme": { "type": "string", "enum": ["light", "dark"] },
+                  "density": { "type": "string", "enum": ["normal", "compact"] }
+                }
+              },
+              "colors": {
+                "type": "object",
+                "properties": {
+                  "main": { "type": ["string", "null"] },
+                  "text": { "type": ["string", "null"] },
+                  "link": { "type": ["string", "null"] }
+                }
+              },
+              "features": {
+                "type": "object",
+                "properties": {
+                  "showBars": { "type": ["string", "null"], "enum": ["true", "false"] },
+                  "showUptimePercentage": { "type": ["string", "null"], "enum": ["true", "false"] },
+                  "enableFloatingStatus": { "type": ["string", "null"], "enum": ["true", "false"] },
+                  "showOverallUptime": { "type": ["string", "null"], "enum": ["true", "false"] },
+                  "showOutageUpdates": { "type": ["string", "null"], "enum": ["true", "false"] },
+                  "showOutageDetails": { "type": ["string", "null"], "enum": ["true", "false"] },
+                  "enableDetailsPage": { "type": ["string", "null"], "enum": ["true", "false"] },
+                  "showMonitorURL": { "type": ["string", "null"], "enum": ["true", "false"] },
+                  "hidePausedMonitors": { "type": ["string", "null"], "enum": ["true", "false"] }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "regionalData": {
+      "type": "object",
+      "properties": {
+        "REGION": { "type": "array", "items": { "type": "string", "enum": ["na", "eu", "as", "oc"] } },
+        "MANUAL_SELECTED": { "type": "boolean" },
+        "INFRASTRUCTURE": { "type": "string", "enum": ["Legacy", "New"] }
+      }
+    },
+    "currentStateDuration": { "type": "number" },
+    "lastIncidentId": { "type": ["string", "null"] },
+    "userId": { "type": "number", "minimum": 0 },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "number", "minimum": 0 },
+          "name": { "type": "string", "minLength": 1 },
+          "color": { "type": "string", "minLength": 1 },
+          "monitors": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "number", "minimum": 0 },
+                "friendlyName": { "type": ["string", "null"], "minLength": 1 },
+                "status": {},
+                "url": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "assignedAlertContacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "alertContactId": { "type": "string" },
+          "threshold": { "type": "number", "minimum": 0 },
+          "recurrence": { "type": "number", "minimum": 0 }
+        }
+      }
+    },
+    "lastIncident": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string" },
+            "status": {},
+            "cause": { "type": "number" },
+            "reason": { "type": "string" },
+            "startedAt": {},
+            "duration": { "type": ["number", "null"] }
+          }
+        }
+      ]
+    },
+    "lastDayUptimes": {
+      "type": "object",
+      "properties": {
+        "bucketSize": { "type": "number" },
+        "histogram": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "timestamp": { "type": "number" },
+              "uptime": { "type": "number", "minimum": 0 }
+            }
+          }
+        }
+      }
+    },
+    "createDateTime": {},
+    "apiKey": { "type": ["string", "null"] },
+    "groupId": { "type": ["number", "null"] }
+  }
+}

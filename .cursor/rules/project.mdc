@@ -1,0 +1,51 @@
+---
+description: Project conventions for uptime-robot-operator
+alwaysApply: true
+---
+
+# uptime-robot-operator Project
+
+Kubernetes operator for managing UptimeRobot monitors via CRDs.
+
+## Tech Stack
+
+- Go 1.23+
+- Kubebuilder v4
+- controller-runtime
+- Ginkgo/Gomega for testing
+
+## Key Directories
+
+| Path | Purpose |
+|------|---------|
+| `api/v1alpha1/` | CRD type definitions |
+| `internal/controller/` | Reconciliation logic |
+| `internal/uptimerobot/` | UptimeRobot API client |
+| `config/` | Kustomize manifests |
+| `test/e2e/` | End-to-end tests |
+
+## CRDs
+
+- `Account` - UptimeRobot API credentials (cluster-scoped)
+- `Contact` - Alert contact reference (cluster-scoped)
+- `Monitor` - Monitor configuration (namespaced)
+
+## Common Tasks
+
+| Task | Command |
+|------|---------|
+| Generate CRDs | `make manifests` |
+| Generate code | `make generate` |
+| Format code | `make fmt` |
+| Run locally | `make run` |
+| Build image | `make docker-build IMG=name:tag` |
+
+## Dependencies
+
+This operator requires:
+- cert-manager (for webhook TLS/cert injection in deployed manifests)
+
+This operator does NOT require:
+- prometheus-operator
+
+It only needs a Kubernetes cluster with the CRDs installed.

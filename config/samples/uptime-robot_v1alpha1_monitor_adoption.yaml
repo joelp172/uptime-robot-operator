@@ -1,0 +1,33 @@
+apiVersion: uptimerobot.com/v1alpha1
+kind: Monitor
+metadata:
+  labels:
+    app.kubernetes.io/name: uptime-robot-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: adopted-monitor
+  annotations:
+    # Specify the ID of an existing UptimeRobot monitor to adopt
+    # Find monitor IDs in the UptimeRobot dashboard (visible in URL when viewing a monitor)
+    uptimerobot.com/adopt-id: "123456789"
+spec:
+  # Recommended: Set prune to false to preserve monitor if resource is accidentally deleted
+  prune: false
+  syncInterval: 24h  # How often operator syncs with UptimeRobot API (drift detection)
+  monitor:
+    # The monitor will be updated to match these values after adoption
+    name: Adopted Production API
+    url: https://api.example.com/health
+    type: HTTPS
+    interval: 5m  # How often UptimeRobot checks the URL
+    timeout: 30s
+    gracePeriod: 1m
+    method: GET
+    tags:
+      - production
+      - adopted
+    # Optional: Additional configuration
+    # customHttpHeaders:
+    #   X-API-Key: "secret-key"
+    # successHttpResponseCodes:
+    #   - "2xx"
+    #   - "3xx"

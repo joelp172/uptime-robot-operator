@@ -2,7 +2,8 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
 - manager.yaml
+# NOTE: Replace the image registry below with your own (e.g., ghcr.io or docker.io)
 images:
 - name: controller
-  newName: uptime-robot-operator
-  newTag: dev-1769977472
+  newName: example.com/uptime-robot-operator
+  newTag: v0.0.1

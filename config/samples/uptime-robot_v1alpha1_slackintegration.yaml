@@ -1,0 +1,20 @@
+apiVersion: uptimerobot.com/v1alpha1
+kind: SlackIntegration
+metadata:
+  labels:
+    app.kubernetes.io/name: uptime-robot-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: example-slackintegration
+  namespace: default
+spec:
+  syncInterval: 5m
+  prune: true
+  # account:
+  #   name: default
+  integration:
+    friendlyName: "Slack Alerts"
+    enableNotificationsFor: Down
+    sslExpirationReminder: false
+    secretName: slack-webhook
+    webhookURLKey: webhookURL
+    customValue: "Alerts from uptime-robot-operator"

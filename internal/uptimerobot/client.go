@@ -41,29 +41,59 @@ func NewClient(apiKey string) Client {
 		api = strings.TrimSuffix(env, "/")
 	}
 
-	return Client{url: api, apiKey: apiKey}
+	return Client{
+		url:            api,
+		apiKey:         apiKey,
+		maxRetries:     DefaultMaxRetries,
+		baseDelay:      DefaultBaseDelay,
+		maxDelay:       DefaultMaxDelay,
+		jitterFraction: DefaultJitterFraction,
+	}
 }
 
 // Client is the UptimeRobot API v3 client.
 type Client struct {
 	url    string
 	apiKey string
+
+	// Optional retry overrides for testing. Zero values use package defaults.
+	maxRetries     int
+	baseDelay      time.Duration
+	maxDelay       time.Duration
+	jitterFraction float64
 }
 
 var (
-	ErrStatus          = errors.New("error code from Uptime Robot API")
-	ErrResponse        = errors.New("received fail from Uptime Robot API")
-	ErrMonitorNotFound = errors.New("monitor not found")
-	ErrContactNotFound = errors.New("contact not found")
+	ErrStatus              = errors.New("error code from Uptime Robot API")
+	ErrResponse            = errors.New("received fail from Uptime Robot API")
+	ErrMonitorNotFound     = errors.New("monitor not found")
+	ErrContactNotFound     = errors.New("contact not found")
+	ErrIntegrationNotFound = errors.New("integration not found")
+	ErrNotFound            = errors.New("resource not found")
 )
+
+// IsNotFound checks if an error indicates a resource was not found (404).
+func IsNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	// Check for 404 status code in error message
+	return strings.Contains(err.Error(), "404") ||
+		errors.Is(err, ErrNotFound) ||
+		errors.Is(err, ErrMonitorNotFound) ||
+		errors.Is(err, ErrContactNotFound) ||
+		errors.Is(err, ErrIntegrationNotFound)
+}
 
 // newRequest creates a new HTTP request with v3 API authentication.
 func (c Client) newRequest(ctx context.Context, method, endpoint string, body any) (*http.Request, error) {
 	u := c.url + "/" + endpoint
 
 	var bodyReader io.Reader
+	var jsonBody []byte
 	if body != nil {
-		jsonBody, err := json.Marshal(body)
+		var err error
+		jsonBody, err = json.Marshal(body)
 		if err != nil {
 			return nil, err
 		}
@@ -75,6 +105,13 @@ func (c Client) newRequest(ctx context.Context, method, endpoint string, body an
 		return nil, err
 	}
 
+	// Set GetBody for retry support (allows request body to be re-read on retry)
+	if jsonBody != nil {
+		req.GetBody = func() (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader(jsonBody)), nil
+		}
+	}
+
 	// v3 uses Bearer token authentication
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/json")
@@ -83,20 +120,9 @@ func (c Client) newRequest(ctx context.Context, method, endpoint string, body an
 	return req, nil
 }
 
-// do executes an HTTP request and returns the response.
+// do executes an HTTP request and returns the response with retry logic.
 func (c Client) do(req *http.Request) (*http.Response, error) {
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-
-	if res.StatusCode >= 400 {
-		defer func() { _ = res.Body.Close() }()
-		body, _ := io.ReadAll(res.Body)
-		return nil, fmt.Errorf("%w: %s - %s", ErrStatus, res.Status, string(body))
-	}
-
-	return res, nil
+	return c.doWithRetry(req.Context(), req)
 }
 
 // doJSON executes an HTTP request and decodes the JSON response.
@@ -119,6 +145,54 @@ func (c Client) doJSON(ctx context.Context, method, endpoint string, body any, r
 	}
 
 	return nil
+}
+
+// doGetJSON executes a GET request to a full URL and decodes the JSON response.
+// Used for following nextLink in paginated list responses.
+func (c Client) doGetJSON(ctx context.Context, fullURL string, result any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Cache-Control", "no-cache")
+
+	res, err := c.do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = res.Body.Close() }()
+
+	if result != nil {
+		if err := json.NewDecoder(res.Body).Decode(result); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// listAllMonitors fetches all monitors by following nextLink pagination.
+// Used when adopting on 409 so the duplicate monitor is found even if on a later page.
+func (c Client) listAllMonitors(ctx context.Context) ([]MonitorResponse, error) {
+	var all []MonitorResponse
+	var resp MonitorsListResponse
+	if err := c.doJSON(ctx, http.MethodGet, "monitors", nil, &resp); err != nil {
+		return nil, err
+	}
+	all = append(all, resp.Monitors...)
+	for resp.NextLink != nil && *resp.NextLink != "" {
+		nextURL := *resp.NextLink
+		if !strings.HasPrefix(nextURL, "http") {
+			nextURL = strings.TrimSuffix(c.url, "/") + "/" + strings.TrimPrefix(nextURL, "/")
+		}
+		resp = MonitorsListResponse{}
+		if err := c.doGetJSON(ctx, nextURL, &resp); err != nil {
+			return nil, err
+		}
+		all = append(all, resp.Monitors...)
+	}
+	return all, nil
 }
 
 // buildCreateMonitorRequest converts internal types to v3 API request format.
@@ -159,7 +233,6 @@ func (c Client) buildCreateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 	default:
 		if monitor.POST != nil {
 			req.PostType = postTypeToString(monitor.POST.Type)
-			req.PostContentType = postContentTypeToString(monitor.POST.ContentType)
 			req.PostValue = monitor.POST.Value
 		}
 	}
@@ -167,34 +240,80 @@ func (c Client) buildCreateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 	// Handle keyword monitors
 	if monitor.Type == urtypes.TypeKeyword && monitor.Keyword != nil {
 		req.KeywordType = keywordTypeToString(monitor.Keyword.Type)
+		caseType := 0 // 0 = CaseInsensitive (default)
 		if monitor.Keyword.CaseSensitive != nil && *monitor.Keyword.CaseSensitive {
-			req.KeywordCaseType = "CaseSensitive"
-		} else {
-			req.KeywordCaseType = "CaseInsensitive"
+			caseType = 1 // 1 = CaseSensitive
 		}
+		req.KeywordCaseType = &caseType
 		req.KeywordValue = monitor.Keyword.Value
 	}
 
 	// Handle port monitors
 	if monitor.Type == urtypes.TypePort && monitor.Port != nil {
-		req.SubType = portTypeToString(monitor.Port.Type)
-		if monitor.Port.Type == urtypes.PortCustom {
-			req.Port = int(monitor.Port.Number)
+		req.Port = int(monitor.Port.Number)
+	}
+
+	// Handle DNS monitors - v3 API requires a config object with dnsRecords
+	if monitor.Type == urtypes.TypeDNS && monitor.DNS != nil {
+		req.Config = &MonitorConfig{
+			DNSRecords: &DNSRecordsConfig{
+				A:     monitor.DNS.A,
+				AAAA:  monitor.DNS.AAAA,
+				CNAME: monitor.DNS.CNAME,
+				MX:    monitor.DNS.MX,
+				NS:    monitor.DNS.NS,
+				TXT:   monitor.DNS.TXT,
+				SRV:   monitor.DNS.SRV,
+				PTR:   monitor.DNS.PTR,
+				SOA:   monitor.DNS.SOA,
+				SPF:   monitor.DNS.SPF,
+			},
+			SSLExpirationPeriodDays: monitor.DNS.SSLExpirationPeriodDays,
 		}
 	}
 
-	// Handle DNS monitors - v3 API requires a config object
-	if monitor.Type == urtypes.TypeDNS {
-		req.Config = &MonitorConfig{}
-	}
-
-	// Handle Heartbeat monitors - v3 API requires a config object
+	// Handle Heartbeat monitors - v3 API may require a config object
 	if monitor.Type == urtypes.TypeHeartbeat {
 		req.Config = &MonitorConfig{}
 	}
 
 	// Convert contacts to v3 format
 	req.AssignedAlertContacts = contactsToV3Format(contacts)
+
+	// New v3 API fields
+	if len(monitor.Tags) > 0 {
+		req.TagNames = monitor.Tags
+	}
+	if len(monitor.CustomHTTPHeaders) > 0 {
+		req.CustomHTTPHeaders = monitor.CustomHTTPHeaders
+	}
+	if len(monitor.SuccessHTTPResponseCodes) > 0 {
+		req.SuccessHTTPResponseCodes = monitor.SuccessHTTPResponseCodes
+	}
+	if monitor.CheckSSLErrors != nil {
+		req.CheckSSLErrors = monitor.CheckSSLErrors
+	}
+	if monitor.SSLExpirationReminder != nil {
+		req.SSLExpirationReminder = monitor.SSLExpirationReminder
+	}
+	if monitor.DomainExpirationReminder != nil {
+		req.DomainExpirationReminder = monitor.DomainExpirationReminder
+	}
+	if monitor.FollowRedirections != nil {
+		req.FollowRedirections = monitor.FollowRedirections
+	}
+	if monitor.ResponseTimeThreshold != nil {
+		req.ResponseTimeThreshold = monitor.ResponseTimeThreshold
+	}
+	if monitor.Region != "" {
+		req.RegionalData = monitor.Region
+	}
+	if monitor.GroupID != nil {
+		req.GroupID = monitor.GroupID
+	}
+	if len(monitor.MaintenanceWindowIDs) > 0 {
+		req.MaintenanceWindowsIds = monitor.MaintenanceWindowIDs
+	}
 
 	return req
 }
@@ -215,12 +334,16 @@ func (c Client) buildUpdateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 
 	req := UpdateMonitorRequest{
 		FriendlyName: monitor.Name,
-		URL:          monitor.URL,
 		Interval:     int(monitor.Interval.Seconds()),
 		Timeout:      int(monitor.Timeout.Seconds()),
 		GracePeriod:  gracePeriod,
 		// Note: Status is not supported in v3 PATCH requests - use pause/resume endpoints instead
 		HTTPMethod: httpMethodToString(monitor.Method),
+	}
+
+	// UptimeRobot v3 rejects URL updates for DNS monitors.
+	if monitor.Type != urtypes.TypeDNS && monitor.Type != urtypes.TypeHeartbeat {
+		req.URL = monitor.URL
 	}
 
 	// Handle auth
@@ -237,7 +360,6 @@ func (c Client) buildUpdateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 	default:
 		if monitor.POST != nil {
 			req.PostType = postTypeToString(monitor.POST.Type)
-			req.PostContentType = postContentTypeToString(monitor.POST.ContentType)
 			req.PostValue = monitor.POST.Value
 		}
 	}
@@ -245,34 +367,80 @@ func (c Client) buildUpdateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 	// Handle keyword monitors
 	if monitor.Type == urtypes.TypeKeyword && monitor.Keyword != nil {
 		req.KeywordType = keywordTypeToString(monitor.Keyword.Type)
+		caseType := 0 // 0 = CaseInsensitive (default)
 		if monitor.Keyword.CaseSensitive != nil && *monitor.Keyword.CaseSensitive {
-			req.KeywordCaseType = "CaseSensitive"
-		} else {
-			req.KeywordCaseType = "CaseInsensitive"
+			caseType = 1 // 1 = CaseSensitive
 		}
+		req.KeywordCaseType = &caseType
 		req.KeywordValue = monitor.Keyword.Value
 	}
 
 	// Handle port monitors
 	if monitor.Type == urtypes.TypePort && monitor.Port != nil {
-		req.SubType = portTypeToString(monitor.Port.Type)
-		if monitor.Port.Type == urtypes.PortCustom {
-			req.Port = int(monitor.Port.Number)
+		req.Port = int(monitor.Port.Number)
+	}
+
+	// Handle DNS monitors - v3 API requires a config object with dnsRecords
+	if monitor.Type == urtypes.TypeDNS && monitor.DNS != nil {
+		req.Config = &MonitorConfig{
+			DNSRecords: &DNSRecordsConfig{
+				A:     monitor.DNS.A,
+				AAAA:  monitor.DNS.AAAA,
+				CNAME: monitor.DNS.CNAME,
+				MX:    monitor.DNS.MX,
+				NS:    monitor.DNS.NS,
+				TXT:   monitor.DNS.TXT,
+				SRV:   monitor.DNS.SRV,
+				PTR:   monitor.DNS.PTR,
+				SOA:   monitor.DNS.SOA,
+				SPF:   monitor.DNS.SPF,
+			},
+			SSLExpirationPeriodDays: monitor.DNS.SSLExpirationPeriodDays,
 		}
 	}
 
-	// Handle DNS monitors - v3 API requires a config object
-	if monitor.Type == urtypes.TypeDNS {
-		req.Config = &MonitorConfig{}
-	}
-
-	// Handle Heartbeat monitors - v3 API requires a config object
+	// Handle Heartbeat monitors - v3 API may require a config object
 	if monitor.Type == urtypes.TypeHeartbeat {
 		req.Config = &MonitorConfig{}
 	}
 
 	// Convert contacts to v3 format
 	req.AssignedAlertContacts = contactsToV3Format(contacts)
+
+	// New v3 API fields
+	if len(monitor.Tags) > 0 {
+		req.TagNames = monitor.Tags
+	}
+	if len(monitor.CustomHTTPHeaders) > 0 {
+		req.CustomHTTPHeaders = monitor.CustomHTTPHeaders
+	}
+	if len(monitor.SuccessHTTPResponseCodes) > 0 {
+		req.SuccessHTTPResponseCodes = monitor.SuccessHTTPResponseCodes
+	}
+	if monitor.CheckSSLErrors != nil {
+		req.CheckSSLErrors = monitor.CheckSSLErrors
+	}
+	if monitor.SSLExpirationReminder != nil {
+		req.SSLExpirationReminder = monitor.SSLExpirationReminder
+	}
+	if monitor.DomainExpirationReminder != nil {
+		req.DomainExpirationReminder = monitor.DomainExpirationReminder
+	}
+	if monitor.FollowRedirections != nil {
+		req.FollowRedirections = monitor.FollowRedirections
+	}
+	if monitor.ResponseTimeThreshold != nil {
+		req.ResponseTimeThreshold = monitor.ResponseTimeThreshold
+	}
+	if monitor.Region != "" {
+		req.RegionalData = monitor.Region
+	}
+	if monitor.GroupID != nil {
+		req.GroupID = monitor.GroupID
+	}
+	if len(monitor.MaintenanceWindowIDs) > 0 {
+		req.MaintenanceWindowsIds = monitor.MaintenanceWindowIDs
+	}
 
 	return req
 }
@@ -300,38 +468,182 @@ func contactsToV3Format(contacts uptimerobotv1.MonitorContacts) []AssignedAlertC
 	return result
 }
 
-// CreateMonitor creates a new monitor using the v3 API.
-// POST /monitors
-func (c Client) CreateMonitor(ctx context.Context, monitor uptimerobotv1.MonitorValues, contacts uptimerobotv1.MonitorContacts) (string, error) {
-	reqBody := c.buildCreateMonitorRequest(monitor, contacts)
-
-	var resp MonitorCreateResponse
-	if err := c.doJSON(ctx, http.MethodPost, "monitors", reqBody, &resp); err != nil {
-		// If creation fails (e.g., 409 Conflict), check if monitor already exists by URL
-		if id, findErr := c.FindMonitorByURL(ctx, monitor.URL); findErr == nil {
-			return id, nil
-		}
-		return "", err
-	}
-
-	return strconv.Itoa(resp.ID), nil
+// CreateMonitorResult contains the result of creating a monitor.
+type CreateMonitorResult struct {
+	ID  string
+	URL string // Contains the heartbeat URL for heartbeat monitors
 }
 
-// FindMonitorByURL searches for a monitor by its URL by fetching all monitors.
-// This is used as a fallback when the v3 API doesn't support URL filtering via query params.
-func (c Client) FindMonitorByURL(ctx context.Context, url string) (string, error) {
-	var resp MonitorsListResponse
-	if err := c.doJSON(ctx, http.MethodGet, "monitors", nil, &resp); err != nil {
-		return "", err
+// CreateMonitor creates a new monitor using the v3 API.
+// POST /monitors
+func (c Client) CreateMonitor(ctx context.Context, monitor uptimerobotv1.MonitorValues, contacts uptimerobotv1.MonitorContacts) (CreateMonitorResult, error) {
+	reqBody := c.buildCreateMonitorRequest(monitor, contacts)
+	req, err := c.newRequest(ctx, http.MethodPost, "monitors", reqBody)
+	if err != nil {
+		return CreateMonitorResult{}, err
+	}
+	res, err := c.do(req)
+	if err == nil {
+		body, _ := io.ReadAll(res.Body)
+		_ = res.Body.Close()
+		var resp MonitorCreateResponse
+		if err := json.Unmarshal(body, &resp); err != nil {
+			return CreateMonitorResult{}, err
+		}
+		return CreateMonitorResult{
+			ID:  strconv.Itoa(resp.ID),
+			URL: resp.URL,
+		}, nil
 	}
 
-	for _, m := range resp.Monitors {
-		if m.URL == url {
+	if errors.Is(err, ErrStatus) && strings.Contains(err.Error(), "409 Conflict") {
+		body := extractErrStatusBody(err)
+		// 409 Duplicate: resolve existing monitor ID and adopt it so reconciliation can continue.
+		if id := parseMonitorIDFrom409Body(body); id != "" {
+			m, getErr := c.GetMonitor(ctx, id)
+			if getErr == nil {
+				return CreateMonitorResult{ID: id, URL: m.URL}, nil
+			}
+			return CreateMonitorResult{ID: id}, nil
+		}
+
+		// Try to resolve a duplicate monitor from list results using strict matching.
+		// Never adopt by URL alone; that can incorrectly alias many CRs to one monitor.
+		tryFind := func() (CreateMonitorResult, bool) {
+			all, findErr := c.listAllMonitors(ctx)
+			if findErr != nil {
+				return CreateMonitorResult{}, false
+			}
+			if m, ok := selectDuplicateMonitorCandidate(all, monitor); ok {
+				return CreateMonitorResult{ID: strconv.Itoa(m.ID), URL: m.URL}, true
+			}
+			return CreateMonitorResult{}, false
+		}
+
+		if result, ok := tryFind(); ok {
+			return result, nil
+		}
+
+		// Retry once after a short delay (e.g. list may have hit 429 rate limit).
+		select {
+		case <-ctx.Done():
+			return CreateMonitorResult{}, ctx.Err()
+		case <-time.After(2 * time.Second):
+		}
+
+		if result, ok := tryFind(); ok {
+			return result, nil
+		}
+	}
+	return CreateMonitorResult{}, err
+}
+
+// parseMonitorIDFrom409Body extracts a monitor ID from a 409 response body if present.
+// Handles top-level id, and nested data.id / monitor.id shapes.
+func parseMonitorIDFrom409Body(body []byte) string {
+	var withID struct {
+		ID int `json:"id"`
+	}
+	if err := json.Unmarshal(body, &withID); err == nil && withID.ID > 0 {
+		return strconv.Itoa(withID.ID)
+	}
+	var nested struct {
+		Data *struct {
+			ID int `json:"id"`
+		} `json:"data"`
+		Monitor *struct {
+			ID int `json:"id"`
+		} `json:"monitor"`
+	}
+	if err := json.Unmarshal(body, &nested); err != nil {
+		return ""
+	}
+	if nested.Data != nil && nested.Data.ID > 0 {
+		return strconv.Itoa(nested.Data.ID)
+	}
+	if nested.Monitor != nil && nested.Monitor.ID > 0 {
+		return strconv.Itoa(nested.Monitor.ID)
+	}
+	return ""
+}
+
+// normalizeURL trims trailing slash for consistent comparison with API-stored URLs.
+func normalizeURL(u string) string {
+	return strings.TrimSuffix(strings.TrimSpace(u), "/")
+}
+
+func extractErrStatusBody(err error) []byte {
+	if err == nil {
+		return nil
+	}
+	msg := err.Error()
+	parts := strings.SplitN(msg, " - ", 2)
+	if len(parts) < 2 {
+		return nil
+	}
+	return []byte(parts[1])
+}
+
+// selectDuplicateMonitorCandidate returns a single safe duplicate target for 409 adoption.
+// Matching rules:
+// - name is required; URL-only adoption is not allowed.
+// - if URL is provided, both name and URL must match.
+// - if URL is omitted, name must match exactly one monitor.
+func selectDuplicateMonitorCandidate(existing []MonitorResponse, desired uptimerobotv1.MonitorValues) (*MonitorResponse, bool) {
+	name := strings.TrimSpace(desired.Name)
+	if name == "" {
+		return nil, false
+	}
+
+	wantURL := normalizeURL(desired.URL)
+	matches := make([]MonitorResponse, 0, 1)
+	for i := range existing {
+		m := existing[i]
+		if strings.TrimSpace(m.FriendlyName) != name {
+			continue
+		}
+		if wantURL != "" && normalizeURL(m.URL) != wantURL {
+			continue
+		}
+		matches = append(matches, m)
+		if len(matches) > 1 {
+			return nil, false
+		}
+	}
+
+	if len(matches) != 1 {
+		return nil, false
+	}
+	return &matches[0], true
+}
+
+// FindMonitorByURL searches for a monitor by its URL, listing all pages so the monitor is found.
+func (c Client) FindMonitorByURL(ctx context.Context, url string) (string, error) {
+	all, err := c.listAllMonitors(ctx)
+	if err != nil {
+		return "", err
+	}
+	norm := normalizeURL(url)
+	for _, m := range all {
+		if normalizeURL(m.URL) == norm {
 			return strconv.Itoa(m.ID), nil
 		}
 	}
-
 	return "", ErrMonitorNotFound
+}
+
+// FindMonitorByName searches for a monitor by its friendly name, listing all pages so the monitor is found.
+func (c Client) FindMonitorByName(ctx context.Context, name string) (*MonitorResponse, error) {
+	all, err := c.listAllMonitors(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range all {
+		if all[i].FriendlyName == name {
+			return &all[i], nil
+		}
+	}
+	return nil, ErrMonitorNotFound
 }
 
 // DeleteMonitor deletes a monitor using the v3 API.
@@ -361,9 +673,15 @@ func (c Client) DeleteMonitor(ctx context.Context, id string) error {
 	return nil
 }
 
+// EditMonitorResult contains the result of editing a monitor.
+type EditMonitorResult struct {
+	ID  string
+	URL string // Contains the heartbeat URL for heartbeat monitors
+}
+
 // EditMonitor updates an existing monitor using the v3 API.
 // PATCH /monitors/{id}
-func (c Client) EditMonitor(ctx context.Context, id string, monitor uptimerobotv1.MonitorValues, contacts uptimerobotv1.MonitorContacts) (string, error) {
+func (c Client) EditMonitor(ctx context.Context, id string, monitor uptimerobotv1.MonitorValues, contacts uptimerobotv1.MonitorContacts) (EditMonitorResult, error) {
 	endpoint := "monitors/" + id
 	reqBody := c.buildUpdateMonitorRequest(monitor, contacts)
 
@@ -372,12 +690,16 @@ func (c Client) EditMonitor(ctx context.Context, id string, monitor uptimerobotv
 		// If update fails because monitor doesn't exist (404), recreate it
 		// Check using GetMonitor which uses GET /monitors/{id} directly
 		if _, getErr := c.GetMonitor(ctx, id); errors.Is(getErr, ErrMonitorNotFound) {
-			return c.CreateMonitor(ctx, monitor, contacts)
+			result, createErr := c.CreateMonitor(ctx, monitor, contacts)
+			return EditMonitorResult(result), createErr
 		}
-		return id, err
+		return EditMonitorResult{ID: id}, err
 	}
 
-	return strconv.Itoa(resp.ID), nil
+	return EditMonitorResult{
+		ID:  strconv.Itoa(resp.ID),
+		URL: resp.URL,
+	}, nil
 }
 
 // GetMonitor retrieves a single monitor by ID using the v3 API.
@@ -489,33 +811,22 @@ func httpMethodToString(m urtypes.HTTPMethod) string {
 func authTypeToString(t urtypes.MonitorAuthType) string {
 	switch t {
 	case urtypes.AuthBasic:
-		return "basic"
+		return "HTTP_BASIC"
 	case urtypes.AuthDigest:
-		return "digest"
+		return "DIGEST"
 	default:
-		return "basic"
+		return "NONE"
 	}
 }
 
 func postTypeToString(t urtypes.POSTType) string {
 	switch t {
 	case urtypes.TypeKeyValue:
-		return "key_value"
+		return "KEY_VALUE"
 	case urtypes.TypeRawData:
-		return "raw_data"
+		return "RAW_JSON"
 	default:
-		return "key_value"
-	}
-}
-
-func postContentTypeToString(t urtypes.POSTContentType) string {
-	switch t {
-	case urtypes.ContentTypeHTML:
-		return "text/html"
-	case urtypes.ContentTypeJSON:
-		return "application/json"
-	default:
-		return "text/html"
+		return "KEY_VALUE"
 	}
 }
 
@@ -530,21 +841,138 @@ func keywordTypeToString(t urtypes.KeywordType) string {
 	}
 }
 
-func portTypeToString(t urtypes.PortType) string {
-	switch t {
-	case urtypes.PortHTTP:
-		return "HTTP"
-	case urtypes.PortFTP:
-		return "FTP"
-	case urtypes.PortSMTP:
-		return "SMTP"
-	case urtypes.PortPOP3:
-		return "POP3"
-	case urtypes.PortIMAP:
-		return "IMAP"
-	case urtypes.PortCustom:
-		return "Custom"
-	default:
-		return "HTTP"
+// CreateSlackIntegration creates a Slack integration using the v3 API.
+// POST /integrations
+func (c Client) CreateSlackIntegration(ctx context.Context, data SlackIntegrationData) (IntegrationResponse, error) {
+	var result IntegrationResponse
+	req := CreateSlackIntegrationRequest{
+		Type: "Slack",
+		Data: data,
 	}
+	err := c.doJSON(ctx, http.MethodPost, "integrations", req, &result)
+	return result, err
+}
+
+// ListIntegrations lists integrations using the v3 API.
+// GET /integrations
+func (c Client) ListIntegrations(ctx context.Context) ([]IntegrationResponse, error) {
+	var result IntegrationsListResponse
+	err := c.doJSON(ctx, http.MethodGet, "integrations", nil, &result)
+	if err != nil {
+		return nil, err
+	}
+	return result.Integrations, nil
+}
+
+// DeleteIntegration deletes an integration by ID using the v3 API.
+// DELETE /integrations/{id}
+func (c Client) DeleteIntegration(ctx context.Context, id int) error {
+	endpoint := fmt.Sprintf("integrations/%d", id)
+	err := c.doJSON(ctx, http.MethodDelete, endpoint, nil, nil)
+	if err != nil && IsNotFound(err) {
+		return nil
+	}
+	return err
+}
+
+// CreateMaintenanceWindow creates a new maintenance window using the v3 API.
+func (c Client) CreateMaintenanceWindow(ctx context.Context, req CreateMaintenanceWindowRequest) (MaintenanceWindowResponse, error) {
+	var result MaintenanceWindowResponse
+	err := c.doJSON(ctx, http.MethodPost, "maintenance-windows", req, &result)
+	return result, err
+}
+
+// GetMaintenanceWindow retrieves a maintenance window by ID using the v3 API.
+func (c Client) GetMaintenanceWindow(ctx context.Context, id string) (MaintenanceWindowResponse, error) {
+	var result MaintenanceWindowResponse
+	endpoint := fmt.Sprintf("maintenance-windows/%s", id)
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &result)
+	return result, err
+}
+
+// UpdateMaintenanceWindow updates a maintenance window using the v3 API.
+func (c Client) UpdateMaintenanceWindow(ctx context.Context, id string, req UpdateMaintenanceWindowRequest) (MaintenanceWindowResponse, error) {
+	var result MaintenanceWindowResponse
+	endpoint := fmt.Sprintf("maintenance-windows/%s", id)
+	err := c.doJSON(ctx, http.MethodPatch, endpoint, req, &result)
+	return result, err
+}
+
+// DeleteMaintenanceWindow deletes a maintenance window using the v3 API.
+func (c Client) DeleteMaintenanceWindow(ctx context.Context, id string) error {
+	endpoint := fmt.Sprintf("maintenance-windows/%s", id)
+	err := c.doJSON(ctx, http.MethodDelete, endpoint, nil, nil)
+	if err != nil && IsNotFound(err) {
+		return nil
+	}
+	return err
+}
+
+// ListMaintenanceWindows lists all maintenance windows using the v3 API.
+func (c Client) ListMaintenanceWindows(ctx context.Context) ([]MaintenanceWindowResponse, error) {
+	var result MaintenanceWindowsListResponse
+	err := c.doJSON(ctx, http.MethodGet, "maintenance-windows", nil, &result)
+	if err != nil {
+		return nil, err
+	}
+	return result.MaintenanceWindows, nil
+}
+
+// SpawnGroupInBackend provisions new collection via POST
+func (c Client) SpawnGroupInBackend(ctx context.Context, wirePayload GroupCreationWireFormat) (GroupWireFormat, error) {
+	var responsePayload GroupWireFormat
+	transmitErr := c.doJSON(ctx, http.MethodPost, "monitor-groups", wirePayload, &responsePayload)
+	return responsePayload, transmitErr
+}
+
+// FetchGroupFromBackend retrieves specific collection via GET
+func (c Client) FetchGroupFromBackend(ctx context.Context, groupIDString string) (GroupWireFormat, error) {
+	var responsePayload GroupWireFormat
+	endpointPath := fmt.Sprintf("monitor-groups/%s", groupIDString)
+	transmitErr := c.doJSON(ctx, http.MethodGet, endpointPath, nil, &responsePayload)
+	return responsePayload, transmitErr
+}
+
+// MutateGroupInBackend applies changes to existing collection via PATCH
+func (c Client) MutateGroupInBackend(ctx context.Context, groupIDString string, wirePayload GroupUpdateWireFormat) (GroupWireFormat, error) {
+	var responsePayload GroupWireFormat
+	endpointPath := fmt.Sprintf("monitor-groups/%s", groupIDString)
+	transmitErr := c.doJSON(ctx, http.MethodPatch, endpointPath, wirePayload, &responsePayload)
+	return responsePayload, transmitErr
+}
+
+// PurgeGroupFromBackend destroys collection via DELETE
+func (c Client) PurgeGroupFromBackend(ctx context.Context, groupIDString string) error {
+	endpointPath := fmt.Sprintf("monitor-groups/%s", groupIDString)
+	err := c.doJSON(ctx, http.MethodDelete, endpointPath, nil, nil)
+	if err != nil && IsNotFound(err) {
+		return nil
+	}
+	return err
+}
+
+// EnumerateGroupsFromBackend fetches all collections via GET
+func (c Client) EnumerateGroupsFromBackend(ctx context.Context) ([]GroupWireFormat, error) {
+	var responsePayload GroupListWireFormat
+	transmitErr := c.doJSON(ctx, http.MethodGet, "monitor-groups", nil, &responsePayload)
+	if transmitErr != nil {
+		return nil, transmitErr
+	}
+	return responsePayload.Groups, nil
+}
+
+// PauseMonitor pauses a monitor by ID using the v3 API.
+// POST /monitors/{id}/pause
+// This operation is idempotent - pausing an already paused monitor will return successfully.
+func (c Client) PauseMonitor(ctx context.Context, id string) error {
+	endpoint := fmt.Sprintf("monitors/%s/pause", id)
+	return c.doJSON(ctx, http.MethodPost, endpoint, nil, nil)
+}
+
+// StartMonitor starts (resumes) a paused monitor by ID using the v3 API.
+// POST /monitors/{id}/start
+// This operation is idempotent - starting an already active monitor will return successfully.
+func (c Client) StartMonitor(ctx context.Context, id string) error {
+	endpoint := fmt.Sprintf("monitors/%s/start", id)
+	return c.doJSON(ctx, http.MethodPost, endpoint, nil, nil)
 }

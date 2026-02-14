@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "POST /monitor-groups",
+  "description": "Create a monitor group in UptimeRobot API v3",
+  "type": "object",
+  "required": ["name"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Name of the monitor group",
+      "maxLength": 255
+    },
+    "monitorIds": {
+      "type": "array",
+      "description": "List of monitor IDs to be assigned to this group",
+      "minItems": 1,
+      "items": {
+        "type": "number"
+      }
+    },
+    "groupIds": {
+      "type": "array",
+      "description": "List of group IDs whose monitors should be moved to this new group",
+      "minItems": 0,
+      "items": {
+        "type": "number"
+      }
+    }
+  }
+}

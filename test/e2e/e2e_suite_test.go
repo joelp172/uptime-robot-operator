@@ -18,9 +18,10 @@ package e2e
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
+	"strings"
 	"testing"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -28,24 +29,13 @@ import (
 	"github.com/joelp172/uptime-robot-operator/test/utils"
 )
 
-var (
-	// Optional Environment Variables:
-	// - CERT_MANAGER_INSTALL_SKIP=true: Skips CertManager installation during test setup.
-	// These variables are useful if CertManager is already installed, avoiding
-	// re-installation and conflicts.
-	skipCertManagerInstall = os.Getenv("CERT_MANAGER_INSTALL_SKIP") == "true"
-	// isCertManagerAlreadyInstalled will be set true when CertManager CRDs be found on the cluster
-	isCertManagerAlreadyInstalled = false
-
-	// projectImage is the name of the image which will be build and loaded
-	// with the code source changes to be tested.
-	projectImage = "example.com/uptime-robot-operator:v0.0.1"
-)
+// projectImage is the name of the image which will be build and loaded
+// with the code source changes to be tested.
+var projectImage = "example.com/uptime-robot-operator:v0.0.1"
 
 // TestE2E runs the end-to-end (e2e) test suite for the project. These tests execute in an isolated,
-// temporary environment to validate project changes with the the purposed to be used in CI jobs.
-// The default setup requires Kind, builds/loads the Manager Docker image locally, and installs
-// CertManager.
+// temporary environment to validate project changes for use in CI jobs.
+// The default setup requires Kind and builds/loads the Manager Docker image locally.
 func TestE2E(t *testing.T) {
 	RegisterFailHandler(Fail)
 	_, _ = fmt.Fprintf(GinkgoWriter, "Starting uptime-robot-operator integration test suite\n")
@@ -60,30 +50,46 @@ var _ = BeforeSuite(func() {
 
 	// TODO(user): If you want to change the e2e test vendor from Kind, ensure the image is
 	// built and available before running the tests. Also, remove the following block.
+
+	// Check if deployment exists BEFORE loading new image
+	// If it exists, we need to restart it after loading to pick up the new image
+	checkCmd := exec.Command("kubectl", "get", "deployment", "uptime-robot-controller-manager", "-n", "uptime-robot-system")
+	deploymentExisted := false
+	if _, err := utils.Run(checkCmd); err == nil {
+		deploymentExisted = true
+	}
+
 	By("loading the manager(Operator) image on Kind")
 	err = utils.LoadImageToKindClusterWithName(projectImage)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the manager(Operator) image into Kind")
 
-	// The tests-e2e are intended to run on a temporary cluster that is created and destroyed for testing.
-	// To prevent errors when tests run in environments with CertManager already installed,
-	// we check for its presence before execution.
-	// Setup CertManager before the suite if not skipped and if not already installed
-	if !skipCertManagerInstall {
-		By("checking if cert manager is installed already")
-		isCertManagerAlreadyInstalled = utils.IsCertManagerCRDsInstalled()
-		if !isCertManagerAlreadyInstalled {
-			_, _ = fmt.Fprintf(GinkgoWriter, "Installing CertManager...\n")
-			Expect(utils.InstallCertManager()).To(Succeed(), "Failed to install CertManager")
-		} else {
-			_, _ = fmt.Fprintf(GinkgoWriter, "WARNING: CertManager is already installed. Skipping installation...\n")
-		}
+	// Only restart if deployment existed before we loaded the new image
+	// This ensures the new image is picked up, but doesn't restart unnecessarily on fresh deployments
+	if deploymentExisted {
+		By("restarting controller deployment to pick up new image")
+		cmd = exec.Command("kubectl", "rollout", "restart", "deployment/uptime-robot-controller-manager", "-n", "uptime-robot-system")
+		_, err = utils.Run(cmd)
+		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to restart controller deployment")
+		cmd = exec.Command("kubectl", "rollout", "status", "deployment/uptime-robot-controller-manager", "-n", "uptime-robot-system", "--timeout=2m")
+		_, err = utils.Run(cmd)
+		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Controller deployment failed to become ready after restart")
+		waitForWebhookEndpointReady()
 	}
 })
 
 var _ = AfterSuite(func() {
-	// Teardown CertManager after the suite if not skipped and if it was not already installed
-	if !skipCertManagerInstall && !isCertManagerAlreadyInstalled {
-		_, _ = fmt.Fprintf(GinkgoWriter, "Uninstalling CertManager...\n")
-		utils.UninstallCertManager()
-	}
+	// No cleanup needed
 })
+
+func waitForWebhookEndpointReady() {
+	By("waiting for webhook endpoint to be ready")
+	Eventually(func() string {
+		cmd := exec.Command("kubectl", "get", "endpoints", "uptime-robot-webhook-service", "-n", "uptime-robot-system",
+			"-o", "jsonpath={.subsets[0].addresses[0].ip}")
+		output, err := utils.Run(cmd)
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(output)
+	}, 3*time.Minute, 5*time.Second).ShouldNot(BeEmpty(), "webhook endpoint was not ready in time")
+}

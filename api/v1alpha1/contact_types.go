@@ -29,7 +29,7 @@ type ContactSpec struct {
 	// Account references this object's Account. If not specified, the default will be used.
 	Account corev1.LocalObjectReference `json:"account,omitempty"`
 
-	// Contact configures the Uptime Robot monitor.
+	// Contact configures the Uptime Robot alert contact reference.
 	Contact ContactValues `json:"contact"`
 }
 
@@ -37,6 +37,12 @@ type ContactSpec struct {
 type ContactStatus struct {
 	Ready bool   `json:"ready"`
 	ID    string `json:"id,omitempty"`
+
+	// Conditions represent the latest available observations of the resource's state
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// ObservedGeneration is the most recent generation observed by the controller
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
 
 //+kubebuilder:object:root=true
@@ -65,6 +71,9 @@ type ContactList struct {
 	Items           []Contact `json:"items"`
 }
 
+// ContactValues identifies an existing UptimeRobot alert contact.
+// +kubebuilder:validation:XValidation:rule="(has(self.id) && self.id != \"\") || (has(self.name) && self.name != \"\")",message="either id or name must be specified"
+// +kubebuilder:validation:XValidation:rule="!(has(self.id) && self.id != \"\" && has(self.name) && self.name != \"\")",message="specify only one of id or name"
 type ContactValues struct {
 	// ID is the UptimeRobot alert contact ID. Use this when the contact has no friendlyName set.
 	// Get contact IDs via: curl -H "Authorization: Bearer YOUR_API_KEY" https://api.uptimerobot.com/v3/user/alert-contacts

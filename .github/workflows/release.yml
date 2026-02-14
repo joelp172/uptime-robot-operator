@@ -1,0 +1,246 @@
+---
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Semantic Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      packages: write
+    outputs:
+      new_release_published: ${{ steps.semantic.outputs.new_release_published }}
+      new_release_version: ${{ steps.semantic.outputs.new_release_version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.0
+
+      - name: Release
+        id: semantic
+        uses: cycjimmy/semantic-release-action@v4
+        with:
+          extra_plugins: |
+            @semantic-release/exec
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build:
+    name: Build and Push
+    needs: release
+    if: needs.release.outputs.new_release_published == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+      id-token: write  # Required for cosign keyless signing
+      security-events: write  # Required for uploading SARIF results
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: v${{ needs.release.outputs.new_release_version }}
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/joelp172/uptime-robot-operator
+          tags: |
+            type=raw,value=latest
+            type=raw,value=v${{ needs.release.outputs.new_release_version }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Build and Push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm/v7,linux/arm64/v8
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      
+      # Security Scanning and SBOM Generation
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@0.34.0
+        with:
+          image-ref: ghcr.io/joelp172/uptime-robot-operator@${{ steps.build.outputs.digest }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+      
+      - name: Upload Trivy results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+      
+      - name: Run Trivy vulnerability scanner (table format)
+        uses: aquasecurity/trivy-action@0.34.0
+        with:
+          image-ref: ghcr.io/joelp172/uptime-robot-operator@${{ steps.build.outputs.digest }}
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+      
+      - name: Generate SBOM (SPDX)
+        uses: aquasecurity/trivy-action@0.34.0
+        with:
+          image-ref: ghcr.io/joelp172/uptime-robot-operator@${{ steps.build.outputs.digest }}
+          format: 'spdx-json'
+          output: 'sbom-spdx.json'
+      
+      - name: Generate SBOM (CycloneDX)
+        uses: aquasecurity/trivy-action@0.34.0
+        with:
+          image-ref: ghcr.io/joelp172/uptime-robot-operator@${{ steps.build.outputs.digest }}
+          format: 'cyclonedx'
+          output: 'sbom-cyclonedx.json'
+      
+      - name: Upload SBOM to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.release.outputs.new_release_version }}
+          files: |
+            sbom-spdx.json
+            sbom-cyclonedx.json
+      
+      # Image Signing with Cosign
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v4.0.0
+      
+      - name: Sign container images
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          for tag in ${TAGS}; do
+            echo "Signing ${tag}"
+            cosign sign --yes "${tag}"
+          done
+      
+      - name: Attest SBOM to images
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          for tag in ${TAGS}; do
+            echo "Attesting SBOM to ${tag}"
+            cosign attest --yes --predicate sbom-spdx.json --type spdx "${tag}"
+            cosign attest --yes --predicate sbom-cyclonedx.json --type cyclonedx "${tag}"
+          done
+
+  release-manifests:
+    name: Release Manifests
+    needs: [release, build]
+    if: needs.release.outputs.new_release_published == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: v${{ needs.release.outputs.new_release_version }}
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Setup Flux CLI
+        uses: fluxcd/flux2/action@v2.5.1
+
+      - name: Generate Installer
+        run: make build-installer IMG=ghcr.io/joelp172/uptime-robot-operator:v${{ needs.release.outputs.new_release_version }}
+
+      - name: Publish OCI Artifact
+        run: |
+          flux push artifact \
+            oci://ghcr.io/joelp172/uptime-robot-operator-manifests:v${{ needs.release.outputs.new_release_version }} \
+            --path=dist --source=${{ github.repositoryUrl }} --revision="v${{ needs.release.outputs.new_release_version }}@sha1:${{ github.sha }}"
+
+  release-helm-chart:
+    name: Release Helm Chart
+    needs: [release, build]
+    if: needs.release.outputs.new_release_published == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: v${{ needs.release.outputs.new_release_version }}
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.20.0
+
+      - name: Update Chart Version
+        run: |
+          sed -i "s/^version:.*/version: ${{ needs.release.outputs.new_release_version }}/" charts/uptime-robot-operator/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"v${{ needs.release.outputs.new_release_version }}\"/" charts/uptime-robot-operator/Chart.yaml
+
+      - name: Package Helm Chart
+        run: |
+          helm package charts/uptime-robot-operator -d dist/
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Push Helm Chart to OCI Registry
+        run: |
+          helm push dist/uptime-robot-operator-${{ needs.release.outputs.new_release_version }}.tgz oci://ghcr.io/joelp172/charts
+

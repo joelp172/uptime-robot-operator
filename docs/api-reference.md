@@ -1,108 +1,60 @@
 # API Reference
 
-Complete reference for all Custom Resource Definitions provided by the Uptime Robot Operator.
+Complete field reference for all Custom Resource Definitions.
 
 ## Account
 
-Connects the operator to your UptimeRobot account via API key.
+Connects the operator to your UptimeRobot account.
 
-**Scope:** Cluster (no namespace required)
-
-**Note:** The Secret referenced by `apiKeySecretRef` must be in the `uptime-robot-system` namespace.
+**Scope:** Cluster-scoped (no namespace)
 
 ### Spec
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `isDefault` | boolean | No | `false` | Use this account when monitors don't specify one |
-| `apiKeySecretRef.name` | string | Yes | - | Name of the Secret containing the API key |
-| `apiKeySecretRef.key` | string | Yes | - | Key within the Secret that holds the API key |
+| `apiKeySecretRef.name` | string | Yes | - | Secret name containing API key (must be in `uptime-robot-system` namespace) |
+| `apiKeySecretRef.key` | string | Yes | - | Key within Secret containing API key |
 
 ### Status
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `ready` | boolean | Whether the account is successfully connected |
-| `email` | string | Email address associated with the UptimeRobot account |
-| `alertContacts` | array | List of available alert contacts (see below) |
-
-#### AlertContactInfo
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `id` | string | Unique contact ID (use this in Contact resources) |
-| `friendlyName` | string | Display name (may be empty) |
-| `type` | string | Contact type (Email, SMS, MobileApp, etc.) |
-| `value` | string | Contact value (email address, phone number, etc.) |
-
-### Example
-
-```yaml
-apiVersion: uptimerobot.com/v1alpha1
-kind: Account
-metadata:
-  name: default
-spec:
-  isDefault: true
-  apiKeySecretRef:
-    name: uptimerobot-api-key
-    key: apiKey
-```
+| `ready` | boolean | Account successfully connected |
+| `email` | string | Email address of UptimeRobot account |
+| `alertContacts[]` | array | Available alert contacts |
+| `alertContacts[].id` | string | Contact ID (use in Contact resources) |
+| `alertContacts[].friendlyName` | string | Display name |
+| `alertContacts[].type` | string | Contact type (Email, SMS, MobileApp, etc.) |
+| `alertContacts[].value` | string | Contact value (email, phone, etc.) |
 
 ---
 
 ## Contact
 
-References an existing alert contact in your UptimeRobot account.
+References an existing alert contact in UptimeRobot.
 
-**Scope:** Cluster (no namespace required)
+**Scope:** Cluster-scoped (no namespace)
 
-**Note:** The operator does not create contacts in UptimeRobot. You must create contacts in the UptimeRobot dashboard first, then reference them here.
+**Note:** Contacts must be created in UptimeRobot dashboard first.
 
 ### Spec
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `isDefault` | boolean | No | `false` | Use this contact when monitors don't specify one |
-| `account.name` | string | No | default account | Account to use for API access |
+| `account.name` | string | No | default account | Account to use |
 | `contact.id` | string | No* | - | UptimeRobot contact ID |
 | `contact.name` | string | No* | - | Contact friendlyName (must match exactly) |
 
-*Either `id` or `name` is required, but not both. Use `id` for contacts without a friendlyName.
+*Either `id` or `name` required, not both.
 
 ### Status
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `ready` | boolean | Whether the contact was found in UptimeRobot |
+| `ready` | boolean | Contact found in UptimeRobot |
 | `id` | string | Resolved contact ID |
-
-### Examples
-
-Reference by ID (recommended):
-
-```yaml
-apiVersion: uptimerobot.com/v1alpha1
-kind: Contact
-metadata:
-  name: my-email
-spec:
-  isDefault: true
-  contact:
-    id: "1234567"
-```
-
-Reference by friendlyName:
-
-```yaml
-apiVersion: uptimerobot.com/v1alpha1
-kind: Contact
-metadata:
-  name: my-phone
-spec:
-  contact:
-    name: "iPhone"
-```
 
 ---
 
@@ -116,203 +68,224 @@ Defines an UptimeRobot monitor.
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `syncInterval` | duration | No | `24h` | How often to reconcile with UptimeRobot API |
-| `prune` | boolean | No | `true` | Delete monitor from UptimeRobot when CR is deleted |
-| `account.name` | string | No | default account | Account to use for API access |
-| `contacts` | array | No | default contact | Alert contacts to notify |
-| `monitor` | MonitorValues | Yes | - | Monitor configuration (see below) |
+| `syncInterval` | duration | No | `24h` | Reconciliation frequency |
+| `prune` | boolean | No | `true` | Delete from UptimeRobot when CR deleted |
+| `account.name` | string | No | default | Account to use |
+| `contacts[]` | array | No | default contact | Alert contacts |
+| `contacts[].name` | string | Yes | - | Contact resource name |
+| `contacts[].threshold` | duration | No | `1m` | Wait before first alert |
+| `contacts[].recurrence` | duration | No | `0` | Repeat interval (0 = no repeat) |
+| `sourceRef` | object | No | - | Optional source reference |
+| `heartbeatURLPublish` | object | No | - | Publish heartbeat URL to Secret/ConfigMap (Heartbeat monitors only) |
+| `monitor` | MonitorValues | Yes | - | Monitor configuration |
 
 ### MonitorValues
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `name` | string | Yes | - | Display name in UptimeRobot |
-| `url` | string | Yes | - | URL or IP to monitor |
-| `type` | string | No | `HTTPS` | Monitor type (see Monitor Types) |
+| `name` | string | Yes | - | Display name |
+| `url` | string | Conditional | - | URL or IP (not required for Heartbeat) |
+| `type` | string | No | `HTTPS` | `HTTPS`, `Keyword`, `Ping`, `Port`, `Heartbeat`, `DNS` |
 | `interval` | duration | No | `60s` | Check interval |
 | `timeout` | duration | No | `30s` | Request timeout |
-| `gracePeriod` | duration | No | `60s` | Wait time before alerting (max 24h) |
-| `status` | integer | No | `1` | 0 = paused, 1 = running |
-| `method` | string | No | `HEAD` | HTTP method (HEAD, GET, POST, etc.) |
+| `gracePeriod` | duration | No | `60s` | Wait before alerting (max 24h) |
+| `status` | integer | No | `1` | 0=paused, 1=running |
+| `method` | string | No | `HEAD` | HTTP method |
 | `keyword` | object | No | - | Keyword monitor config |
 | `dns` | object | No | - | DNS monitor config |
 | `heartbeat` | object | No | - | Heartbeat monitor config |
 | `port` | object | No | - | Port monitor config |
-| `auth` | object | No | - | HTTP authentication config |
-| `post` | object | No | - | POST request body config |
+| `auth` | object | No | - | HTTP auth config |
+| `post` | object | No | - | POST body config |
+| `tags` | []string | No | - | Tags |
+| `customHttpHeaders` | map[string]string | No | - | Custom headers |
+| `successHttpResponseCodes` | []string | No | - | Success codes (e.g. `2xx`, `200`) |
+| `checkSSLErrors` | boolean | No | - | Enable SSL/domain checks |
+| `sslExpirationReminder` | boolean | No | - | Notify before SSL expiry |
+| `domainExpirationReminder` | boolean | No | - | Notify before domain expiry |
+| `followRedirections` | boolean | No | - | Follow redirects |
+| `responseTimeThreshold` | integer | No | - | Response time threshold (ms, 0-60000) |
+| `region` | string | No | - | Region: `na`, `eu`, `as`, `oc` |
+| `groupId` | integer | No | - | UptimeRobot group ID (0=none) |
+| `maintenanceWindowIds` | []integer | No | - | Maintenance window IDs |
 
-### Monitor Types
-
-#### HTTPS
-
-Standard HTTP/HTTPS endpoint monitoring.
-
-```yaml
-spec:
-  monitor:
-    name: My API
-    url: https://api.example.com/health
-    type: HTTPS
-    interval: 5m
-    method: GET
-```
-
-#### Keyword
-
-Check for specific text in page content.
+### Auth
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `keyword.type` | string | Yes | `Exists` or `NotExists` |
-| `keyword.value` | string | Yes | Text to search for |
-| `keyword.caseSensitive` | boolean | No | Case-sensitive matching (default: false) |
+| `type` | string | Yes | `Basic` or `Digest` |
+| `username` | string | No | Username |
+| `password` | string | No | Password |
+| `secretName` | string | No | Secret containing credentials |
+| `usernameKey` | string | No | Secret key for username |
+| `passwordKey` | string | No | Secret key for password |
 
-```yaml
-spec:
-  monitor:
-    name: Status Page
-    url: https://status.example.com
-    type: Keyword
-    interval: 5m
-    keyword:
-      type: Exists
-      value: "All Systems Operational"
-      caseSensitive: false
-```
-
-#### DNS
-
-Verify DNS records resolve to expected values.
+### POST
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `dns.recordType` | string | Yes | A, AAAA, MX, NS, CNAME, TXT, or SOA |
-| `dns.value` | string | Yes | Expected record value |
+| `postType` | string | No | `KeyValue` or `RawData` |
+| `contentType` | string | No | `text/html` or `application/json` |
+| `value` | string | No | Request body |
 
-```yaml
-spec:
-  monitor:
-    name: DNS Check
-    url: example.com
-    type: DNS
-    interval: 5m
-    dns:
-      recordType: A
-      value: "93.184.216.34"
-```
-
-#### Heartbeat
-
-Expects periodic pings from your services or cron jobs.
+### Keyword
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `heartbeat.interval` | duration | No | Expected interval between pings (default: 60s) |
+| `type` | string | Yes | `Exists` or `NotExists` |
+| `value` | string | Yes | Text to search for |
+| `caseSensitive` | boolean | No | Case-sensitive matching |
 
-```yaml
-spec:
-  monitor:
-    name: Backup Job
-    url: https://heartbeat.uptimerobot.com/xxx
-    type: Heartbeat
-    heartbeat:
-      interval: 1h
-```
+### DNS
 
-#### Port
+| Field | Type | Description |
+|-------|------|-------------|
+| `a` | []string | Expected A records |
+| `aaaa` | []string | Expected AAAA records |
+| `cname` | []string | Expected CNAME records |
+| `mx` | []string | Expected MX records |
+| `ns` | []string | Expected NS records |
+| `txt` | []string | Expected TXT records |
+| `srv` | []string | Expected SRV records |
+| `ptr` | []string | Expected PTR records |
+| `soa` | []string | Expected SOA records |
+| `spf` | []string | Expected SPF records |
+| `sslExpirationPeriodDays` | []int | SSL expiry reminder offsets (0-365) |
 
-TCP port monitoring.
+### Heartbeat
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `port.type` | string | Yes | HTTP, FTP, SMTP, POP3, IMAP, or Custom |
-| `port.number` | integer | No | Port number (required if type is Custom) |
+| `interval` | duration | No | Expected ping interval (default: 60s) |
 
-```yaml
-spec:
-  monitor:
-    name: Database Port
-    url: db.example.com
-    type: Port
-    port:
-      type: Custom
-      number: 5432
-```
-
-#### Ping
-
-ICMP ping monitoring.
-
-```yaml
-spec:
-  monitor:
-    name: Server Ping
-    url: 192.168.1.1
-    type: Ping
-    interval: 5m
-```
-
-### Contact Reference
+### HeartbeatURLPublish
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `contacts[].name` | string | Yes | - | Name of the Contact resource |
-| `contacts[].threshold` | duration | No | `1m` | Wait time before notifying |
-| `contacts[].recurrence` | duration | No | `0` | Repeat notification interval (0 = no repeat) |
+| `type` | string | No | `Secret` | `Secret` or `ConfigMap` |
+| `name` | string | No | `<monitor-name>-heartbeat-url` | Target object name |
+| `key` | string | No | `heartbeatURL` | Data key containing the URL |
 
-```yaml
-spec:
-  contacts:
-    - name: my-email
-      threshold: 5m
-      recurrence: 30m
-  monitor:
-    name: Critical Service
-    url: https://example.com
-```
+Notes:
+- The operator creates and manages the target object with a controller reference to the Monitor.
+- Existing Secrets/ConfigMaps that are not already managed by the Monitor are rejected.
+- When publishing is disabled (or monitor type changes away from Heartbeat), the previously managed target is deleted.
+
+### Port
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `number` | integer | Yes | Port number (0-65535) |
 
 ### Status
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `ready` | boolean | Whether the monitor exists in UptimeRobot |
+| `ready` | boolean | Monitor exists in UptimeRobot |
 | `id` | string | UptimeRobot monitor ID |
+| `heartbeatURL` | string | Webhook URL (Heartbeat monitors only) |
+| `heartbeatURLPublishTargetType` | string | Current publish target type (`Secret` or `ConfigMap`) |
+| `heartbeatURLPublishTargetName` | string | Current publish target name managed by the operator |
+| `heartbeatURLPublishTargetKey` | string | Current publish target key managed by the operator |
 | `type` | string | Monitor type |
 | `status` | integer | Current status code |
 
-### Full Example
+---
 
-```yaml
-apiVersion: uptimerobot.com/v1alpha1
-kind: Monitor
-metadata:
-  name: production-api
-spec:
-  syncInterval: 5m
-  prune: true
-  contacts:
-    - name: ops-team
-      threshold: 2m
-      recurrence: 15m
-  monitor:
-    name: Production API
-    url: https://api.example.com/health
-    type: HTTPS
-    interval: 1m
-    timeout: 10s
-    gracePeriod: 2m
-    method: GET
-```
+## MaintenanceWindow
+
+Schedule planned downtime.
+
+**Scope:** Namespaced
+
+### Spec
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `syncInterval` | duration | No | `24h` | Reconciliation frequency |
+| `prune` | boolean | No | `true` | Delete from UptimeRobot when CR deleted |
+| `account.name` | string | No | default | Account to use |
+| `name` | string | Yes | - | Friendly name (max 255 chars) |
+| `interval` | string | Yes | - | `once`, `daily`, `weekly`, `monthly` |
+| `startDate` | string | Yes | - | Start date (YYYY-MM-DD) |
+| `startTime` | string | Yes | - | Start time (HH:mm:ss) |
+| `duration` | duration | Yes | - | Duration (e.g. `30m`, `1h`, `2h30m`) |
+| `days` | []int | Conditional | - | Days for weekly/monthly (see below) |
+| `autoAddMonitors` | boolean | No | `false` | Add all monitors automatically |
+| `monitorRefs` | []LocalObjectReference | No | - | Specific monitors to add |
+
+**Days field:**
+- Weekly: 0=Sunday, 1=Monday, ..., 6=Saturday
+- Monthly: 1-31 for specific days, -1 for last day
+
+### Status
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `ready` | boolean | Maintenance window created |
+| `id` | string | UptimeRobot maintenance window ID |
+| `monitorCount` | integer | Number of assigned monitors |
+
+---
+
+## SlackIntegration
+
+Creates and manages a Slack integration in UptimeRobot.
+
+**Scope:** Namespaced
+
+### Spec
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `syncInterval` | duration | No | `24h` | Reconciliation frequency |
+| `prune` | boolean | No | `true` | Delete integration from UptimeRobot when CR is deleted |
+| `account.name` | string | No | default | Account to use |
+| `integration` | object | Yes | - | Slack integration configuration |
+
+### Integration
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `friendlyName` | string | No | - | Display name (max 60) |
+| `enableNotificationsFor` | string | No | `UpAndDown` | `UpAndDown`, `Down`, `Up`, `None` |
+| `sslExpirationReminder` | boolean | No | `false` | Notify for SSL/domain expiration |
+| `webhookURL` | string | Conditional | - | Slack webhook URL (max 1500) |
+| `secretName` | string | Conditional | - | Secret name containing webhook URL |
+| `webhookURLKey` | string | No | `webhookURL` | Secret key containing webhook URL |
+| `customValue` | string | No | - | Extra message text (max 5000) |
+
+Validation:
+- Specify exactly one of `webhookURL` or `secretName`.
+
+### Status
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `ready` | boolean | Integration exists in UptimeRobot |
+| `id` | string | UptimeRobot integration ID |
+| `type` | string | Integration type (`Slack`) |
 
 ---
 
 ## Duration Format
 
-Duration fields accept Go duration strings:
+All duration fields use Go duration format:
 
-| Unit | Example |
-|------|---------|
-| Seconds | `30s` |
-| Minutes | `5m` |
-| Hours | `24h` |
-| Combined | `1h30m` |
+| Format | Duration |
+|--------|----------|
+| `30s` | 30 seconds |
+| `5m` | 5 minutes |
+| `1h` | 1 hour |
+| `24h` | 24 hours |
+| `1h30m` | 1 hour 30 minutes |
+
+---
+
+## Examples
+
+See the how-to guides for complete examples:
+
+- [Getting Started](getting-started.md) - First monitor
+- [Monitors](monitors.md) - All monitor types
+- [Maintenance Windows](maintenance-windows.md) - Scheduling downtime
