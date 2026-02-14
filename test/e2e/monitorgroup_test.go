@@ -333,6 +333,11 @@ spec:
 			client := uptimerobot.NewClient(apiKey)
 
 			Eventually(func(g Gomega) {
+				groupByID, err := client.FetchGroupFromBackend(context.Background(), updatedGroupID)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(groupByID.Name).To(Equal(fmt.Sprintf("E2E Test Group Updated %s", testRunID)),
+					"MonitorGroup name should be updated for the existing group ID")
+
 				groups, err := client.EnumerateGroupsFromBackend(context.Background())
 				g.Expect(err).NotTo(HaveOccurred())
 
@@ -346,14 +351,14 @@ spec:
 						foundUpdated = true
 						debugLog("Found updated group: %s (ID: %d)", group.Name, group.ID)
 					}
-					if group.Name == originalName {
+					if group.Name == originalName && fmt.Sprintf("%d", group.ID) == updatedGroupID {
 						foundOriginal = true
-						debugLog("WARNING: Found original group still exists: %s (ID: %d)", group.Name, group.ID)
+						debugLog("WARNING: Updated group ID still has original name: %s (ID: %d)", group.Name, group.ID)
 					}
 				}
 
 				g.Expect(foundUpdated).To(BeTrue(), "Updated MonitorGroup name should exist in UptimeRobot API")
-				g.Expect(foundOriginal).To(BeFalse(), "Original MonitorGroup name should NOT exist in UptimeRobot API")
+				g.Expect(foundOriginal).To(BeFalse(), "Updated group ID should NOT retain the original name")
 			}, 30*time.Second, 5*time.Second).Should(Succeed())
 		})
 

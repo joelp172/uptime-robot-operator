@@ -39,8 +39,9 @@ const (
 	defaultAPIURL   = "https://api.uptimerobot.com/v3"
 )
 
-// testRunID is a unique identifier for this test run to avoid conflicts
-var testRunID = fmt.Sprintf("e2e-%d", time.Now().Unix())
+// testRunID is a unique identifier for this test run to avoid conflicts.
+// Use nanoseconds to avoid collisions across concurrent CI runs started in the same second.
+var testRunID = fmt.Sprintf("e2e-%d", time.Now().UnixNano())
 
 // skipCRDReconciliation determines if CRD reconciliation tests should be skipped
 // Tests require UPTIME_ROBOT_API_KEY environment variable to be set
