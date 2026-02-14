@@ -456,6 +456,9 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			case urtypes.MonitorPaused:
 				// Pause the monitor
 				if err := urclient.PauseMonitor(ctx, monitor.Status.ID); err != nil {
+					// Pause failed - monitor is still running, update status to reflect actual state
+					monitor.Status.Status = urtypes.MonitorRunning
+					monitor.Status.State = monitorStateLabel(urtypes.MonitorRunning)
 					msg := fmt.Sprintf("Failed to pause monitor: %v", err)
 					SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
 					SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
@@ -475,6 +478,9 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			case urtypes.MonitorRunning:
 				// Start the monitor
 				if err := urclient.StartMonitor(ctx, monitor.Status.ID); err != nil {
+					// Start failed - monitor is still paused, update status to reflect actual state
+					monitor.Status.Status = urtypes.MonitorPaused
+					monitor.Status.State = monitorStateLabel(urtypes.MonitorPaused)
 					msg := fmt.Sprintf("Failed to start monitor: %v", err)
 					SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
 					SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
