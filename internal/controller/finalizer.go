@@ -157,6 +157,11 @@ func HandleFinalizerCleanup(ctx context.Context, opts CleanupOptions) (CleanupRe
 		// Calculate backoff for retry
 		// Use exponential backoff: min(30s * 2^shift, 5m)
 		// where shift is based on how much time has elapsed relative to the total timeout.
+		// Round() ensures proper progression from the first retry:
+		// - At 5% elapsed (30s/10m): Round(0.05*3) = 0, gives 30s * 2^0 = 30s
+		// - At 17% elapsed (102s/10m): Round(0.17*3) = 1, gives 30s * 2^1 = 60s
+		// - At 34% elapsed (204s/10m): Round(0.34*3) = 1, gives 30s * 2^1 = 60s
+		// - At 50% elapsed (5m/10m): Round(0.50*3) = 2, gives 30s * 2^2 = 120s
 		backoffFactor := float64(elapsed) / float64(opts.CleanupTimeout)
 		shift := int(math.Round(backoffFactor * backoffExponent))
 		if shift > maxBackoffShift {
