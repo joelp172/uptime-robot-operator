@@ -105,8 +105,9 @@ This project uses [distroless](https://github.com/GoogleContainerTools/distroles
 If you discover a security vulnerability in this project, please report it by:
 
 1. **DO NOT** open a public issue
-2. Email the maintainers at: [Add security contact email]
-3. Include:
+2. Use GitHub's private vulnerability reporting feature: https://github.com/joelp172/uptime-robot-operator/security/advisories/new
+3. Alternatively, contact the maintainers via GitHub discussions marked as private
+4. Include:
    - Description of the vulnerability
    - Steps to reproduce
    - Potential impact

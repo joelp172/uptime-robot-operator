@@ -80,7 +80,7 @@ jobs:
     needs: [lint, verify-crds, test]
     if: github.event_name == 'push'
     permissions:
-      contents: write
+      contents: read
       packages: write
       id-token: write  # Required for cosign keyless signing
       security-events: write  # Required for uploading SARIF results
