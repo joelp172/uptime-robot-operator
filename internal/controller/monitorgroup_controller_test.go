@@ -272,8 +272,9 @@ var _ = Describe("MonitorGroup Controller", func() {
 				Expect(os.Setenv("UPTIME_ROBOT_API", originalAPI)).To(Succeed())
 			})
 
-			_, err = ReconcileMonitorGroup(ctx, mg)
-			Expect(err).To(HaveOccurred())
+			result, err := ReconcileMonitorGroup(ctx, mg)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(BeNumerically(">", 0))
 
 			By("Ensuring the resource is still present with finalizer for retry")
 			err = k8sClient.Get(ctx, types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace}, mg)
