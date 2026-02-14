@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GO_VERSION: '1.23'
+  GO_VERSION: '1.24.1'
   KIND_VERSION: 'v0.25.0'
   KIND_CLUSTER_NAME: 'e2e-pr-test'
 
@@ -59,13 +59,18 @@ jobs:
         run: |
           make install
 
+      - name: Install cert-manager
+        run: |
+          make cert-manager-install
+          make cert-manager-wait
+
       - name: Deploy operator
         run: |
           make deploy IMG=uptime-robot-operator:e2e
 
       - name: Wait for operator to be ready
         run: |
-          kubectl wait --for=condition=Available deployment/uptime-robot-controller-manager -n uptime-robot-system --timeout=3m
+          kubectl wait --for=condition=Available deployment/uptime-robot-controller-manager -n uptime-robot-system --timeout=2m
 
       - name: Run basic E2E tests
         env:

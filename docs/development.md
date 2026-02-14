@@ -129,13 +129,13 @@ These tests require `UPTIME_ROBOT_API_DEV` secret to be configured.
 
 ### CI Workflow Overview
 
-| Workflow | Trigger | Purpose |
-|----------|---------|---------|
-| `build.yml` | PR, push to main | Lint, test, build, release |
-| `e2e-pr.yml` | PR open/sync | Automated basic E2E tests |
-| `e2e.yml` | Manual (`/run-e2e` or workflow_dispatch) | Full E2E with real API |
-| `helm.yml` | Changes to `charts/**` | Helm chart validation |
-| `gitleaks.yaml` | PR, push | Secret scanning |
+| Workflow        | Trigger                                 | Purpose                       |
+|-----------------|-----------------------------------------|-------------------------------|
+| `build.yml`     | PR, push to main                        | Lint, test, build, release    |
+| `e2e-pr.yml`    | PR open/sync                            | Automated basic E2E tests     |
+| `e2e.yml`       | Manual (`/run-e2e` or workflow_dispatch)| Full E2E with real API        |
+| `helm.yml`      | Changes to `charts/**`                  | Helm chart validation         |
+| `gitleaks.yaml` | PR, push                                | Secret scanning               |
 
 ## Local Development
 
