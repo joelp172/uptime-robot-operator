@@ -80,8 +80,8 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 			// Define the cleanup function
 			cleanupFunc := func(ctx context.Context) error {
-				if !groupResource.Spec.Prune || !groupResource.Status.Ready {
-					// Skip cleanup if Prune is false or resource is not ready
+				if !groupResource.Spec.Prune || groupResource.Status.ID == "" {
+					// Skip cleanup if Prune is false or resource has no backend ID
 					return nil
 				}
 				credentialVault := &uptimerobotv1.Account{}
