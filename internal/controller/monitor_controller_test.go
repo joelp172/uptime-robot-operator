@@ -150,10 +150,11 @@ var _ = Describe("Monitor Controller", func() {
 			monitor.Spec.Monitor.Status = urtypes.MonitorPaused
 			Expect(k8sClient.Update(ctx, monitor)).To(Succeed())
 
-			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+			result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: namespacedName,
 			})
 			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(Equal(10 * time.Second))
 
 			Expect(k8sClient.Get(ctx, namespacedName, monitor)).To(Succeed())
 			Expect(monitor.Spec.Monitor.Status).To(Equal(uint8(urtypes.MonitorPaused)))

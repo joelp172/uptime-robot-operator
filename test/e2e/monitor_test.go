@@ -288,6 +288,84 @@ spec:
 		})
 	})
 
+	Context("Pause/Start Lifecycle", func() {
+		monitorName := fmt.Sprintf("e2e-paused-lifecycle-%s", testRunID)
+		friendlyName := fmt.Sprintf("E2E Paused Lifecycle (%s)", monitorName)
+		uniqueURL := fmt.Sprintf("https://example.com/?paused-lifecycle=%s", testRunID)
+
+		AfterEach(func() {
+			deleteMonitorAndWaitForAPICleanup(monitorName)
+		})
+
+		It("should create paused and transition to running when status is set to 1", func() {
+			applyMonitor(fmt.Sprintf(`
+apiVersion: uptimerobot.com/v1alpha1
+kind: Monitor
+metadata:
+  name: %s
+spec:
+  syncInterval: 24h
+  prune: true
+  account:
+    name: e2e-account-%s
+  monitor:
+    name: %q
+    url: %s
+    type: HTTPS
+    interval: 5m
+    status: 0
+`, monitorName, testRunID, friendlyName, uniqueURL))
+
+			monitorID := waitMonitorReadyAndGetID(monitorName)
+			apiKey := os.Getenv("UPTIME_ROBOT_API_KEY")
+
+			By("verifying k8s status is paused after creation")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "monitor", monitorName, "-o", "jsonpath={.spec.monitor.status}")
+				specStatus, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(strings.TrimSpace(specStatus)).To(Equal("0"))
+
+				cmd = exec.Command("kubectl", "get", "monitor", monitorName, "-o", "jsonpath={.status.state}")
+				state, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(strings.TrimSpace(state)).To(Equal("paused"))
+			}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
+
+			By("verifying API status reaches PAUSED")
+			Eventually(func(g Gomega) {
+				monitor, err := getMonitorFromAPI(apiKey, monitorID)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(monitor.Status).To(Equal("PAUSED"))
+			}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
+
+			By("switching monitor status to running")
+			cmd := exec.Command("kubectl", "patch", "monitor", monitorName, "--type=merge", "-p", `{"spec":{"monitor":{"status":1}}}`)
+			out, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to patch monitor to running: %s", out)
+
+			By("verifying k8s status reports running")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "monitor", monitorName, "-o", "jsonpath={.spec.monitor.status}")
+				specStatus, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(strings.TrimSpace(specStatus)).To(Equal("1"))
+
+				cmd = exec.Command("kubectl", "get", "monitor", monitorName, "-o", "jsonpath={.status.state}")
+				state, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(strings.TrimSpace(state)).To(Equal("running"))
+			}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
+
+			By("verifying API status reaches UP")
+			Eventually(func(g Gomega) {
+				monitor, err := getMonitorFromAPI(apiKey, monitorID)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(monitor.Status).To(Equal("UP"))
+			}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
+		})
+	})
+
 	Context("Duplicate Monitor", func() {
 		baseMonitorName := fmt.Sprintf("e2e-dup-base-%s", testRunID)
 		duplicateMonitorName := fmt.Sprintf("e2e-dup-attempt-%s", testRunID)
