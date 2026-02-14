@@ -33,6 +33,13 @@ const (
 	CleanupStartTimeAnnotation = "uptimerobot.com/cleanup-start-time"
 	// DefaultCleanupTimeout is the maximum duration to attempt cleanup before forcing finalizer removal
 	DefaultCleanupTimeout = 10 * time.Minute
+	// backoffExponent controls how aggressively backoff increases.
+	// With exponent=3, backoff grows as: 30s * 2^(0*3), 30s * 2^(0.1*3), ..., reaching 240s at ~25% elapsed.
+	// This produces the progression: 30s, 60s, 120s, 240s, capped at 5m.
+	backoffExponent = 3
+	// maxBackoffShift prevents integer overflow in backoff calculation.
+	// 1 << 10 = 1024, giving max multiplier of ~1024 before capping at maxBackoff.
+	maxBackoffShift = 10
 )
 
 // Standard deletion condition reasons
@@ -147,9 +154,14 @@ func HandleFinalizerCleanup(ctx context.Context, opts CleanupOptions) (CleanupRe
 	err := opts.CleanupFunc(ctx)
 	if err != nil {
 		// Calculate backoff for retry
-		// Use exponential backoff: min(30s * 2^(elapsed/timeout), 5m)
+		// Use exponential backoff: min(30s * 2^shift, 5m)
+		// where shift is based on how much time has elapsed relative to the total timeout.
 		backoffFactor := float64(elapsed) / float64(opts.CleanupTimeout)
-		backoff := 30 * time.Second * time.Duration(1<<int(backoffFactor*3)) // 30s, 60s, 120s, 240s, ...
+		shift := int(backoffFactor * backoffExponent)
+		if shift > maxBackoffShift {
+			shift = maxBackoffShift
+		}
+		backoff := 30 * time.Second * time.Duration(1<<shift)
 		if backoff > 5*time.Minute {
 			backoff = 5 * time.Minute
 		}
