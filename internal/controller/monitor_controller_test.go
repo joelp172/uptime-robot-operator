@@ -140,6 +140,27 @@ var _ = Describe("Monitor Controller", func() {
 			Expect(errCond.Status).To(Equal(metav1.ConditionFalse))
 		})
 
+		It("should preserve paused spec status across first reconcile", func() {
+			controllerReconciler := &MonitorReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			Expect(k8sClient.Get(ctx, namespacedName, monitor)).To(Succeed())
+			monitor.Spec.Monitor.Status = urtypes.MonitorPaused
+			Expect(k8sClient.Update(ctx, monitor)).To(Succeed())
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, namespacedName, monitor)).To(Succeed())
+			Expect(monitor.Spec.Monitor.Status).To(Equal(uint8(urtypes.MonitorPaused)))
+			Expect(monitor.Status.Status).To(Equal(uint8(urtypes.MonitorPaused)))
+			Expect(monitor.Status.State).To(Equal("paused"))
+		})
+
 		It("should refresh lastSyncedTime on repeated successful reconciles", func() {
 			controllerReconciler := &MonitorReconciler{
 				Client: k8sClient,

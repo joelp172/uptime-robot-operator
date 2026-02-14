@@ -403,6 +403,7 @@ spec:
                     type: string
                 required:
                 - name
+                - status
                 type: object
                 x-kubernetes-validations:
                 - message: Keyword config is required if type is Keyword

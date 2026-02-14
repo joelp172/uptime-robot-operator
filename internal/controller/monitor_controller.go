@@ -51,6 +51,7 @@ const (
 	AdoptIDAnnotation       = "uptimerobot.com/adopt-id"
 	defaultHeartbeatBaseURL = "https://heartbeat.uptimerobot.com"
 	heartbeatBaseURLEnvVar  = "UPTIMEROBOT_HEARTBEAT_BASE_URL"
+	pausedVerifyRequeue     = 10 * time.Second
 )
 
 var (
@@ -78,6 +79,7 @@ func monitorStateLabel(status uint8) string {
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.20.2/pkg/reconcile
 func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
+	verifyPausedSoon := false
 
 	monitor := &uptimerobotv1.Monitor{}
 	if err := r.Get(ctx, req.NamespacedName, monitor); err != nil {
@@ -339,6 +341,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					return ctrl.Result{}, err
 				}
 				log.FromContext(ctx).Info("Paused adopted monitor", "monitorID", result.ID)
+				verifyPausedSoon = true
 			}
 
 			// Update status with any changes from the edit (e.g., heartbeat URL)
@@ -392,6 +395,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					return ctrl.Result{}, err
 				}
 				log.FromContext(ctx).Info("Paused newly created monitor", "monitorID", result.ID)
+				verifyPausedSoon = true
 			}
 
 			// Set status to reflect actual state after pause operation
@@ -469,6 +473,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					return ctrl.Result{}, err
 				}
 				log.FromContext(ctx).Info("Paused monitor", "monitorID", monitor.Status.ID)
+				verifyPausedSoon = true
 				// Update status to reflect the actual paused state
 				monitor.Status.Status = urtypes.MonitorPaused
 				monitor.Status.State = monitorStateLabel(urtypes.MonitorPaused)
@@ -525,6 +530,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				return ctrl.Result{}, err
 			}
 			log.FromContext(ctx).Info("Paused recreated monitor", "monitorID", result.ID)
+			verifyPausedSoon = true
 		}
 
 		monitor.Status.ID = result.ID
@@ -563,6 +569,11 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
+	if verifyPausedSoon {
+		// UptimeRobot may transiently report STARTED/UP right after pause requests.
+		// Requeue quickly to verify and enforce paused state without requiring re-apply.
+		return ctrl.Result{RequeueAfter: pausedVerifyRequeue}, nil
+	}
 	return ctrl.Result{RequeueAfter: monitor.Spec.SyncInterval.Duration}, nil
 }
 

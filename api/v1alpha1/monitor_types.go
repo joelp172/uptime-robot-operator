@@ -161,7 +161,7 @@ type MonitorValues struct {
 
 	// Status toggles pause status for the monitor. 0 is paused, 1 is running.
 	//+kubebuilder:default:=1
-	Status uint8 `json:"status,omitempty"`
+	Status uint8 `json:"status"`
 
 	// Timeout is the monitor timeout. Only for HTTP, Keyword and Port monitors.
 	//+kubebuilder:default:="30s"
