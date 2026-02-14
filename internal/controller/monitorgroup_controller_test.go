@@ -281,20 +281,12 @@ var _ = Describe("MonitorGroup Controller", func() {
 			Expect(mg.Finalizers).To(ContainElement("uptimerobot.com/finalizer"))
 			Expect(mg.Status.Ready).To(BeTrue())
 
-			ready := findCondition(mg.Status.Conditions, TypeReady)
-			Expect(ready).NotTo(BeNil())
-			Expect(ready.Status).To(Equal(metav1.ConditionFalse))
-			Expect(ready.Reason).To(Equal(ReasonAPIError))
-
-			synced := findCondition(mg.Status.Conditions, TypeSynced)
-			Expect(synced).NotTo(BeNil())
-			Expect(synced.Status).To(Equal(metav1.ConditionFalse))
-			Expect(synced.Reason).To(Equal(ReasonSyncError))
-
-			errCond := findCondition(mg.Status.Conditions, TypeError)
-			Expect(errCond).NotTo(BeNil())
-			Expect(errCond.Status).To(Equal(metav1.ConditionTrue))
-			Expect(errCond.Reason).To(Equal(ReasonAPIError))
+			// Check that Deleting condition is set with error
+			deleting := findCondition(mg.Status.Conditions, TypeDeleting)
+			Expect(deleting).NotTo(BeNil())
+			Expect(deleting.Status).To(Equal(metav1.ConditionTrue))
+			Expect(deleting.Reason).To(Equal(ReasonCleanupError))
+			Expect(deleting.Message).To(ContainSubstring("Cleanup failed"))
 
 			By("Restoring API and allowing finalization to complete")
 			Expect(os.Setenv("UPTIME_ROBOT_API", originalAPI)).To(Succeed())
