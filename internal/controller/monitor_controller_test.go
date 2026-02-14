@@ -74,8 +74,9 @@ var _ = Describe("Monitor Controller", func() {
 							Name: account.Name,
 						},
 						Monitor: uptimerobotv1.MonitorValues{
-							Name: "Test Monitor",
-							URL:  "https://example.com",
+							Name:   "Test Monitor",
+							URL:    "https://example.com",
+							Status: urtypes.MonitorRunning,
 						},
 						Contacts: []uptimerobotv1.MonitorContactRef{
 							{

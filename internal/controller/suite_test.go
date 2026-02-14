@@ -103,6 +103,17 @@ var _ = BeforeSuite(func() {
 	})).To(Succeed())
 })
 
+var _ = BeforeEach(func() {
+	// Keep API mock state isolated between specs. Several tests intentionally
+	// mark monitor IDs as deleted; without reset this leaks into later specs.
+	if serverState != nil {
+		serverState.Reset()
+	}
+	if srv != nil {
+		Expect(os.Setenv("UPTIME_ROBOT_API", srv.URL)).To(Succeed())
+	}
+})
+
 var _ = AfterSuite(func() {
 	By("tearing down the test environment")
 	cancel()
