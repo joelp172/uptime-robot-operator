@@ -233,9 +233,7 @@ jobs:
           platforms: linux/amd64,linux/arm/v7,linux/arm64/v8
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: |
-            type=gha
-            type=registry,ref=uptime-robot-operator:scan-${{ github.sha }}
+          cache-from: type=gha
           cache-to: type=gha,mode=max
       
       - name: Generate SBOM (SPDX)
