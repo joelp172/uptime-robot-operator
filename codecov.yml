@@ -1,11 +1,12 @@
+---
 codecov:
-  require_ci_to_pass: yes
+  require_ci_to_pass: true
 
 coverage:
   precision: 2
   round: down
   range: "70...100"
-  
+
   status:
     project:
       default:
@@ -21,8 +22,8 @@ comment:
   layout: "reach,diff,flags,files,footer"
   behavior: default
   require_changes: false
-  require_base: no
-  require_head: yes
+  require_base: false
+  require_head: true
 
 flags:
   unittests:
