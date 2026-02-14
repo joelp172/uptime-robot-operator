@@ -1,37 +1,54 @@
 # Security Policy
 
+This document explains how to verify Uptime Robot Operator images, report vulnerabilities, and apply deployment security best practices.
+
+## Contents
+
+- [Container image security](#container-image-security)
+- [Verify image signatures](#verify-image-signatures)
+- [Software Bill of Materials (SBOM)](#software-bill-of-materials-sbom)
+- [Report vulnerabilities](#report-security-vulnerabilities)
+- [Deployment best practices](#deployment-best-practices)
+
 ## Container Image Security
 
-All container images published by this project are scanned for vulnerabilities, signed with Cosign, and include Software Bill of Materials (SBOM) attestations.
+All images published by the Uptime Robot Operator are scanned for vulnerabilities, signed with Cosign, and include Software Bill of Materials (SBOM) attestations.
 
-### Image Scanning
+### Image scanning
 
-Every container image is scanned using [Trivy](https://github.com/aquasecurity/trivy) for known vulnerabilities before release. The build will fail if any critical or high-severity vulnerabilities are detected.
+Every image is scanned using [Trivy](https://github.com/aquasecurity/trivy) for known vulnerabilities before release. The build fails if any critical or high-severity vulnerabilities are detected.
 
-- Scan results are uploaded to GitHub Security tab
+- Scan results are uploaded to the GitHub Security tab
 - Vulnerabilities are tracked and remediated promptly
 - Images are rebuilt regularly to incorporate security patches
 
-### Image Signing and Verification
+### Image signing
 
-All container images are signed using [Cosign](https://github.com/sigstore/cosign) with keyless signing via GitHub Actions OIDC (OpenID Connect). This ensures image authenticity and integrity.
+All images are signed using [Cosign](https://github.com/sigstore/cosign) with keyless signing via GitHub Actions OpenID Connect (OIDC). This ensures image authenticity and integrity.
 
-#### Verifying Image Signatures
+### Base image
 
-To verify a signed image, install Cosign and run:
+The Uptime Robot Operator uses [distroless](https://github.com/GoogleContainerTools/distroless) base images (`gcr.io/distroless/static:nonroot`):
+
+- Contains only the application and its runtime dependencies
+- No shell, package manager, or unnecessary tools
+- Runs as a non-root user
+- Minimises attack surface
+
+## Verify Image Signatures
+
+**Prerequisites:** [Cosign](https://docs.sigstore.dev/cosign/installation) installed.
+
+To verify a signed image:
 
 ```bash
-# Install cosign (if not already installed)
-# See: https://docs.sigstore.dev/cosign/installation
-
-# Verify the image signature
 cosign verify \
   --certificate-identity="https://github.com/joelp172/uptime-robot-operator/.github/workflows/build.yml@refs/heads/main" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
   ghcr.io/joelp172/uptime-robot-operator:latest
 ```
 
-For a specific version (use the release workflow identity):
+For a specific release version, use the release workflow identity:
 
 ```bash
 cosign verify \
@@ -40,7 +57,7 @@ cosign verify \
   ghcr.io/joelp172/uptime-robot-operator:v1.0.0
 ```
 
-A successful verification will output:
+Successful verification outputs:
 
 ```
 Verification for ghcr.io/joelp172/uptime-robot-operator:latest --
@@ -50,20 +67,18 @@ The following checks were performed on each of these signatures:
   - The code-signing certificate was verified using trusted certificate authority certificates
 ```
 
-### Software Bill of Materials (SBOM)
+## Software Bill of Materials (SBOM)
 
-Each release includes SBOM files in both SPDX and CycloneDX formats. SBOMs provide a complete inventory of all software components in the container image.
+Each release includes SBOM files in both SPDX and CycloneDX formats. SBOMs provide a complete inventory of all software components in the image.
 
-#### Downloading SBOMs from Releases
-
-SBOMs are attached to each GitHub release:
+### Download SBOMs from releases
 
 1. Go to the [Releases](https://github.com/joelp172/uptime-robot-operator/releases) page
 2. Download `sbom-spdx.json` or `sbom-cyclonedx.json` from the release assets
 
-#### Verifying SBOM Attestations
+### Verify SBOM attestations
 
-SBOMs are also attested to the container images and can be verified:
+SBOMs are attested to the images. Verify them with:
 
 ```bash
 # Verify SPDX SBOM attestation
@@ -81,28 +96,17 @@ cosign verify-attestation \
   ghcr.io/joelp172/uptime-robot-operator:latest | jq -r .payload | base64 -d | jq .
 ```
 
-#### Analyzing SBOMs
+### Scan SBOMs for vulnerabilities
 
-You can analyze SBOMs for known vulnerabilities using Trivy:
+Use Trivy to analyse SBOMs for known vulnerabilities:
 
 ```bash
-# Download the SBOM from a release or extract from attestation
-# Then scan it:
 trivy sbom sbom-spdx.json
 ```
 
-### Base Image
+## Report Security Vulnerabilities
 
-This project uses [distroless](https://github.com/GoogleContainerTools/distroless) base images (`gcr.io/distroless/static:nonroot`) which:
-
-- Contains only the application and its runtime dependencies
-- Has no shell, package manager, or unnecessary tools
-- Runs as a non-root user
-- Minimizes attack surface
-
-### Reporting Security Vulnerabilities
-
-If you discover a security vulnerability in this project, please report it by:
+If you discover a security vulnerability, report it by:
 
 1. **DO NOT** open a public issue
 2. Use GitHub's private vulnerability reporting feature: https://github.com/joelp172/uptime-robot-operator/security/advisories/new
@@ -112,15 +116,15 @@ If you discover a security vulnerability in this project, please report it by:
    - Potential impact
    - Suggested fix (if any)
 
-We will respond within 48 hours and work with you to address the issue promptly.
+We respond within 48 hours and work with you to address the issue promptly.
 
-### Security Best Practices
+## Deployment Best Practices
 
-When deploying the operator, follow these best practices:
+When you deploy the operator, follow these practices:
 
-#### 1. Use Specific Image Tags
+### Use specific image tags
 
-Always use specific version tags instead of `latest` or `beta`:
+Use specific version tags instead of `latest` or `beta`:
 
 ```yaml
 # Good
@@ -130,7 +134,7 @@ image: ghcr.io/joelp172/uptime-robot-operator:v1.0.0
 image: ghcr.io/joelp172/uptime-robot-operator:latest
 ```
 
-#### 2. Verify Images Before Deployment
+### Verify images before deployment
 
 Add image verification to your deployment pipeline:
 
@@ -140,17 +144,17 @@ set -e
 
 IMAGE="ghcr.io/joelp172/uptime-robot-operator:v1.0.0"
 
-# Verify signature (adjust workflow identity based on whether it's from build.yml or release.yml)
+# Use release workflow identity for versioned images
 cosign verify \
   --certificate-identity="https://github.com/joelp172/uptime-robot-operator/.github/workflows/release.yml@refs/tags/v1.0.0" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
   "${IMAGE}"
 
-# Deploy only if verification succeeds
+# Deploy only if verification succeeds (exit code 0)
 kubectl apply -f deployment.yaml
 ```
 
-#### 3. Enable Pod Security Standards
+### Enable Pod Security Standards
 
 Use Kubernetes Pod Security Standards to enforce security policies:
 
@@ -165,9 +169,9 @@ metadata:
     pod-security.kubernetes.io/warn: restricted
 ```
 
-#### 4. Network Policies
+### Restrict traffic with network policies
 
-Implement network policies to restrict traffic to/from the operator:
+Implement network policies to restrict traffic to and from the operator:
 
 ```yaml
 apiVersion: networking.k8s.io/v1
@@ -197,7 +201,7 @@ spec:
       port: 443  # Kubernetes API
 ```
 
-#### 5. Resource Limits
+### Set resource limits
 
 Set appropriate resource limits to prevent resource exhaustion:
 
@@ -211,7 +215,7 @@ resources:
     memory: 64Mi
 ```
 
-#### 6. Secret Management
+### Store secrets securely
 
 Use Kubernetes secrets with appropriate RBAC permissions:
 
@@ -226,21 +230,23 @@ stringData:
   apiKey: "your-api-key-here"
 ```
 
-Never commit secrets to version control or store them in plain text.
+Do not commit secrets to version control or store them in plain text.
 
 ## Security Scanning Schedule
 
-- **Container images**: Scanned on every build
-- **Dependencies**: Monitored via Dependabot
-- **Code**: Scanned via golangci-lint and CodeQL (if enabled)
-- **Secrets**: Scanned via Gitleaks on every push and PR
+| Target | When |
+|--------|------|
+| Images | Every build |
+| Dependencies | Dependabot |
+| Code | golangci-lint, CodeQL (if enabled) |
+| Secrets | Gitleaks on every push and PR |
 
 ## Supported Versions
 
-| Version | Supported          |
-| ------- | ------------------ |
-| latest  | :white_check_mark: |
-| < 1.0   | :x:                |
+| Version | Supported |
+| ------- | --------- |
+| latest  | Yes       |
+| < 1.0   | No        |
 
 We support the latest released version. Security patches are backported on a case-by-case basis.
 
