@@ -49,6 +49,7 @@ type MonitorGroupReconciler struct {
 //+kubebuilder:rbac:groups=uptimerobot.com,resources=monitorgroups/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=uptimerobot.com,resources=monitorgroups/finalizers,verbs=update
 //+kubebuilder:rbac:groups=uptimerobot.com,resources=monitors,verbs=get;list;watch
+//+kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
 
 // Reconcile implements the reconciliation loop
 func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {

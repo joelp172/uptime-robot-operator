@@ -48,6 +48,7 @@ type SlackIntegrationReconciler struct {
 //+kubebuilder:rbac:groups=uptimerobot.com,resources=slackintegrations/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=uptimerobot.com,resources=slackintegrations/finalizers,verbs=update
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
+//+kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
 
 // Reconcile reconciles SlackIntegration resources to UptimeRobot integrations.
 func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
