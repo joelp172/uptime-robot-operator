@@ -72,7 +72,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/joelp172/uptime-robot-operator
+          images: ghcr.io/${{ github.repository_owner }}/uptime-robot-operator
           tags: |
             type=raw,value=latest
             type=raw,value=v${{ needs.release.outputs.new_release_version }}
@@ -90,6 +90,44 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
 
+      - name: Build Image (scan gate, no push)
+        id: build_scan
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          pull: true
+          push: false
+          load: true
+          platforms: linux/amd64
+          tags: uptime-robot-operator:scan-${{ github.sha }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run Trivy vulnerability scanner (SARIF)
+        uses: aquasecurity/trivy-action@0.34.0
+        with:
+          image-ref: uptime-robot-operator:scan-${{ github.sha }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      - name: Run Trivy vulnerability scanner (table format)
+        uses: aquasecurity/trivy-action@0.34.0
+        with:
+          image-ref: uptime-robot-operator:scan-${{ github.sha }}
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
       - name: Build and Push
         id: build
         uses: docker/build-push-action@v6
@@ -102,42 +140,17 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       
-      # Security Scanning and SBOM Generation
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@0.34.0
-        with:
-          image-ref: ghcr.io/joelp172/uptime-robot-operator@${{ steps.build.outputs.digest }}
-          format: 'sarif'
-          output: 'trivy-results.sarif'
-          severity: 'CRITICAL,HIGH'
-      
-      - name: Upload Trivy results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
-        with:
-          sarif_file: 'trivy-results.sarif'
-      
-      - name: Run Trivy vulnerability scanner (table format)
-        uses: aquasecurity/trivy-action@0.34.0
-        with:
-          image-ref: ghcr.io/joelp172/uptime-robot-operator@${{ steps.build.outputs.digest }}
-          format: 'table'
-          exit-code: '1'
-          ignore-unfixed: true
-          vuln-type: 'os,library'
-          severity: 'CRITICAL,HIGH'
-      
       - name: Generate SBOM (SPDX)
         uses: aquasecurity/trivy-action@0.34.0
         with:
-          image-ref: ghcr.io/joelp172/uptime-robot-operator@${{ steps.build.outputs.digest }}
+          image-ref: ghcr.io/${{ github.repository_owner }}/uptime-robot-operator@${{ steps.build.outputs.digest }}
           format: 'spdx-json'
           output: 'sbom-spdx.json'
       
       - name: Generate SBOM (CycloneDX)
         uses: aquasecurity/trivy-action@0.34.0
         with:
-          image-ref: ghcr.io/joelp172/uptime-robot-operator@${{ steps.build.outputs.digest }}
+          image-ref: ghcr.io/${{ github.repository_owner }}/uptime-robot-operator@${{ steps.build.outputs.digest }}
           format: 'cyclonedx'
           output: 'sbom-cyclonedx.json'
       
@@ -197,12 +210,12 @@ jobs:
         uses: fluxcd/flux2/action@v2.5.1
 
       - name: Generate Installer
-        run: make build-installer IMG=ghcr.io/joelp172/uptime-robot-operator:v${{ needs.release.outputs.new_release_version }}
+        run: make build-installer IMG=ghcr.io/${{ github.repository_owner }}/uptime-robot-operator:v${{ needs.release.outputs.new_release_version }}
 
       - name: Publish OCI Artifact
         run: |
           flux push artifact \
-            oci://ghcr.io/joelp172/uptime-robot-operator-manifests:v${{ needs.release.outputs.new_release_version }} \
+            oci://ghcr.io/${{ github.repository_owner }}/uptime-robot-operator-manifests:v${{ needs.release.outputs.new_release_version }} \
             --path=dist --source=${{ github.repositoryUrl }} --revision="v${{ needs.release.outputs.new_release_version }}@sha1:${{ github.sha }}"
 
   release-helm-chart:
@@ -242,5 +255,4 @@ jobs:
 
       - name: Push Helm Chart to OCI Registry
         run: |
-          helm push dist/uptime-robot-operator-${{ needs.release.outputs.new_release_version }}.tgz oci://ghcr.io/joelp172/charts
-
+          helm push dist/uptime-robot-operator-${{ needs.release.outputs.new_release_version }}.tgz oci://ghcr.io/${{ github.repository_owner }}/charts
