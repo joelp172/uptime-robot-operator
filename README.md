@@ -1,6 +1,7 @@
 # Uptime Robot Operator
 
 [![Build](https://github.com/joelp172/uptime-robot-operator/actions/workflows/build.yml/badge.svg)](https://github.com/joelp172/uptime-robot-operator/actions/workflows/build.yml)
+[![codecov](https://codecov.io/gh/joelp172/uptime-robot-operator/branch/main/graph/badge.svg)](https://codecov.io/gh/joelp172/uptime-robot-operator)
 [![Release](https://img.shields.io/github/v/release/joelp172/uptime-robot-operator)](https://github.com/joelp172/uptime-robot-operator/releases/latest)
 [![License](https://img.shields.io/github/license/joelp172/uptime-robot-operator)](LICENSE)
 [![Go Report Card](https://goreportcard.com/badge/github.com/joelp172/uptime-robot-operator)](https://goreportcard.com/report/github.com/joelp172/uptime-robot-operator)

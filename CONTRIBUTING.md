@@ -73,6 +73,30 @@ chore: update dependencies
 - [ ] E2E tests pass (if applicable)
 - [ ] Documentation updated
 - [ ] Commit messages follow convention
+- [ ] Code coverage meets threshold (checked automatically by Codecov)
+
+### Automated Checks
+
+All PRs automatically run:
+
+- **Unit Tests**: Full test suite with coverage reporting
+- **Code Coverage**: Minimum 70% required, enforced by Codecov
+- **Linting**: golangci-lint checks for code quality
+- **CRD Verification**: Ensures generated CRDs are up-to-date
+- **E2E Tests (Basic)**: Operator deployment and metrics validation
+
+### Manual E2E Tests
+
+To run full E2E tests with real UptimeRobot API, comment on your PR:
+
+```
+/run-e2e
+```
+
+This requires write access and uses a test API key. The workflow will:
+- Build and deploy the operator to a Kind cluster
+- Run tests against the real UptimeRobot API
+- Report results as a comment on the PR
 
 ## Adding New Fields
 
