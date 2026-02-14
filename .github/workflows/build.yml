@@ -82,6 +82,8 @@ jobs:
     permissions:
       contents: write
       packages: write
+      id-token: write  # Required for cosign keyless signing
+      security-events: write  # Required for uploading SARIF results
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -105,6 +107,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
       - name: Build and Push
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -115,6 +118,76 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      
+      # Security Scanning and SBOM Generation
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@0.29.0
+        with:
+          image-ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+      
+      - name: Upload Trivy results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+      
+      - name: Run Trivy vulnerability scanner (table format)
+        uses: aquasecurity/trivy-action@0.29.0
+        with:
+          image-ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+      
+      - name: Generate SBOM (SPDX)
+        uses: aquasecurity/trivy-action@0.29.0
+        with:
+          image-ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
+          format: 'spdx-json'
+          output: 'sbom-spdx.json'
+      
+      - name: Generate SBOM (CycloneDX)
+        uses: aquasecurity/trivy-action@0.29.0
+        with:
+          image-ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
+          format: 'cyclonedx'
+          output: 'sbom-cyclonedx.json'
+      
+      - name: Upload SBOM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ github.sha }}
+          path: |
+            sbom-spdx.json
+            sbom-cyclonedx.json
+      
+      # Image Signing with Cosign
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3.7.0
+      
+      - name: Sign container images
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          for tag in ${TAGS}; do
+            echo "Signing ${tag}"
+            cosign sign --yes "${tag}"
+          done
+      
+      - name: Attest SBOM to images
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          for tag in ${TAGS}; do
+            echo "Attesting SBOM to ${tag}"
+            cosign attest --yes --predicate sbom-spdx.json --type spdx "${tag}"
+            cosign attest --yes --predicate sbom-cyclonedx.json --type cyclonedx "${tag}"
+          done
 
   release:
     name: Release
