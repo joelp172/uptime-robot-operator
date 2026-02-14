@@ -103,6 +103,7 @@ type MonitorStatus struct {
 	HeartbeatURLPublishTargetKey string              `json:"heartbeatURLPublishTargetKey,omitempty"`
 	Type                         urtypes.MonitorType `json:"type,omitempty"`
 	Status                       uint8               `json:"status,omitempty"`
+	State                        string              `json:"state,omitempty"`
 
 	// Conditions represent the latest available observations of the resource's state
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
@@ -118,6 +119,7 @@ type MonitorStatus struct {
 //+kubebuilder:subresource:status
 //+kubebuilder:subresource:scale:specpath=.spec.monitor.status,statuspath=.status.status
 //+kubebuilder:printcolumn:name="Ready",type="boolean",JSONPath=".status.ready"
+//+kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.state"
 //+kubebuilder:printcolumn:name="Type",type="string",JSONPath=".spec.monitor.type"
 //+kubebuilder:printcolumn:name="Friendly Name",type="string",JSONPath=".spec.monitor.name"
 //+kubebuilder:printcolumn:name="URL",type="string",JSONPath=".spec.monitor.url",priority=1
@@ -159,7 +161,7 @@ type MonitorValues struct {
 
 	// Status toggles pause status for the monitor. 0 is paused, 1 is running.
 	//+kubebuilder:default:=1
-	Status uint8 `json:"status,omitempty"`
+	Status uint8 `json:"status"`
 
 	// Timeout is the monitor timeout. Only for HTTP, Keyword and Port monitors.
 	//+kubebuilder:default:="30s"

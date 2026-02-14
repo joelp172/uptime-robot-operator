@@ -18,6 +18,9 @@ spec:
     - jsonPath: .status.ready
       name: Ready
       type: boolean
+    - jsonPath: .status.state
+      name: Status
+      type: string
     - jsonPath: .spec.monitor.type
       name: Type
       type: string
@@ -400,6 +403,7 @@ spec:
                     type: string
                 required:
                 - name
+                - status
                 type: object
                 x-kubernetes-validations:
                 - message: Keyword config is required if type is Keyword
@@ -546,6 +550,8 @@ spec:
                 type: integer
               ready:
                 type: boolean
+              state:
+                type: string
               status:
                 type: integer
               type:
