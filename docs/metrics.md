@@ -7,18 +7,18 @@ The Uptime Robot Operator exposes custom Prometheus metrics in addition to the s
 By default, the metrics endpoint is **disabled**. To enable it, set the `--metrics-bind-address` flag when deploying the operator:
 
 ```yaml
-# For HTTP metrics (recommended for development/testing)
-args:
-  - --metrics-bind-address=:8080
-
-# For HTTPS metrics (recommended for production)
+# HTTP metrics on port 8443 (default in cluster manifests/charts)
 args:
   - --metrics-bind-address=:8443
-  - --metrics-secure=true
-  - --metrics-cert-path=/path/to/certs
+
+# HTTP metrics on port 8080 (common for local development)
+args:
+  - --metrics-bind-address=:8080
 ```
 
 The metrics endpoint will be available at `/metrics` on the specified port.
+
+The operator currently serves metrics over HTTP only. If TLS is required, terminate TLS at the network layer (for example, with a service mesh, ingress proxy, or gateway).
 
 ## Custom Metrics
 
@@ -84,7 +84,7 @@ sum by (endpoint) (uptimerobot_api_retries_total)
 **Type:** Counter  
 **Labels:**
 - `controller` - Controller name (e.g., "monitor", "account", "contact")
-- `error_type` - Type of error (e.g., "account_not_found", "secret_not_found", "api_error", "unknown")
+- `error_type` - Type of error (e.g., "account_not_found", "secret_not_found", "api_create_error", "api_update_error", "sync_error")
 
 **Description:** Total number of reconciliation errors by controller and error type.
 
@@ -115,40 +115,19 @@ histogram_quantile(0.95, rate(uptimerobot_reconciliation_duration_seconds_bucket
 rate(uptimerobot_reconciliation_duration_seconds_sum[5m]) / rate(uptimerobot_reconciliation_duration_seconds_count[5m])
 ```
 
-### Resource Metrics
+### Other Registered Metrics
 
 #### `uptimerobot_monitors_total`
 **Type:** Gauge  
-**Labels:**
-- `type` - Monitor type (e.g., "http", "keyword", "ping", "port", "heartbeat")
-- `status` - Monitor status ("running" or "paused")
-
-**Description:** Total number of monitors by type and status.
-
-**Note:** This metric is not yet implemented and will be added in a future update to track monitor counts during reconciliation.
-
-**Example:**
-```promql
-# Total running monitors
-sum(uptimerobot_monitors_total{status="running"})
-
-# Monitor distribution by type
-sum by (type) (uptimerobot_monitors_total)
-```
+**Status:** Registered but not populated by controllers yet.
 
 #### `uptimerobot_maintenance_windows_total`
-**Type:** Gauge
-
-**Description:** Total number of maintenance windows.
-
-**Note:** This metric is not yet implemented and will be added in a future update.
+**Type:** Gauge  
+**Status:** Registered but not populated by controllers yet.
 
 #### `uptimerobot_monitor_groups_total`
-**Type:** Gauge
-
-**Description:** Total number of monitor groups.
-
-**Note:** This metric is not yet implemented and will be added in a future update.
+**Type:** Gauge  
+**Status:** Registered but not populated by controllers yet.
 
 #### `uptimerobot_rate_limit_remaining`
 **Type:** Gauge
@@ -271,58 +250,13 @@ A sample Grafana dashboard is provided in `docs/grafana-dashboard.json`. Import 
 - API request rate and latency
 - API error rate by status code
 - Reconciliation duration and error rate by controller
-- Resource count gauges
 - API retry patterns
+
+The dashboard expects a Prometheus datasource with UID `prometheus`. Update datasource UIDs in the JSON if your Grafana datasource uses a different UID.
 
 ## Security Considerations
 
-### HTTPS Metrics
-
-For production deployments, enable HTTPS for the metrics endpoint:
-
-```yaml
-args:
-  - --metrics-bind-address=:8443
-  - --metrics-secure=true
-  - --metrics-cert-path=/etc/metrics-certs
-  - --metrics-cert-name=tls.crt
-  - --metrics-cert-key=tls.key
-```
-
-### Authentication and Authorization
-
-When using secure metrics, the operator enforces authentication and authorization using Kubernetes RBAC. Create a ServiceAccount with appropriate permissions:
-
-```yaml
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: prometheus
-  namespace: monitoring
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: metrics-reader
-rules:
-- nonResourceURLs:
-  - /metrics
-  verbs:
-  - get
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: metrics-reader
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: metrics-reader
-subjects:
-- kind: ServiceAccount
-  name: prometheus
-  namespace: monitoring
-```
+Metrics are exposed over HTTP by the operator. For encrypted or authenticated transport, enforce controls at the network layer (for example, mTLS/mesh policy, ingress auth, namespace network policy, or private cluster networking).
 
 ## Troubleshooting
 
@@ -333,10 +267,10 @@ subjects:
    kubectl get deployment -n uptime-robot-system uptime-robot-controller-manager -o yaml | grep metrics-bind-address
    ```
 
-2. Verify the metrics endpoint is accessible:
+2. Verify the metrics endpoint is accessible (port must match your `--metrics-bind-address`):
    ```bash
-   kubectl port-forward -n uptime-robot-system deployment/uptime-robot-controller-manager 8080:8080
-   curl http://localhost:8080/metrics | grep uptimerobot_
+   kubectl port-forward -n uptime-robot-system deployment/uptime-robot-controller-manager 8443:8443
+   curl http://localhost:8443/metrics | grep uptimerobot_
    ```
 
 3. Check operator logs for metric registration:

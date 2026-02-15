@@ -127,13 +127,13 @@ The operator exposes custom Prometheus metrics for monitoring API performance, r
 See [docs/metrics.md](docs/metrics.md) for complete documentation and a sample Grafana dashboard.
 
 ```bash
-# Enable metrics endpoint
+# Enable metrics endpoint (chart/manifests default to :8443; :8080 is also valid)
 kubectl patch deployment -n uptime-robot-system uptime-robot-controller-manager \
-  --type=json -p='[{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--metrics-bind-address=:8080"}]'
+  --type=json -p='[{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--metrics-bind-address=:8443"}]'
 
 # Access metrics
-kubectl port-forward -n uptime-robot-system deployment/uptime-robot-controller-manager 8080:8080
-curl http://localhost:8080/metrics | grep uptimerobot_
+kubectl port-forward -n uptime-robot-system deployment/uptime-robot-controller-manager 8443:8443
+curl http://localhost:8443/metrics | grep uptimerobot_
 ```
 
 ## Contributing

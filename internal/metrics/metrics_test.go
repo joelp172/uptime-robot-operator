@@ -17,17 +17,15 @@ limitations under the License.
 package metrics
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
 )
 
 func TestMetricsRegistration(t *testing.T) {
-	// Create a new registry for testing
-	testRegistry := prometheus.NewRegistry()
-
-	// Register metrics
-	testRegistry.MustRegister(
+	collectors := []prometheus.Collector{
 		APIRequestsTotal,
 		APIRequestDuration,
 		APIRetriesTotal,
@@ -37,23 +35,8 @@ func TestMetricsRegistration(t *testing.T) {
 		MaintenanceWindowsTotal,
 		MonitorGroupsTotal,
 		RateLimitRemaining,
-	)
-
-	// Initialize some label combinations so vec metrics show up
-	APIRequestsTotal.WithLabelValues("GET", "monitors", "200").Add(0)
-	APIRequestDuration.WithLabelValues("GET", "monitors").Observe(0)
-	APIRetriesTotal.WithLabelValues("monitors", "timeout").Add(0)
-	ReconciliationErrorsTotal.WithLabelValues("monitor", "unknown").Add(0)
-	ReconciliationDuration.WithLabelValues("monitor").Observe(0)
-	MonitorsTotal.WithLabelValues("http", "running").Set(0)
-
-	// Verify metrics are registered by collecting them
-	metrics, err := testRegistry.Gather()
-	if err != nil {
-		t.Fatalf("Failed to gather metrics: %v", err)
 	}
 
-	// Expected metric names
 	expectedMetrics := map[string]bool{
 		"uptimerobot_api_requests_total":              false,
 		"uptimerobot_api_request_duration_seconds":    false,
@@ -66,10 +49,18 @@ func TestMetricsRegistration(t *testing.T) {
 		"uptimerobot_rate_limit_remaining":            false,
 	}
 
-	// Check that all expected metrics are present
-	for _, mf := range metrics {
-		if _, ok := expectedMetrics[mf.GetName()]; ok {
-			expectedMetrics[mf.GetName()] = true
+	for _, collector := range collectors {
+		descCh := make(chan *prometheus.Desc, 10)
+		collector.Describe(descCh)
+		close(descCh)
+
+		for desc := range descCh {
+			descText := fmt.Sprint(desc)
+			for metricName := range expectedMetrics {
+				if strings.Contains(descText, `fqName: "`+metricName+`"`) {
+					expectedMetrics[metricName] = true
+				}
+			}
 		}
 	}
 

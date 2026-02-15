@@ -110,7 +110,7 @@ func (r *IngressReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	var enabled bool
 	if val, ok := annotations["enabled"]; ok {
 		if enabled, err = strconv.ParseBool(val); err != nil {
-			metrics.ReconciliationErrorsTotal.WithLabelValues("ingress", "unknown").Inc()
+			metrics.ReconciliationErrorsTotal.WithLabelValues("ingress", "annotation_parse_error").Inc()
 			return ctrl.Result{}, err
 		}
 	}
@@ -158,7 +158,7 @@ func (r *IngressReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	for _, monitor := range list.Items {
 		if err := r.updateValues(ingress, &monitor, annotations); err != nil {
-			metrics.ReconciliationErrorsTotal.WithLabelValues("ingress", "unknown").Inc()
+			metrics.ReconciliationErrorsTotal.WithLabelValues("ingress", "sync_error").Inc()
 			r.Recorder.Event(ingress, "Warning", "Sync", err.Error())
 			return ctrl.Result{}, err
 		}

@@ -170,7 +170,7 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	webhookURL, err := r.resolveWebhookURL(ctx, resource)
 	if err != nil {
-		metrics.ReconciliationErrorsTotal.WithLabelValues("slackintegration", "secret_not_found").Inc()
+		metrics.ReconciliationErrorsTotal.WithLabelValues("slackintegration", "webhook_resolution_error").Inc()
 		resource.Status.Ready = false
 		msg := fmt.Sprintf("Failed to resolve webhook URL: %v", err)
 		SetReadyCondition(&resource.Status.Conditions, false, ReasonReconcileError, msg, resource.Generation)
@@ -213,7 +213,7 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		// Ensure the integration exists and matches desired state; recreate on drift or missing.
 		id, convErr := strconv.Atoi(resource.Status.ID)
 		if convErr != nil {
-			metrics.ReconciliationErrorsTotal.WithLabelValues("slackintegration", "unknown").Inc()
+			metrics.ReconciliationErrorsTotal.WithLabelValues("slackintegration", "invalid_status_id").Inc()
 			resource.Status.Ready = false
 			msg := fmt.Sprintf("Invalid status.id %q: %v", resource.Status.ID, convErr)
 			SetReadyCondition(&resource.Status.Conditions, false, ReasonReconcileError, msg, resource.Generation)
