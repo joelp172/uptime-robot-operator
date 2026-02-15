@@ -54,7 +54,7 @@ type MaintenanceWindowReconciler struct {
 //+kubebuilder:rbac:groups=uptimerobot.com,resources=maintenancewindows/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=uptimerobot.com,resources=maintenancewindows/finalizers,verbs=update
 //+kubebuilder:rbac:groups=uptimerobot.com,resources=monitors,verbs=get;list;watch
-//+kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
+//+kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -74,8 +74,12 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		if mw.Status.ID == "" {
 			mw.Status.Ready = false
 		}
-		SetReadyCondition(&mw.Status.Conditions, false, ReasonReconcileError, fmt.Sprintf("Failed to get account: %v", err), mw.Generation)
-		SetErrorCondition(&mw.Status.Conditions, true, ReasonReconcileError, fmt.Sprintf("Failed to get account: %v", err), mw.Generation)
+		msg := fmt.Sprintf("Failed to get account: %v", err)
+		SetReadyCondition(&mw.Status.Conditions, false, ReasonReconcileError, msg, mw.Generation)
+		SetErrorCondition(&mw.Status.Conditions, true, ReasonReconcileError, msg, mw.Generation)
+		if r.Recorder != nil {
+			r.Recorder.Event(mw, "Warning", "DependencyNotReady", msg)
+		}
 		if updateErr := r.Status().Update(ctx, mw); updateErr != nil {
 			return ctrl.Result{}, updateErr
 		}
@@ -87,8 +91,12 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		if mw.Status.ID == "" {
 			mw.Status.Ready = false
 		}
-		SetReadyCondition(&mw.Status.Conditions, false, ReasonSecretNotFound, fmt.Sprintf("Failed to get API key: %v", err), mw.Generation)
-		SetErrorCondition(&mw.Status.Conditions, true, ReasonSecretNotFound, fmt.Sprintf("Failed to get API key: %v", err), mw.Generation)
+		msg := fmt.Sprintf("Failed to get API key: %v", err)
+		SetReadyCondition(&mw.Status.Conditions, false, ReasonSecretNotFound, msg, mw.Generation)
+		SetErrorCondition(&mw.Status.Conditions, true, ReasonSecretNotFound, msg, mw.Generation)
+		if r.Recorder != nil {
+			r.Recorder.Event(mw, "Warning", "SecretNotFound", msg)
+		}
 		if updateErr := r.Status().Update(ctx, mw); updateErr != nil {
 			return ctrl.Result{}, updateErr
 		}
@@ -230,6 +238,9 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			SetReadyCondition(&mw.Status.Conditions, false, ReasonAPIError, msg, mw.Generation)
 			SetSyncedCondition(&mw.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to sync with UptimeRobot: %v", err), mw.Generation)
 			SetErrorCondition(&mw.Status.Conditions, true, ReasonAPIError, msg, mw.Generation)
+			if r.Recorder != nil {
+				r.Recorder.Event(mw, "Warning", "SyncFailed", msg)
+			}
 			if updateErr := r.Status().Update(ctx, mw); updateErr != nil {
 				return ctrl.Result{}, updateErr
 			}
@@ -242,6 +253,9 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		SetReadyCondition(&mw.Status.Conditions, true, ReasonReconcileSuccess, "MaintenanceWindow reconciled successfully", mw.Generation)
 		SetSyncedCondition(&mw.Status.Conditions, true, ReasonSyncSuccess, "Successfully synced with UptimeRobot", mw.Generation)
 		SetErrorCondition(&mw.Status.Conditions, false, ReasonReconcileSuccess, "", mw.Generation)
+		if r.Recorder != nil {
+			r.Recorder.Event(mw, "Normal", "Created", fmt.Sprintf("Maintenance window created with ID %s", mw.Status.ID))
+		}
 		if err := r.Status().Update(ctx, mw); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -306,6 +320,9 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 					SetReadyCondition(&mw.Status.Conditions, false, ReasonAPIError, msg, mw.Generation)
 					SetSyncedCondition(&mw.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to sync with UptimeRobot: %v", err), mw.Generation)
 					SetErrorCondition(&mw.Status.Conditions, true, ReasonAPIError, msg, mw.Generation)
+					if r.Recorder != nil {
+						r.Recorder.Event(mw, "Warning", "SyncFailed", msg)
+					}
 					if updateErr := r.Status().Update(ctx, mw); updateErr != nil {
 						return ctrl.Result{}, updateErr
 					}
@@ -317,6 +334,9 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 				SetReadyCondition(&mw.Status.Conditions, true, ReasonReconcileSuccess, "MaintenanceWindow reconciled successfully", mw.Generation)
 				SetSyncedCondition(&mw.Status.Conditions, true, ReasonSyncSuccess, "Successfully synced with UptimeRobot", mw.Generation)
 				SetErrorCondition(&mw.Status.Conditions, false, ReasonReconcileSuccess, "", mw.Generation)
+				if r.Recorder != nil {
+					r.Recorder.Event(mw, "Normal", "Recreated", fmt.Sprintf("Maintenance window recreated with ID %s", mw.Status.ID))
+				}
 				if err := r.Status().Update(ctx, mw); err != nil {
 					return ctrl.Result{}, err
 				}
@@ -326,6 +346,9 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			SetReadyCondition(&mw.Status.Conditions, false, ReasonAPIError, msg, mw.Generation)
 			SetSyncedCondition(&mw.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to sync with UptimeRobot: %v", err), mw.Generation)
 			SetErrorCondition(&mw.Status.Conditions, true, ReasonAPIError, msg, mw.Generation)
+			if r.Recorder != nil {
+				r.Recorder.Event(mw, "Warning", "SyncFailed", msg)
+			}
 			if updateErr := r.Status().Update(ctx, mw); updateErr != nil {
 				return ctrl.Result{}, updateErr
 			}
@@ -336,6 +359,9 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		SetReadyCondition(&mw.Status.Conditions, true, ReasonReconcileSuccess, "MaintenanceWindow reconciled successfully", mw.Generation)
 		SetSyncedCondition(&mw.Status.Conditions, true, ReasonSyncSuccess, "Successfully synced with UptimeRobot", mw.Generation)
 		SetErrorCondition(&mw.Status.Conditions, false, ReasonReconcileSuccess, "", mw.Generation)
+		if r.Recorder != nil {
+			r.Recorder.Event(mw, "Normal", "Updated", "Maintenance window updated successfully")
+		}
 		if err := r.Status().Update(ctx, mw); err != nil {
 			return ctrl.Result{}, err
 		}
