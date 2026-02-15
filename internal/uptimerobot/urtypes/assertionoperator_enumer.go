@@ -57,6 +57,17 @@ var _AssertionOperatorNameToValueMap = map[string]AssertionOperator{
 	_AssertionOperatorLowerName[59:68]: AssertionIsNotNull,
 }
 
+var _AssertionOperatorAPINameToValueMap = map[string]AssertionOperator{
+	APIAssertionEquals:      AssertionEquals,
+	APIAssertionNotEquals:   AssertionNotEquals,
+	APIAssertionContains:    AssertionContains,
+	APIAssertionNotContains: AssertionNotContains,
+	APIAssertionGreaterThan: AssertionGreaterThan,
+	APIAssertionLessThan:    AssertionLessThan,
+	APIAssertionIsNull:      AssertionIsNull,
+	APIAssertionIsNotNull:   AssertionIsNotNull,
+}
+
 var _AssertionOperatorNames = []string{
 	_AssertionOperatorName[0:6],
 	_AssertionOperatorName[6:15],
@@ -75,7 +86,14 @@ func AssertionOperatorString(s string) (AssertionOperator, error) {
 		return val, nil
 	}
 
-	if val, ok := _AssertionOperatorNameToValueMap[strings.ToLower(s)]; ok {
+	sLower := strings.ToLower(s)
+	if val, ok := _AssertionOperatorNameToValueMap[sLower]; ok {
+		return val, nil
+	}
+	if val, ok := _AssertionOperatorAPINameToValueMap[s]; ok {
+		return val, nil
+	}
+	if val, ok := _AssertionOperatorAPINameToValueMap[sLower]; ok {
 		return val, nil
 	}
 	return 0, fmt.Errorf("%s does not belong to AssertionOperator values", s)

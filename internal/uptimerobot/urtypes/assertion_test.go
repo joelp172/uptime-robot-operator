@@ -16,7 +16,10 @@ limitations under the License.
 
 package urtypes
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func TestAssertionOperator_ToAPIString(t *testing.T) {
 	tests := []struct {
@@ -66,6 +69,42 @@ func TestAssertionOperatorFromAPIString(t *testing.T) {
 				t.Errorf("expected %v, got %v", tt.expected, result)
 			}
 		})
+	}
+}
+
+func TestAssertionOperatorString_AcceptsAPIStrings(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected AssertionOperator
+	}{
+		{"not_equals", AssertionNotEquals},
+		{"not_contains", AssertionNotContains},
+		{"greater_than", AssertionGreaterThan},
+		{"less_than", AssertionLessThan},
+		{"is_null", AssertionIsNull},
+		{"is_not_null", AssertionIsNotNull},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			result, err := AssertionOperatorString(tt.input)
+			if err != nil {
+				t.Fatalf("expected no error for %q, got %v", tt.input, err)
+			}
+			if result != tt.expected {
+				t.Errorf("expected %v, got %v", tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestAssertionOperator_UnmarshalJSON_AcceptsAPIStrings(t *testing.T) {
+	var op AssertionOperator
+	if err := json.Unmarshal([]byte(`"is_not_null"`), &op); err != nil {
+		t.Fatalf("expected no error unmarshaling api string, got %v", err)
+	}
+	if op != AssertionIsNotNull {
+		t.Fatalf("expected %v, got %v", AssertionIsNotNull, op)
 	}
 }
 
