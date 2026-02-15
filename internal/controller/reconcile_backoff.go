@@ -113,7 +113,8 @@ func IsPermanentError(err error) bool {
 	// Check for HTTP status codes in error message
 	if strings.Contains(errMsg, "400") || // Bad Request
 		strings.Contains(errMsg, "401") || // Unauthorized
-		strings.Contains(errMsg, "403") { // Forbidden
+		strings.Contains(errMsg, "403") || // Forbidden
+		strings.Contains(errMsg, "404") { // Not Found
 		return true
 	}
 

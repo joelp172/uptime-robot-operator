@@ -313,9 +313,11 @@ func TestCalculateRequeueDelayJitter(t *testing.T) {
 		delays[delay] = true
 	}
 
-	// We should have multiple different delay values due to jitter
-	if len(delays) < 10 {
-		t.Errorf("Expected jitter to produce varied delays, got only %d unique values out of 100 runs", len(delays))
+	// We should have many different delay values due to jitter
+	// With 15% jitter on 20s (±3s) and nanosecond precision, we expect high variance
+	// Using threshold of 50 to be robust across different systems while still validating jitter works
+	if len(delays) < 50 {
+		t.Errorf("Expected jitter to produce varied delays, got only %d unique values out of 100 runs (expected at least 50)", len(delays))
 	}
 }
 
