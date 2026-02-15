@@ -31,13 +31,17 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 var IngressAnnotationPrefix = "uptimerobot.com/"
@@ -173,6 +177,27 @@ func (r *IngressReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&networkingv1.Ingress{}, builder.WithPredicates(
 			predicate.Or(predicate.GenerationChangedPredicate{}, predicate.AnnotationChangedPredicate{}),
 		)).
+		Watches(&uptimerobotv1.Monitor{}, handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
+			monitor, ok := obj.(*uptimerobotv1.Monitor)
+			if !ok || monitor.Spec.SourceRef == nil {
+				return nil
+			}
+			if monitor.Spec.SourceRef.Kind != "Ingress" || monitor.Spec.SourceRef.Name == "" {
+				return nil
+			}
+			return []reconcile.Request{{
+				NamespacedName: types.NamespacedName{
+					Namespace: monitor.Namespace,
+					Name:      monitor.Spec.SourceRef.Name,
+				},
+			}}
+		}), builder.WithPredicates(predicate.Funcs{
+			// Reconcile source ingress when an ingress-managed monitor is deleted manually.
+			DeleteFunc: func(e event.DeleteEvent) bool {
+				monitor, ok := e.Object.(*uptimerobotv1.Monitor)
+				return ok && monitor.Spec.SourceRef != nil && monitor.Spec.SourceRef.Kind == "Ingress"
+			},
+		})).
 		Named("ingress").
 		Complete(r)
 }
