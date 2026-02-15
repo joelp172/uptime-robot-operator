@@ -207,27 +207,27 @@ func (r *IngressReconciler) getMatchingAnnotations(ingress *networkingv1.Ingress
 
 func (r *IngressReconciler) updateValues(ingress *networkingv1.Ingress, monitor *uptimerobotv1.Monitor, annotations map[string]string) error {
 	monitor.Spec.Monitor.Name = ingress.Name
-	if _, ok := annotations["monitor.url"]; !ok {
-		if len(ingress.Spec.Rules) != 0 {
-			var u url.URL
-			if u.Scheme, ok = annotations["monitor.scheme"]; !ok {
-				if len(ingress.Spec.TLS) == 0 {
-					u.Scheme = "http"
-				} else {
-					u.Scheme = "https"
-				}
+	if urlVal, ok := annotations["monitor.url"]; ok {
+		monitor.Spec.Monitor.URL = urlVal
+	} else if len(ingress.Spec.Rules) != 0 {
+		var u url.URL
+		if u.Scheme, ok = annotations["monitor.scheme"]; !ok {
+			if len(ingress.Spec.TLS) == 0 {
+				u.Scheme = "http"
+			} else {
+				u.Scheme = "https"
 			}
-			rule := ingress.Spec.Rules[0]
-			if u.Host, ok = annotations["monitor.host"]; !ok {
-				u.Host = rule.Host
-			}
-			if u.Path, ok = annotations["monitor.path"]; !ok && len(rule.HTTP.Paths) != 0 {
-				if path := rule.HTTP.Paths[0].Path; path != "/" {
-					u.Path = path
-				}
-			}
-			monitor.Spec.Monitor.URL = u.String()
 		}
+		rule := ingress.Spec.Rules[0]
+		if u.Host, ok = annotations["monitor.host"]; !ok {
+			u.Host = rule.Host
+		}
+		if u.Path, ok = annotations["monitor.path"]; !ok && len(rule.HTTP.Paths) != 0 {
+			if path := rule.HTTP.Paths[0].Path; path != "/" {
+				u.Path = path
+			}
+		}
+		monitor.Spec.Monitor.URL = u.String()
 	}
 	delete(annotations, "enabled")
 	delete(annotations, "monitor.url")

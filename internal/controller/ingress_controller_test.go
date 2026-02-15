@@ -61,7 +61,8 @@ var _ = Describe("Ingress Controller", func() {
 				Namespace: "default",
 			}
 
-			// Create account for monitors to reference
+			// Create Account so Monitor CRDs can be reconciled by the Monitor controller.
+			// Monitors created by the Ingress controller reference this Account for UptimeRobot API credentials.
 			account, secret = CreateAccount(ctx)
 			ReconcileAccount(ctx, account)
 
@@ -93,15 +94,15 @@ var _ = Describe("Ingress Controller", func() {
 				_ = mgr.Start(mgrCtx)
 			}()
 
+			// Get client and event recorder before waiting (mgrClient must be set before Eventually uses it)
+			eventRecorder = record.NewFakeRecorder(10)
+			mgrClient = mgr.GetClient()
+
 			// Wait for manager to be ready
 			Eventually(func() error {
-				// Try a simple operation to verify manager is ready
 				return mgrClient.List(ctx, &uptimerobotv1.MonitorList{})
 			}, time.Second*5, time.Millisecond*100).Should(Succeed())
 
-			// Create event recorder for testing events
-			eventRecorder = record.NewFakeRecorder(10)
-			mgrClient = mgr.GetClient()
 			reconciler = &IngressReconciler{
 				Client:   mgrClient,
 				Scheme:   mgr.GetScheme(),
@@ -154,39 +155,10 @@ var _ = Describe("Ingress Controller", func() {
 
 		It("should create Monitor CRD when Ingress has uptimerobot.com/enabled=true annotation", func() {
 			By("Creating an Ingress with uptimerobot.com/enabled=true annotation")
-			ingress = &networkingv1.Ingress{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      namespacedName.Name,
-					Namespace: namespacedName.Namespace,
-					Annotations: map[string]string{
-						"uptimerobot.com/enabled":      "true",
-						"uptimerobot.com/monitor.name": "Test Monitor",
-					},
-				},
-				Spec: networkingv1.IngressSpec{
-					Rules: []networkingv1.IngressRule{
-						{
-							Host: "example.com",
-							IngressRuleValue: networkingv1.IngressRuleValue{
-								HTTP: &networkingv1.HTTPIngressRuleValue{
-									Paths: []networkingv1.HTTPIngressPath{
-										{
-											Path:     "/api",
-											PathType: &pathTypePrefix,
-											Backend: networkingv1.IngressBackend{
-												Service: &networkingv1.IngressServiceBackend{
-													Name: "api-service",
-													Port: networkingv1.ServiceBackendPort{Number: 80},
-												},
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			}
+			ingress = buildTestIngress(namespacedName, pathTypePrefix, map[string]string{
+				"uptimerobot.com/enabled":      "true",
+				"uptimerobot.com/monitor.name": "Test Monitor",
+			}, "example.com", "/api")
 			Expect(mgrClient.Create(ctx, ingress)).To(Succeed())
 
 			By("Reconciling the Ingress")
@@ -211,38 +183,9 @@ var _ = Describe("Ingress Controller", func() {
 
 		It("should derive Monitor URL from Ingress rules when not specified", func() {
 			By("Creating an Ingress without explicit URL")
-			ingress = &networkingv1.Ingress{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      namespacedName.Name,
-					Namespace: namespacedName.Namespace,
-					Annotations: map[string]string{
-						"uptimerobot.com/enabled": "true",
-					},
-				},
-				Spec: networkingv1.IngressSpec{
-					Rules: []networkingv1.IngressRule{
-						{
-							Host: "example.com",
-							IngressRuleValue: networkingv1.IngressRuleValue{
-								HTTP: &networkingv1.HTTPIngressRuleValue{
-									Paths: []networkingv1.HTTPIngressPath{
-										{
-											Path:     "/api",
-											PathType: &pathTypePrefix,
-											Backend: networkingv1.IngressBackend{
-												Service: &networkingv1.IngressServiceBackend{
-													Name: "api-service",
-													Port: networkingv1.ServiceBackendPort{Number: 80},
-												},
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			}
+			ingress = buildTestIngress(namespacedName, pathTypePrefix, map[string]string{
+				"uptimerobot.com/enabled": "true",
+			}, "example.com", "/api")
 			Expect(mgrClient.Create(ctx, ingress)).To(Succeed())
 
 			By("Reconciling the Ingress")
@@ -417,38 +360,9 @@ var _ = Describe("Ingress Controller", func() {
 
 		It("should delete Monitor CRD when Ingress is deleted", func() {
 			By("Creating and reconciling an Ingress")
-			ingress = &networkingv1.Ingress{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      namespacedName.Name,
-					Namespace: namespacedName.Namespace,
-					Annotations: map[string]string{
-						"uptimerobot.com/enabled": "true",
-					},
-				},
-				Spec: networkingv1.IngressSpec{
-					Rules: []networkingv1.IngressRule{
-						{
-							Host: "example.com",
-							IngressRuleValue: networkingv1.IngressRuleValue{
-								HTTP: &networkingv1.HTTPIngressRuleValue{
-									Paths: []networkingv1.HTTPIngressPath{
-										{
-											Path:     "/api",
-											PathType: &pathTypePrefix,
-											Backend: networkingv1.IngressBackend{
-												Service: &networkingv1.IngressServiceBackend{
-													Name: "api-service",
-													Port: networkingv1.ServiceBackendPort{Number: 80},
-												},
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			}
+			ingress = buildTestIngress(namespacedName, pathTypePrefix, map[string]string{
+				"uptimerobot.com/enabled": "true",
+			}, "example.com", "/api")
 			Expect(mgrClient.Create(ctx, ingress)).To(Succeed())
 			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
 			Expect(err).NotTo(HaveOccurred())
@@ -472,7 +386,7 @@ var _ = Describe("Ingress Controller", func() {
 				return errors.IsNotFound(err)
 			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
 
-			By("Verifying Ingress finalizer was removed")
+			By("Verifying Ingress was fully deleted")
 			Eventually(func() bool {
 				err := mgrClient.Get(ctx, namespacedName, ingress)
 				return errors.IsNotFound(err)
@@ -481,39 +395,10 @@ var _ = Describe("Ingress Controller", func() {
 
 		It("should update Monitor when Ingress annotations change", func() {
 			By("Creating and reconciling an Ingress")
-			ingress = &networkingv1.Ingress{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      namespacedName.Name,
-					Namespace: namespacedName.Namespace,
-					Annotations: map[string]string{
-						"uptimerobot.com/enabled":      "true",
-						"uptimerobot.com/monitor.name": "Original Name",
-					},
-				},
-				Spec: networkingv1.IngressSpec{
-					Rules: []networkingv1.IngressRule{
-						{
-							Host: "example.com",
-							IngressRuleValue: networkingv1.IngressRuleValue{
-								HTTP: &networkingv1.HTTPIngressRuleValue{
-									Paths: []networkingv1.HTTPIngressPath{
-										{
-											Path:     "/api",
-											PathType: &pathTypePrefix,
-											Backend: networkingv1.IngressBackend{
-												Service: &networkingv1.IngressServiceBackend{
-													Name: "api-service",
-													Port: networkingv1.ServiceBackendPort{Number: 80},
-												},
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			}
+			ingress = buildTestIngress(namespacedName, pathTypePrefix, map[string]string{
+				"uptimerobot.com/enabled":      "true",
+				"uptimerobot.com/monitor.name": "Original Name",
+			}, "example.com", "/api")
 			Expect(mgrClient.Create(ctx, ingress)).To(Succeed())
 			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
 			Expect(err).NotTo(HaveOccurred())
@@ -546,38 +431,9 @@ var _ = Describe("Ingress Controller", func() {
 
 		It("should ignore Ingress without uptimerobot.com/ annotations", func() {
 			By("Creating an Ingress without any uptimerobot.com/ annotations")
-			ingress = &networkingv1.Ingress{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      namespacedName.Name,
-					Namespace: namespacedName.Namespace,
-					Annotations: map[string]string{
-						"kubernetes.io/ingress.class": "nginx",
-					},
-				},
-				Spec: networkingv1.IngressSpec{
-					Rules: []networkingv1.IngressRule{
-						{
-							Host: "example.com",
-							IngressRuleValue: networkingv1.IngressRuleValue{
-								HTTP: &networkingv1.HTTPIngressRuleValue{
-									Paths: []networkingv1.HTTPIngressPath{
-										{
-											Path:     "/api",
-											PathType: &pathTypePrefix,
-											Backend: networkingv1.IngressBackend{
-												Service: &networkingv1.IngressServiceBackend{
-													Name: "api-service",
-													Port: networkingv1.ServiceBackendPort{Number: 80},
-												},
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			}
+			ingress = buildTestIngress(namespacedName, pathTypePrefix, map[string]string{
+				"kubernetes.io/ingress.class": "nginx",
+			}, "example.com", "/api")
 			Expect(mgrClient.Create(ctx, ingress)).To(Succeed())
 
 			By("Reconciling the Ingress")
@@ -598,38 +454,9 @@ var _ = Describe("Ingress Controller", func() {
 
 		It("should remove Monitor and finalizer when enabled=false", func() {
 			By("Creating and reconciling an Ingress with enabled=true")
-			ingress = &networkingv1.Ingress{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      namespacedName.Name,
-					Namespace: namespacedName.Namespace,
-					Annotations: map[string]string{
-						"uptimerobot.com/enabled": "true",
-					},
-				},
-				Spec: networkingv1.IngressSpec{
-					Rules: []networkingv1.IngressRule{
-						{
-							Host: "example.com",
-							IngressRuleValue: networkingv1.IngressRuleValue{
-								HTTP: &networkingv1.HTTPIngressRuleValue{
-									Paths: []networkingv1.HTTPIngressPath{
-										{
-											Path:     "/api",
-											PathType: &pathTypePrefix,
-											Backend: networkingv1.IngressBackend{
-												Service: &networkingv1.IngressServiceBackend{
-													Name: "api-service",
-													Port: networkingv1.ServiceBackendPort{Number: 80},
-												},
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			}
+			ingress = buildTestIngress(namespacedName, pathTypePrefix, map[string]string{
+				"uptimerobot.com/enabled": "true",
+			}, "example.com", "/api")
 			Expect(mgrClient.Create(ctx, ingress)).To(Succeed())
 			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
 			Expect(err).NotTo(HaveOccurred())
@@ -731,39 +558,10 @@ var _ = Describe("Ingress Controller", func() {
 
 		It("should record warning event on annotation decode error during sync", func() {
 			By("Creating an Ingress with invalid annotation that will cause decode error")
-			ingress = &networkingv1.Ingress{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      namespacedName.Name,
-					Namespace: namespacedName.Namespace,
-					Annotations: map[string]string{
-						"uptimerobot.com/enabled":          "true",
-						"uptimerobot.com/monitor.interval": "invalid-duration", // This will cause a decode error
-					},
-				},
-				Spec: networkingv1.IngressSpec{
-					Rules: []networkingv1.IngressRule{
-						{
-							Host: "example.com",
-							IngressRuleValue: networkingv1.IngressRuleValue{
-								HTTP: &networkingv1.HTTPIngressRuleValue{
-									Paths: []networkingv1.HTTPIngressPath{
-										{
-											Path:     "/api",
-											PathType: &pathTypePrefix,
-											Backend: networkingv1.IngressBackend{
-												Service: &networkingv1.IngressServiceBackend{
-													Name: "api-service",
-													Port: networkingv1.ServiceBackendPort{Number: 80},
-												},
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			}
+			ingress = buildTestIngress(namespacedName, pathTypePrefix, map[string]string{
+				"uptimerobot.com/enabled":          "true",
+				"uptimerobot.com/monitor.interval": "invalid-duration", // This will cause a decode error
+			}, "example.com", "/api")
 			Expect(mgrClient.Create(ctx, ingress)).To(Succeed())
 
 			By("Reconciling the Ingress")
@@ -771,51 +569,15 @@ var _ = Describe("Ingress Controller", func() {
 			Expect(err).To(HaveOccurred())
 
 			By("Verifying warning event was recorded")
-			Eventually(func() bool {
-				select {
-				case event := <-eventRecorder.Events:
-					return event != ""
-				default:
-					return false
-				}
-			}, time.Second*2, time.Millisecond*100).Should(BeTrue())
+			Eventually(eventRecorder.Events, time.Second*2, time.Millisecond*100).Should(Receive(And(ContainSubstring("Warning"), ContainSubstring("Sync"))))
 		})
 
 		It("should allow explicit monitor.url annotation to override URL derivation", func() {
 			By("Creating an Ingress with explicit monitor.url annotation")
-			ingress = &networkingv1.Ingress{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      namespacedName.Name,
-					Namespace: namespacedName.Namespace,
-					Annotations: map[string]string{
-						"uptimerobot.com/enabled":     "true",
-						"uptimerobot.com/monitor.url": "https://custom-url.example.com/check",
-					},
-				},
-				Spec: networkingv1.IngressSpec{
-					Rules: []networkingv1.IngressRule{
-						{
-							Host: "ignored.example.com",
-							IngressRuleValue: networkingv1.IngressRuleValue{
-								HTTP: &networkingv1.HTTPIngressRuleValue{
-									Paths: []networkingv1.HTTPIngressPath{
-										{
-											Path:     "/ignored",
-											PathType: &pathTypePrefix,
-											Backend: networkingv1.IngressBackend{
-												Service: &networkingv1.IngressServiceBackend{
-													Name: "api-service",
-													Port: networkingv1.ServiceBackendPort{Number: 80},
-												},
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			}
+			ingress = buildTestIngress(namespacedName, pathTypePrefix, map[string]string{
+				"uptimerobot.com/enabled":     "true",
+				"uptimerobot.com/monitor.url": "https://custom-url.example.com/check",
+			}, "ignored.example.com", "/ignored")
 			Expect(mgrClient.Create(ctx, ingress)).To(Succeed())
 
 			By("Reconciling the Ingress")
@@ -834,3 +596,37 @@ var _ = Describe("Ingress Controller", func() {
 		})
 	})
 })
+
+// buildTestIngress creates an Ingress with the given annotations and a single rule.
+func buildTestIngress(nn types.NamespacedName, pathType networkingv1.PathType, annotations map[string]string, host, path string) *networkingv1.Ingress {
+	return &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        nn.Name,
+			Namespace:   nn.Namespace,
+			Annotations: annotations,
+		},
+		Spec: networkingv1.IngressSpec{
+			Rules: []networkingv1.IngressRule{
+				{
+					Host: host,
+					IngressRuleValue: networkingv1.IngressRuleValue{
+						HTTP: &networkingv1.HTTPIngressRuleValue{
+							Paths: []networkingv1.HTTPIngressPath{
+								{
+									Path:     path,
+									PathType: &pathType,
+									Backend: networkingv1.IngressBackend{
+										Service: &networkingv1.IngressServiceBackend{
+											Name: "api-service",
+											Port: networkingv1.ServiceBackendPort{Number: 80},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
