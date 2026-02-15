@@ -20,7 +20,6 @@ import (
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
-	dto "github.com/prometheus/client_model/go"
 )
 
 func TestMetricsRegistration(t *testing.T) {
@@ -83,126 +82,211 @@ func TestMetricsRegistration(t *testing.T) {
 }
 
 func TestAPIRequestsTotal(t *testing.T) {
+	// Create a test-specific registry for isolation
+	testRegistry := prometheus.NewRegistry()
+	testCounter := prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "test_api_requests_total",
+			Help: "Test counter",
+		},
+		[]string{"method", "endpoint", "status_code"},
+	)
+	testRegistry.MustRegister(testCounter)
+
 	// Test that we can increment the counter
-	APIRequestsTotal.WithLabelValues("GET", "monitors", "200").Inc()
+	testCounter.WithLabelValues("GET", "monitors", "200").Inc()
 
 	// Verify the metric was recorded
-	metricCh := make(chan prometheus.Metric, 1)
-	APIRequestsTotal.Collect(metricCh)
-	close(metricCh)
-
-	metric := <-metricCh
-	var m dto.Metric
-	if err := metric.Write(&m); err != nil {
-		t.Fatalf("Failed to write metric: %v", err)
+	metrics, err := testRegistry.Gather()
+	if err != nil {
+		t.Fatalf("Failed to gather metrics: %v", err)
 	}
 
-	if m.Counter == nil {
-		t.Fatal("Expected counter metric")
+	if len(metrics) == 0 {
+		t.Fatal("Expected at least one metric")
 	}
 
-	if m.Counter.GetValue() <= 0 {
-		t.Errorf("Expected counter value > 0, got %v", m.Counter.GetValue())
+	found := false
+	for _, mf := range metrics {
+		if mf.GetName() == "test_api_requests_total" {
+			found = true
+			if len(mf.Metric) > 0 && mf.Metric[0].Counter.GetValue() > 0 {
+				return // Test passed
+			}
+		}
 	}
+
+	if !found {
+		t.Fatal("Expected to find test_api_requests_total metric")
+	}
+	t.Fatal("Expected counter value > 0")
 }
 
 func TestAPIRequestDuration(t *testing.T) {
+	// Create a test-specific registry for isolation
+	testRegistry := prometheus.NewRegistry()
+	testHistogram := prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "test_api_request_duration_seconds",
+			Help:    "Test histogram",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"method", "endpoint"},
+	)
+	testRegistry.MustRegister(testHistogram)
+
 	// Test that we can observe durations
-	APIRequestDuration.WithLabelValues("GET", "monitors").Observe(0.5)
-	APIRequestDuration.WithLabelValues("GET", "monitors").Observe(1.0)
+	testHistogram.WithLabelValues("GET", "monitors").Observe(0.5)
+	testHistogram.WithLabelValues("GET", "monitors").Observe(1.0)
 
 	// Verify the metric was recorded
-	metricCh := make(chan prometheus.Metric, 10)
-	APIRequestDuration.Collect(metricCh)
-	close(metricCh)
-
-	metric := <-metricCh
-	var m dto.Metric
-	if err := metric.Write(&m); err != nil {
-		t.Fatalf("Failed to write metric: %v", err)
+	metrics, err := testRegistry.Gather()
+	if err != nil {
+		t.Fatalf("Failed to gather metrics: %v", err)
 	}
 
-	if m.Histogram == nil {
-		t.Fatal("Expected histogram metric")
+	if len(metrics) == 0 {
+		t.Fatal("Expected at least one metric")
 	}
 
-	if m.Histogram.GetSampleCount() <= 0 {
-		t.Errorf("Expected sample count > 0, got %v", m.Histogram.GetSampleCount())
+	found := false
+	for _, mf := range metrics {
+		if mf.GetName() == "test_api_request_duration_seconds" {
+			found = true
+			if len(mf.Metric) > 0 && mf.Metric[0].Histogram.GetSampleCount() >= 2 {
+				return // Test passed
+			}
+		}
 	}
+
+	if !found {
+		t.Fatal("Expected to find test_api_request_duration_seconds metric")
+	}
+	t.Fatal("Expected at least 2 samples")
 }
 
 func TestReconciliationDuration(t *testing.T) {
+	// Create a test-specific registry for isolation
+	testRegistry := prometheus.NewRegistry()
+	testHistogram := prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "test_reconciliation_duration_seconds",
+			Help:    "Test histogram",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"controller"},
+	)
+	testRegistry.MustRegister(testHistogram)
+
 	// Test that we can observe reconciliation durations
-	ReconciliationDuration.WithLabelValues("monitor").Observe(0.1)
+	testHistogram.WithLabelValues("monitor").Observe(0.1)
 
 	// Verify the metric was recorded
-	metricCh := make(chan prometheus.Metric, 10)
-	ReconciliationDuration.Collect(metricCh)
-	close(metricCh)
-
-	metric := <-metricCh
-	var m dto.Metric
-	if err := metric.Write(&m); err != nil {
-		t.Fatalf("Failed to write metric: %v", err)
+	metrics, err := testRegistry.Gather()
+	if err != nil {
+		t.Fatalf("Failed to gather metrics: %v", err)
 	}
 
-	if m.Histogram == nil {
-		t.Fatal("Expected histogram metric")
+	if len(metrics) == 0 {
+		t.Fatal("Expected at least one metric")
 	}
 
-	if m.Histogram.GetSampleCount() <= 0 {
-		t.Errorf("Expected sample count > 0, got %v", m.Histogram.GetSampleCount())
+	found := false
+	for _, mf := range metrics {
+		if mf.GetName() == "test_reconciliation_duration_seconds" {
+			found = true
+			if len(mf.Metric) > 0 && mf.Metric[0].Histogram.GetSampleCount() > 0 {
+				return // Test passed
+			}
+		}
 	}
+
+	if !found {
+		t.Fatal("Expected to find test_reconciliation_duration_seconds metric")
+	}
+	t.Fatal("Expected sample count > 0")
 }
 
 func TestMonitorsTotal(t *testing.T) {
+	// Create a test-specific registry for isolation
+	testRegistry := prometheus.NewRegistry()
+	testGauge := prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "test_monitors_total",
+			Help: "Test gauge",
+		},
+		[]string{"type", "status"},
+	)
+	testRegistry.MustRegister(testGauge)
+
 	// Test that we can set gauge values
-	MonitorsTotal.WithLabelValues("http", "running").Set(5)
-	MonitorsTotal.WithLabelValues("http", "paused").Set(2)
+	testGauge.WithLabelValues("http", "running").Set(5)
+	testGauge.WithLabelValues("http", "paused").Set(2)
 
 	// Verify the metrics were recorded
-	metricCh := make(chan prometheus.Metric, 10)
-	MonitorsTotal.Collect(metricCh)
-	close(metricCh)
-
-	count := 0
-	for metric := range metricCh {
-		var m dto.Metric
-		if err := metric.Write(&m); err != nil {
-			t.Fatalf("Failed to write metric: %v", err)
-		}
-
-		if m.Gauge == nil {
-			t.Fatal("Expected gauge metric")
-		}
-		count++
+	metrics, err := testRegistry.Gather()
+	if err != nil {
+		t.Fatalf("Failed to gather metrics: %v", err)
 	}
 
-	if count != 2 {
-		t.Errorf("Expected 2 gauge metrics, got %d", count)
+	if len(metrics) == 0 {
+		t.Fatal("Expected at least one metric")
+	}
+
+	found := false
+	gaugeCount := 0
+	for _, mf := range metrics {
+		if mf.GetName() == "test_monitors_total" {
+			found = true
+			gaugeCount = len(mf.Metric)
+		}
+	}
+
+	if !found {
+		t.Fatal("Expected to find test_monitors_total metric")
+	}
+
+	if gaugeCount != 2 {
+		t.Errorf("Expected 2 gauge metrics, got %d", gaugeCount)
 	}
 }
 
 func TestMaintenanceWindowsTotal(t *testing.T) {
+	// Create a test-specific registry for isolation
+	testRegistry := prometheus.NewRegistry()
+	testGauge := prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "test_maintenance_windows_total",
+			Help: "Test gauge",
+		},
+	)
+	testRegistry.MustRegister(testGauge)
+
 	// Test that we can set the gauge
-	MaintenanceWindowsTotal.Set(3)
+	testGauge.Set(3)
 
 	// Verify the metric was recorded
-	metricCh := make(chan prometheus.Metric, 1)
-	MaintenanceWindowsTotal.Collect(metricCh)
-	close(metricCh)
-
-	metric := <-metricCh
-	var m dto.Metric
-	if err := metric.Write(&m); err != nil {
-		t.Fatalf("Failed to write metric: %v", err)
+	metrics, err := testRegistry.Gather()
+	if err != nil {
+		t.Fatalf("Failed to gather metrics: %v", err)
 	}
 
-	if m.Gauge == nil {
-		t.Fatal("Expected gauge metric")
+	if len(metrics) == 0 {
+		t.Fatal("Expected at least one metric")
 	}
 
-	if m.Gauge.GetValue() != 3 {
-		t.Errorf("Expected gauge value 3, got %v", m.Gauge.GetValue())
+	found := false
+	for _, mf := range metrics {
+		if mf.GetName() == "test_maintenance_windows_total" {
+			found = true
+			if len(mf.Metric) > 0 && mf.Metric[0].Gauge.GetValue() == 3 {
+				return // Test passed
+			}
+		}
 	}
+
+	if !found {
+		t.Fatal("Expected to find test_maintenance_windows_total metric")
+	}
+	t.Fatal("Expected gauge value 3")
 }

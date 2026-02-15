@@ -73,7 +73,8 @@ func classifyError(err error) string {
 	return "unknown"
 }
 
-// ClassifyError classifies errors into categories for metrics (exported for testing)
+// ClassifyError is exported for testing purposes.
+// It wraps the internal classifyError function to allow unit tests to verify error classification logic.
 func ClassifyError(err error) string {
 	return classifyError(err)
 }

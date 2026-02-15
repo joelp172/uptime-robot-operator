@@ -174,8 +174,10 @@ func (c Client) doWithRetry(ctx context.Context, req *http.Request) (*http.Respo
 	var lastErr error
 
 	// Extract endpoint from request URL for metrics
+	// Use the full path (minus leading slash and query params) to preserve nested endpoints,
+	// e.g. "user/alert-contacts" vs "user/me".
 	endpoint := strings.TrimPrefix(req.URL.Path, "/")
-	if idx := strings.Index(endpoint, "/"); idx > 0 {
+	if idx := strings.Index(endpoint, "?"); idx > 0 {
 		endpoint = endpoint[:idx]
 	}
 

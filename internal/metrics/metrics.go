@@ -23,6 +23,8 @@ import (
 
 var (
 	// APIRequestsTotal tracks total API requests to UptimeRobot
+	// Note: status_code label can have high cardinality (200-599 + "error").
+	// Monitor cardinality in production and consider grouping into ranges (2xx, 3xx, 4xx, 5xx) if needed.
 	APIRequestsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "uptimerobot_api_requests_total",
@@ -34,9 +36,10 @@ var (
 	// APIRequestDuration tracks API request latency
 	APIRequestDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Name:    "uptimerobot_api_request_duration_seconds",
-			Help:    "Duration of API requests to UptimeRobot in seconds",
-			Buckets: prometheus.DefBuckets,
+			Name: "uptimerobot_api_request_duration_seconds",
+			Help: "Duration of API requests to UptimeRobot in seconds",
+			// Custom buckets optimized for HTTP API calls (100ms to 30s)
+			Buckets: []float64{0.1, 0.25, 0.5, 1, 2, 5, 10, 30},
 		},
 		[]string{"method", "endpoint"},
 	)
