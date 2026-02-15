@@ -6,7 +6,24 @@ Install the Uptime Robot Operator on your Kubernetes cluster.
 
 - Kubernetes v1.19+
 - kubectl configured
+- Helm v3 (required to install cert-manager)
+- cert-manager CRDs/controllers installed
 - UptimeRobot API key ([get one here](https://uptimerobot.com/?red=joelpi) - Integrations > API)
+
+Install cert-manager before installing the operator:
+
+```bash
+helm repo add jetstack https://charts.jetstack.io
+helm repo update
+helm upgrade --install cert-manager jetstack/cert-manager \
+  --namespace cert-manager \
+  --create-namespace \
+  --set crds.enabled=true
+kubectl wait --namespace cert-manager \
+  --for=condition=Available deployment \
+  cert-manager cert-manager-cainjector cert-manager-webhook \
+  --timeout=180s
+```
 
 ## Install with kubectl
 
@@ -51,6 +68,14 @@ uptime-robot-controller-manager-xxx                1/1     Running   0          
 ### From OCI Registry
 
 ```bash
+# cert-manager is required for webhook certificates
+helm repo add jetstack https://charts.jetstack.io
+helm repo update
+helm upgrade --install cert-manager jetstack/cert-manager \
+  --namespace cert-manager \
+  --create-namespace \
+  --set crds.enabled=true
+
 helm install uptime-robot-operator \
   oci://ghcr.io/joelp172/charts/uptime-robot-operator \
   --version v1.2.1
@@ -93,8 +118,11 @@ See the [Helm Chart README](../charts/uptime-robot-operator/README.md) for all c
 ### kubectl
 
 ```bash
-# Delete all resources first
-kubectl delete maintenancewindows,monitors,contacts,accounts --all
+# Delete all dependent resources first
+kubectl delete maintenancewindows,monitors,monitorgroups,slackintegrations --all
+
+# Delete remaining resources with account last
+kubectl delete contacts,accounts --all
 
 # Remove operator
 kubectl delete -f https://github.com/joelp172/uptime-robot-operator/releases/latest/download/install.yaml
@@ -103,8 +131,11 @@ kubectl delete -f https://github.com/joelp172/uptime-robot-operator/releases/lat
 ### Helm
 
 ```bash
-# Delete all resources first
-kubectl delete maintenancewindows,monitors,contacts,accounts --all
+# Delete all dependent resources first
+kubectl delete maintenancewindows,monitors,monitorgroups,slackintegrations --all
+
+# Delete remaining resources with account last
+kubectl delete contacts,accounts --all
 
 # Uninstall chart
 helm uninstall uptime-robot-operator
