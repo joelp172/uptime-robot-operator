@@ -106,6 +106,36 @@ func TestSelectDuplicateMonitorCandidate(t *testing.T) {
 		}
 	})
 
+	t.Run("matches url+type fallback for api assertions monitor", func(t *testing.T) {
+		desired := uptimerobotv1.MonitorValues{
+			Name: "API Health Check",
+			URL:  "https://api.example.com/health",
+			Type: urtypes.TypeHTTPS,
+			APIAssertions: &uptimerobotv1.MonitorAPIAssertions{
+				Logic: urtypes.LogicAND,
+				Checks: []uptimerobotv1.MonitorAPIAssertion{
+					{
+						Property: "$.status",
+						Operator: urtypes.AssertionEquals,
+						Value:    "healthy",
+					},
+				},
+			},
+		}
+		existing := []MonitorResponse{
+			{ID: 101, FriendlyName: "Legacy API Monitor", URL: "https://api.example.com/health/", Type: "API"},
+			{ID: 202, FriendlyName: "Other", URL: "https://api.example.com/health", Type: "HTTP"},
+		}
+
+		match, ok := selectDuplicateMonitorCandidate(existing, desired)
+		if !ok {
+			t.Fatalf("expected match by unique URL+API type, got no match")
+		}
+		if match.ID != 101 {
+			t.Fatalf("expected ID 101, got %d", match.ID)
+		}
+	})
+
 	t.Run("rejects ambiguous url+type fallback", func(t *testing.T) {
 		desired := uptimerobotv1.MonitorValues{
 			Name: "API Health Check",

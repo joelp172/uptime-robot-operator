@@ -281,7 +281,7 @@ func (c Client) buildCreateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 		req.Config = &MonitorConfig{}
 	}
 
-	// Handle API assertions - can be used with any monitor type
+	// Handle API assertions for CRD HTTPS monitors (mapped to upstream API type "API").
 	if monitor.APIAssertions != nil && len(monitor.APIAssertions.Checks) > 0 {
 		if req.Config == nil {
 			req.Config = &MonitorConfig{}
@@ -418,7 +418,7 @@ func (c Client) buildUpdateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 		req.Config = &MonitorConfig{}
 	}
 
-	// Handle API assertions - can be used with any monitor type
+	// Handle API assertions for CRD HTTPS monitors (mapped to upstream API type "API").
 	if monitor.APIAssertions != nil && len(monitor.APIAssertions.Checks) > 0 {
 		if req.Config == nil {
 			req.Config = &MonitorConfig{}
@@ -614,7 +614,7 @@ func extractErrStatusBody(err error) []byte {
 func selectDuplicateMonitorCandidate(existing []MonitorResponse, desired uptimerobotv1.MonitorValues) (*MonitorResponse, bool) {
 	name := strings.TrimSpace(desired.Name)
 	wantURL := normalizeURL(desired.URL)
-	wantType := strings.TrimSpace(desired.Type.ToAPIString())
+	wantType := strings.TrimSpace(monitorTypeForRequest(desired))
 
 	nameMatches := make([]MonitorResponse, 0, 1)
 	if name != "" {

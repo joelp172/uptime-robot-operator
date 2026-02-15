@@ -8,6 +8,7 @@ const (
 // API string constants for monitor types (v3 API uses uppercase).
 const (
 	APITypeHTTP      = "HTTP"
+	APITypeAPI       = "API"
 	APITypeKeyword   = "KEYWORD"
 	APITypePing      = "PING"
 	APITypePort      = "PORT"
@@ -55,6 +56,9 @@ func (m MonitorType) ToAPIString() string {
 func MonitorTypeFromAPIString(s string) MonitorType {
 	switch s {
 	case APITypeHTTP:
+		return TypeHTTPS
+	case APITypeAPI:
+		// API monitors are represented as HTTPS in the CRD and promoted on request when assertions are set.
 		return TypeHTTPS
 	case APITypeKeyword:
 		return TypeKeyword
