@@ -75,9 +75,9 @@ func TestClassifyError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := classifyError(tt.err)
+			result := ClassifyError(tt.err)
 			if result != tt.expected {
-				t.Errorf("classifyError() = %v, want %v", result, tt.expected)
+				t.Errorf("ClassifyError() = %v, want %v", result, tt.expected)
 			}
 		})
 	}

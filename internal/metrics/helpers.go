@@ -19,30 +19,9 @@ package metrics
 import (
 	"context"
 	"errors"
-	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	ctrl "sigs.k8s.io/controller-runtime"
 )
-
-// ReconcileWithMetrics wraps a reconcile function with metrics collection
-func ReconcileWithMetrics(controllerName string, reconcileFunc func(ctx context.Context, req ctrl.Request) (ctrl.Result, error)) func(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	return func(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-		startTime := time.Now()
-
-		result, err := reconcileFunc(ctx, req)
-
-		duration := time.Since(startTime).Seconds()
-		ReconciliationDuration.WithLabelValues(controllerName).Observe(duration)
-
-		if err != nil {
-			errorType := classifyError(err)
-			ReconciliationErrorsTotal.WithLabelValues(controllerName, errorType).Inc()
-		}
-
-		return result, err
-	}
-}
 
 // classifyError classifies errors into categories for metrics
 func classifyError(err error) string {
@@ -92,4 +71,9 @@ func classifyError(err error) string {
 
 	// Generic errors
 	return "unknown"
+}
+
+// ClassifyError classifies errors into categories for metrics (exported for testing)
+func ClassifyError(err error) string {
+	return classifyError(err)
 }
