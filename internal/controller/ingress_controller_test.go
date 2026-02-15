@@ -609,6 +609,80 @@ var _ = Describe("Ingress Controller", func() {
 			// The controller doesn't overwrite it when the annotation exists
 			Expect(monitor.Spec.Monitor.URL).To(Equal("https://custom-url.example.com/check"))
 		})
+
+		It("should recreate Monitor when manually deleted and enabled=true", func() {
+			By("Creating and reconciling an Ingress with enabled=true")
+			ingress = &networkingv1.Ingress{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      namespacedName.Name,
+					Namespace: namespacedName.Namespace,
+					Annotations: map[string]string{
+						"uptimerobot.com/enabled": "true",
+					},
+				},
+				Spec: networkingv1.IngressSpec{
+					Rules: []networkingv1.IngressRule{
+						{
+							Host: "example.com",
+							IngressRuleValue: networkingv1.IngressRuleValue{
+								HTTP: &networkingv1.HTTPIngressRuleValue{
+									Paths: []networkingv1.HTTPIngressPath{
+										{
+											Path:     "/api",
+											PathType: &pathTypePrefix,
+											Backend: networkingv1.IngressBackend{
+												Service: &networkingv1.IngressServiceBackend{
+													Name: "api-service",
+													Port: networkingv1.ServiceBackendPort{Number: 80},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(mgrClient.Create(ctx, ingress)).To(Succeed())
+
+			By("Reconciling to create the Monitor")
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying Monitor was created")
+			monitor := &uptimerobotv1.Monitor{}
+			Eventually(func() error {
+				return mgrClient.Get(ctx, namespacedName, monitor)
+			}, time.Second*5, time.Millisecond*250).Should(Succeed())
+
+			originalUID := monitor.UID
+
+			By("Manually deleting the Monitor (simulating external deletion)")
+			Expect(mgrClient.Delete(ctx, monitor)).To(Succeed())
+
+			By("Waiting for Monitor to be deleted")
+			Eventually(func() bool {
+				err := mgrClient.Get(ctx, namespacedName, monitor)
+				return errors.IsNotFound(err)
+			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
+
+			By("Reconciling the Ingress again (triggered by Monitor watch)")
+			_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying Monitor was recreated")
+			newMonitor := &uptimerobotv1.Monitor{}
+			Eventually(func() error {
+				return mgrClient.Get(ctx, namespacedName, newMonitor)
+			}, time.Second*5, time.Millisecond*250).Should(Succeed())
+
+			// Verify it's a new Monitor (different UID)
+			Expect(newMonitor.UID).NotTo(Equal(originalUID))
+			Expect(newMonitor.Spec.SourceRef).NotTo(BeNil())
+			Expect(newMonitor.Spec.SourceRef.Kind).To(Equal("Ingress"))
+			Expect(newMonitor.Spec.SourceRef.Name).To(Equal(namespacedName.Name))
+		})
 	})
 })
 

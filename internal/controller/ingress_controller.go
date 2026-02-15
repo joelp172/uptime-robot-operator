@@ -193,9 +193,19 @@ func (r *IngressReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			}}
 		}), builder.WithPredicates(predicate.Funcs{
 			// Reconcile source ingress when an ingress-managed monitor is deleted manually.
+			// Return false for other events to avoid unnecessary reconciles.
+			CreateFunc: func(e event.CreateEvent) bool {
+				return false
+			},
+			UpdateFunc: func(e event.UpdateEvent) bool {
+				return false
+			},
 			DeleteFunc: func(e event.DeleteEvent) bool {
 				monitor, ok := e.Object.(*uptimerobotv1.Monitor)
 				return ok && monitor.Spec.SourceRef != nil && monitor.Spec.SourceRef.Kind == "Ingress"
+			},
+			GenericFunc: func(e event.GenericEvent) bool {
+				return false
 			},
 		})).
 		Named("ingress").
@@ -255,7 +265,7 @@ func (r *IngressReconciler) updateValues(ingress *networkingv1.Ingress, monitor 
 		if u.Host, ok = annotations["monitor.host"]; !ok {
 			u.Host = rule.Host
 		}
-		if u.Path, ok = annotations["monitor.path"]; !ok && len(rule.HTTP.Paths) != 0 {
+		if u.Path, ok = annotations["monitor.path"]; !ok && rule.HTTP != nil && len(rule.HTTP.Paths) != 0 {
 			if path := rule.HTTP.Paths[0].Path; path != "/" {
 				u.Path = path
 			}
