@@ -254,18 +254,8 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if monitor.Status.ID != "" && monitor.Status.Type != monitor.Spec.Monitor.Type {
 		// Type change requires recreate
 		if err := urclient.DeleteMonitor(ctx, monitor.Status.ID); err != nil {
-			recordMonitorError("api_delete_error")
 			msg := fmt.Sprintf("Failed to delete monitor for type change: %v", err)
-			SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
-			SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
-			SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, msg, monitor.Generation)
-			if r.Recorder != nil {
-				r.Recorder.Event(monitor, "Warning", "SyncFailed", msg)
-			}
-			if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
-				return ctrl.Result{}, updateErr
-			}
-			return ctrl.Result{}, err
+			return r.handleAPIError(ctx, monitor, err, "api_delete_error", msg)
 		}
 		monitor.Status.Ready = false
 		monitor.Status.ID = ""
@@ -349,16 +339,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				}
 				recordMonitorError("adoption_api_error")
 				msg := fmt.Sprintf("failed to get monitor for adoption: %v", err)
-				SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
-				SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
-				SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, msg, monitor.Generation)
-				if r.Recorder != nil {
-					r.Recorder.Event(monitor, "Warning", "SyncFailed", msg)
-				}
-				if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
-					return ctrl.Result{}, updateErr
-				}
-				return ctrl.Result{}, fmt.Errorf("failed to get monitor for adoption: %w", err)
+				return r.handleAPIError(ctx, monitor, err, "adoption_api_error", msg)
 			}
 
 			// Verify monitor type matches spec
@@ -396,19 +377,8 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			// Apply the spec to the adopted monitor immediately
 			result, err := urclient.EditMonitor(ctx, adoptID, monitor.Spec.Monitor, contacts)
 			if err != nil {
-				recordMonitorError("api_update_error")
-				monitor.Status.Ready = false
 				msg := fmt.Sprintf("Failed to edit adopted monitor: %v", err)
-				SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
-				SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
-				SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, msg, monitor.Generation)
-				if r.Recorder != nil {
-					r.Recorder.Event(monitor, "Warning", "SyncFailed", msg)
-				}
-				if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
-					return ctrl.Result{}, updateErr
-				}
-				return ctrl.Result{}, err
+				return r.handleAPIError(ctx, monitor, err, "api_update_error", msg)
 			}
 
 			// If adopted monitor should be paused, apply pause immediately.
@@ -419,16 +389,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					monitor.Status.Status = urtypes.MonitorRunning // Monitor is running since pause failed
 					monitor.Status.State = monitorStateLabel(urtypes.MonitorRunning)
 					msg := fmt.Sprintf("Failed to pause adopted monitor: %v", err)
-					SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
-					SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
-					SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, msg, monitor.Generation)
-					if r.Recorder != nil {
-						r.Recorder.Event(monitor, "Warning", "SyncFailed", msg)
-					}
-					if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
-						return ctrl.Result{}, updateErr
-					}
-					return ctrl.Result{}, err
+					return r.handleAPIError(ctx, monitor, err, "api_update_error", msg)
 				}
 				log.FromContext(ctx).Info("Paused adopted monitor", "monitorID", result.ID)
 				verifyPausedSoon = true
@@ -450,19 +411,8 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			// Create new monitor
 			result, err := urclient.CreateMonitor(ctx, monitor.Spec.Monitor, contacts)
 			if err != nil {
-				recordMonitorError("api_create_error")
-				monitor.Status.Ready = false
 				msg := fmt.Sprintf("Failed to create monitor: %v", err)
-				SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
-				SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
-				SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, msg, monitor.Generation)
-				if r.Recorder != nil {
-					r.Recorder.Event(monitor, "Warning", "SyncFailed", msg)
-				}
-				if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
-					return ctrl.Result{}, updateErr
-				}
-				return ctrl.Result{}, err
+				return r.handleAPIError(ctx, monitor, err, "api_create_error", msg)
 			}
 
 			monitor.Status.Ready = true
@@ -514,18 +464,8 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		// This is intentional per requirement for "drift detection to reconcile out-of-band pause/start"
 		currentMonitor, err := urclient.GetMonitor(ctx, monitor.Status.ID)
 		if err != nil && !errors.Is(err, uptimerobot.ErrMonitorNotFound) {
-			recordMonitorError("api_get_error")
 			msg := fmt.Sprintf("Failed to get current monitor state: %v", err)
-			SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
-			SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
-			SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, msg, monitor.Generation)
-			if r.Recorder != nil {
-				r.Recorder.Event(monitor, "Warning", "SyncFailed", msg)
-			}
-			if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
-				return ctrl.Result{}, updateErr
-			}
-			return ctrl.Result{}, err
+			return r.handleAPIError(ctx, monitor, err, "api_get_error", msg)
 		}
 
 		// Determine desired and current status
@@ -574,16 +514,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					monitor.Status.Status = urtypes.MonitorRunning
 					monitor.Status.State = monitorStateLabel(urtypes.MonitorRunning)
 					msg := fmt.Sprintf("Failed to pause monitor: %v", err)
-					SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
-					SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
-					SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, msg, monitor.Generation)
-					if r.Recorder != nil {
-						r.Recorder.Event(monitor, "Warning", "SyncFailed", msg)
-					}
-					if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
-						return ctrl.Result{}, updateErr
-					}
-					return ctrl.Result{}, err
+					return r.handleAPIError(ctx, monitor, err, "api_update_error", msg)
 				}
 				log.FromContext(ctx).Info("Paused monitor", "monitorID", monitor.Status.ID)
 				verifyPausedSoon = true
@@ -689,6 +620,12 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
 			return ctrl.Result{}, updateErr
 		}
+		return ctrl.Result{}, err
+	}
+
+	// Success - reset retry count
+	ResetRetryCount(monitor.Annotations)
+	if err := r.Update(ctx, monitor); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -1061,4 +998,31 @@ func (r *MonitorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&uptimerobotv1.Monitor{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Named("monitor").
 		Complete(r)
+}
+
+// handleAPIError processes API errors, updates status, and applies exponential backoff for transient errors.
+// Returns ctrl.Result and error suitable for returning from Reconcile().
+func (r *MonitorReconciler) handleAPIError(ctx context.Context, monitor *uptimerobotv1.Monitor, err error, errorType string, logMessage string) (ctrl.Result, error) {
+	metrics.ReconciliationErrorsTotal.WithLabelValues("monitor", errorType).Inc()
+	monitor.Status.Ready = false
+	SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, logMessage, monitor.Generation)
+	SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, logMessage, monitor.Generation)
+	SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, logMessage, monitor.Generation)
+	if r.Recorder != nil {
+		r.Recorder.Event(monitor, "Warning", "SyncFailed", logMessage)
+	}
+
+	// Track retry count and apply exponential backoff for transient errors
+	retryCount := GetRetryCount(monitor.Annotations)
+	if IsTransientError(err) {
+		monitor.Annotations = IncrementRetryCount(monitor.Annotations)
+		if updateErr := r.Update(ctx, monitor); updateErr != nil {
+			return ctrl.Result{}, updateErr
+		}
+	}
+
+	if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
+		return ctrl.Result{}, updateErr
+	}
+	return HandleReconcileError(err, retryCount)
 }

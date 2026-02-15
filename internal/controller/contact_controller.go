@@ -124,10 +124,20 @@ func (r *ContactReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				if r.Recorder != nil {
 					r.Recorder.Event(contact, "Warning", "SyncFailed", msg)
 				}
+
+				// Track retry count and apply exponential backoff for transient errors
+				retryCount := GetRetryCount(contact.Annotations)
+				if IsTransientError(err) {
+					contact.Annotations = IncrementRetryCount(contact.Annotations)
+					if updateErr := r.Update(ctx, contact); updateErr != nil {
+						return ctrl.Result{}, updateErr
+					}
+				}
+
 				if updateErr := r.Status().Update(ctx, contact); updateErr != nil {
 					return ctrl.Result{}, updateErr
 				}
-				return ctrl.Result{}, err
+				return HandleReconcileError(err, retryCount)
 			}
 			validated = true
 		} else {
@@ -140,6 +150,12 @@ func (r *ContactReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			if updateErr := r.Status().Update(ctx, contact); updateErr != nil {
 				return ctrl.Result{}, updateErr
 			}
+			return ctrl.Result{}, err
+		}
+
+		// Success - reset retry count
+		ResetRetryCount(contact.Annotations)
+		if err := r.Update(ctx, contact); err != nil {
 			return ctrl.Result{}, err
 		}
 
