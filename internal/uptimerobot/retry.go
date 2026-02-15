@@ -28,6 +28,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/joelp172/uptime-robot-operator/internal/metrics"
 )
 
 const (
@@ -151,6 +153,7 @@ func calculateBackoff(attempt int, baseDelay, maxDelay time.Duration, jitterFrac
 
 // doWithRetry wraps an HTTP request with retry logic
 func (c Client) doWithRetry(ctx context.Context, req *http.Request) (*http.Response, error) {
+	startTime := time.Now()
 	maxRetries := c.maxRetries
 	if maxRetries <= 0 {
 		maxRetries = DefaultMaxRetries
@@ -170,6 +173,12 @@ func (c Client) doWithRetry(ctx context.Context, req *http.Request) (*http.Respo
 
 	var lastErr error
 
+	// Extract endpoint from request URL for metrics
+	endpoint := strings.TrimPrefix(req.URL.Path, "/")
+	if idx := strings.Index(endpoint, "/"); idx > 0 {
+		endpoint = endpoint[:idx]
+	}
+
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		// Clone the request for retry
 		// Note: We need to handle request body separately since Clone doesn't copy it
@@ -186,6 +195,10 @@ func (c Client) doWithRetry(ctx context.Context, req *http.Request) (*http.Respo
 
 		// Success case
 		if err == nil && resp.StatusCode < 400 {
+			// Record metrics
+			duration := time.Since(startTime).Seconds()
+			metrics.APIRequestDuration.WithLabelValues(req.Method, endpoint).Observe(duration)
+			metrics.APIRequestsTotal.WithLabelValues(req.Method, endpoint, strconv.Itoa(resp.StatusCode)).Inc()
 			return resp, nil
 		}
 
@@ -204,12 +217,24 @@ func (c Client) doWithRetry(ctx context.Context, req *http.Request) (*http.Respo
 
 			// Don't retry if not retryable.
 			if !shouldRetry {
+				// Record metrics
+				duration := time.Since(startTime).Seconds()
+				metrics.APIRequestDuration.WithLabelValues(req.Method, endpoint).Observe(duration)
+				metrics.APIRequestsTotal.WithLabelValues(req.Method, endpoint, strconv.Itoa(resp.StatusCode)).Inc()
 				return nil, lastErr
 			}
 			// Retryable, but attempts are exhausted.
 			if attempt >= maxRetries {
+				// Record metrics
+				duration := time.Since(startTime).Seconds()
+				metrics.APIRequestDuration.WithLabelValues(req.Method, endpoint).Observe(duration)
+				metrics.APIRequestsTotal.WithLabelValues(req.Method, endpoint, strconv.Itoa(resp.StatusCode)).Inc()
 				return nil, fmt.Errorf("%w: %v", ErrMaxRetriesExceeded, lastErr)
 			}
+
+			// Record retry metric
+			reason := "status_" + strconv.Itoa(resp.StatusCode)
+			metrics.APIRetriesTotal.WithLabelValues(endpoint, reason).Inc()
 
 			// Calculate backoff delay
 			var delay time.Duration
@@ -248,12 +273,29 @@ func (c Client) doWithRetry(ctx context.Context, req *http.Request) (*http.Respo
 
 			// Don't retry if not retryable.
 			if !shouldRetry {
+				// Record metrics
+				duration := time.Since(startTime).Seconds()
+				metrics.APIRequestDuration.WithLabelValues(req.Method, endpoint).Observe(duration)
+				metrics.APIRequestsTotal.WithLabelValues(req.Method, endpoint, "error").Inc()
 				return nil, lastErr
 			}
 			// Retryable, but attempts are exhausted.
 			if attempt >= maxRetries {
+				// Record metrics
+				duration := time.Since(startTime).Seconds()
+				metrics.APIRequestDuration.WithLabelValues(req.Method, endpoint).Observe(duration)
+				metrics.APIRequestsTotal.WithLabelValues(req.Method, endpoint, "error").Inc()
 				return nil, fmt.Errorf("%w: %v", ErrMaxRetriesExceeded, lastErr)
 			}
+
+			// Record retry metric
+			reason := "network_error"
+			if isRetryableError(err) {
+				if strings.Contains(err.Error(), "timeout") {
+					reason = "timeout"
+				}
+			}
+			metrics.APIRetriesTotal.WithLabelValues(endpoint, reason).Inc()
 
 			// Calculate backoff delay
 			delay := calculateBackoff(attempt, baseDelay, maxDelay, jitterFraction)

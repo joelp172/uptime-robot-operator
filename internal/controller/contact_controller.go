@@ -19,7 +19,9 @@ package controller
 import (
 	"context"
 	"errors"
+	"time"
 
+	"github.com/joelp172/uptime-robot-operator/internal/metrics"
 	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
@@ -52,6 +54,12 @@ type ContactReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.20.2/pkg/reconcile
 func (r *ContactReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	startTime := time.Now()
+	defer func() {
+		duration := time.Since(startTime).Seconds()
+		metrics.ReconciliationDuration.WithLabelValues("contact").Observe(duration)
+	}()
+
 	_ = log.FromContext(ctx)
 
 	contact := &uptimerobotv1.Contact{}
@@ -62,6 +70,7 @@ func (r *ContactReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	account := &uptimerobotv1.Account{}
 	if err := GetAccount(ctx, r.Client, account, contact.Spec.Account.Name); err != nil {
+		metrics.ReconciliationErrorsTotal.WithLabelValues("contact", "account_not_found").Inc()
 		contact.Status.Ready = false
 		msg := "Failed to get account: " + err.Error()
 		// Don't set Synced here since we haven't attempted sync with UptimeRobot yet
@@ -78,6 +87,7 @@ func (r *ContactReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	apiKey, err := GetApiKey(ctx, r.Client, account)
 	if err != nil {
+		metrics.ReconciliationErrorsTotal.WithLabelValues("contact", "secret_not_found").Inc()
 		contact.Status.Ready = false
 		msg := "Failed to get API key: " + err.Error()
 		// Don't set Synced here since we haven't attempted sync with UptimeRobot yet
@@ -105,6 +115,7 @@ func (r *ContactReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			var err error
 			id, err = urclient.FindContactID(ctx, contact.Spec.Contact.Name)
 			if err != nil {
+				metrics.ReconciliationErrorsTotal.WithLabelValues("contact", "api_error").Inc()
 				contact.Status.Ready = false
 				msg := "Failed to find contact: " + err.Error()
 				SetReadyCondition(&contact.Status.Conditions, false, ReasonAPIError, msg, contact.Generation)
@@ -120,6 +131,7 @@ func (r *ContactReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			}
 			validated = true
 		} else {
+			metrics.ReconciliationErrorsTotal.WithLabelValues("contact", "unknown").Inc()
 			err := errors.New("contact must specify either id or name")
 			contact.Status.Ready = false
 			// Don't set Synced here since this is a validation error before sync attempt

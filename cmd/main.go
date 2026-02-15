@@ -41,6 +41,7 @@ import (
 
 	uptimerobotv1 "github.com/joelp172/uptime-robot-operator/api/v1alpha1"
 	"github.com/joelp172/uptime-robot-operator/internal/controller"
+	"github.com/joelp172/uptime-robot-operator/internal/metrics"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -118,6 +119,10 @@ func main() {
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+
+	// Register custom Prometheus metrics
+	metrics.RegisterMetrics()
+	setupLog.Info("registered custom Prometheus metrics")
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will

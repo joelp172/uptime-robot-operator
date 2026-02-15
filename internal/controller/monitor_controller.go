@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/joelp172/uptime-robot-operator/internal/metrics"
 	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot"
 	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot/urtypes"
 	corev1 "k8s.io/api/core/v1"
@@ -81,6 +82,12 @@ func monitorStateLabel(status uint8) string {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.20.2/pkg/reconcile
 func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	startTime := time.Now()
+	defer func() {
+		duration := time.Since(startTime).Seconds()
+		metrics.ReconciliationDuration.WithLabelValues("monitor").Observe(duration)
+	}()
+
 	_ = log.FromContext(ctx)
 	verifyPausedSoon := false
 
@@ -92,6 +99,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	account := &uptimerobotv1.Account{}
 	if err := GetAccount(ctx, r.Client, account, monitor.Spec.Account.Name); err != nil {
+		metrics.ReconciliationErrorsTotal.WithLabelValues("monitor", "account_not_found").Inc()
 		monitor.Status.Ready = false
 		msg := fmt.Sprintf("Failed to get account: %v", err)
 		// Don't set Synced here since we haven't attempted sync with UptimeRobot yet.
@@ -108,6 +116,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	apiKey, err := GetApiKey(ctx, r.Client, account)
 	if err != nil {
+		metrics.ReconciliationErrorsTotal.WithLabelValues("monitor", "secret_not_found").Inc()
 		monitor.Status.Ready = false
 		msg := fmt.Sprintf("Failed to get API key: %v", err)
 		// Don't set Synced here since we haven't attempted sync with UptimeRobot yet.
