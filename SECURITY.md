@@ -39,20 +39,21 @@ The Uptime Robot Operator uses [distroless](https://github.com/GoogleContainerTo
 
 **Prerequisites:** [Cosign](https://docs.sigstore.dev/cosign/installation) installed.
 
-To verify a signed image:
+To verify a signed release image:
 
 ```bash
 cosign verify \
-  --certificate-identity="https://github.com/joelp172/uptime-robot-operator/.github/workflows/build.yml@refs/heads/main" \
+  --certificate-identity="https://github.com/joelp172/uptime-robot-operator/.github/workflows/release.yml@refs/heads/main" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
-  ghcr.io/joelp172/uptime-robot-operator:latest
+  ghcr.io/joelp172/uptime-robot-operator:v1.0.0
 ```
 
-For a specific release version, use the release workflow identity:
+Release signatures are produced by `.github/workflows/release.yml`, which runs on `main`.  
+The expected Fulcio certificate identity therefore uses `@refs/heads/main` (not `@refs/tags/...`).
 
 ```bash
 cosign verify \
-  --certificate-identity="https://github.com/joelp172/uptime-robot-operator/.github/workflows/release.yml@refs/tags/v1.0.0" \
+  --certificate-identity="https://github.com/joelp172/uptime-robot-operator/.github/workflows/release.yml@refs/heads/main" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
   ghcr.io/joelp172/uptime-robot-operator:v1.0.0
 ```
@@ -60,7 +61,7 @@ cosign verify \
 Successful verification outputs:
 
 ```
-Verification for ghcr.io/joelp172/uptime-robot-operator:latest --
+Verification for ghcr.io/joelp172/uptime-robot-operator:v1.0.0 --
 The following checks were performed on each of these signatures:
   - The cosign claims were validated
   - Existence of the claims in the transparency log was verified offline
@@ -83,17 +84,17 @@ SBOMs are attested to the images. Verify them with:
 ```bash
 # Verify SPDX SBOM attestation
 cosign verify-attestation \
-  --type spdx \
-  --certificate-identity="https://github.com/joelp172/uptime-robot-operator/.github/workflows/build.yml@refs/heads/main" \
+  --type spdxjson \
+  --certificate-identity="https://github.com/joelp172/uptime-robot-operator/.github/workflows/release.yml@refs/heads/main" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
-  ghcr.io/joelp172/uptime-robot-operator:latest | jq -r .payload | base64 -d | jq .
+  ghcr.io/joelp172/uptime-robot-operator:v1.0.0 | jq -r .payload | base64 -d | jq .
 
 # Verify CycloneDX SBOM attestation
 cosign verify-attestation \
   --type cyclonedx \
-  --certificate-identity="https://github.com/joelp172/uptime-robot-operator/.github/workflows/build.yml@refs/heads/main" \
+  --certificate-identity="https://github.com/joelp172/uptime-robot-operator/.github/workflows/release.yml@refs/heads/main" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
-  ghcr.io/joelp172/uptime-robot-operator:latest | jq -r .payload | base64 -d | jq .
+  ghcr.io/joelp172/uptime-robot-operator:v1.0.0 | jq -r .payload | base64 -d | jq .
 ```
 
 ### Scan SBOMs for vulnerabilities
@@ -146,7 +147,7 @@ IMAGE="ghcr.io/joelp172/uptime-robot-operator:v1.0.0"
 
 # Use release workflow identity for versioned images
 cosign verify \
-  --certificate-identity="https://github.com/joelp172/uptime-robot-operator/.github/workflows/release.yml@refs/tags/v1.0.0" \
+  --certificate-identity="https://github.com/joelp172/uptime-robot-operator/.github/workflows/release.yml@refs/heads/main" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
   "${IMAGE}"
 
