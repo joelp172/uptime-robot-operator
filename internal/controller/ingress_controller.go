@@ -46,6 +46,8 @@ import (
 
 var IngressAnnotationPrefix = "uptimerobot.com/"
 
+const ingressSourceKind = "Ingress"
+
 // IngressReconciler reconciles a Ingress object
 type IngressReconciler struct {
 	client.Client
@@ -138,7 +140,7 @@ func (r *IngressReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					Status: 1,
 				},
 				SourceRef: &corev1.TypedLocalObjectReference{
-					Kind: ingress.Kind,
+					Kind: ingressSourceKind,
 					Name: ingress.Name,
 				},
 			},
@@ -204,7 +206,7 @@ func monitorToIngressRequests(obj client.Object) []reconcile.Request {
 	if !ok || monitor.Spec.SourceRef == nil {
 		return nil
 	}
-	if monitor.Spec.SourceRef.Kind != "Ingress" || monitor.Spec.SourceRef.Name == "" {
+	if monitor.Spec.SourceRef.Kind != ingressSourceKind || monitor.Spec.SourceRef.Name == "" {
 		return nil
 	}
 	return []reconcile.Request{{
@@ -217,16 +219,40 @@ func monitorToIngressRequests(obj client.Object) []reconcile.Request {
 
 func isIngressSourcedMonitor(obj client.Object) bool {
 	monitor, ok := obj.(*uptimerobotv1.Monitor)
-	return ok && monitor.Spec.SourceRef != nil && monitor.Spec.SourceRef.Kind == "Ingress"
+	return ok && monitor.Spec.SourceRef != nil && monitor.Spec.SourceRef.Kind == ingressSourceKind
 }
 
 func (r *IngressReconciler) findMonitors(ctx context.Context, ingress *networkingv1.Ingress) (*uptimerobotv1.MonitorList, error) {
 	list := &uptimerobotv1.MonitorList{}
 	err := r.List(ctx, list, &client.ListOptions{
-		FieldSelector: fields.OneTermEqualSelector("spec.sourceRef", ingress.Kind+"/"+ingress.Name),
+		Namespace:     ingress.Namespace,
+		FieldSelector: fields.OneTermEqualSelector("spec.sourceRef", ingressSourceKind+"/"+ingress.Name),
 	})
 	if err != nil {
 		return list, err
+	}
+
+	// Backwards compatibility for monitors created before sourceRef.kind was normalized.
+	legacy := &uptimerobotv1.MonitorList{}
+	err = r.List(ctx, legacy, &client.ListOptions{
+		Namespace:     ingress.Namespace,
+		FieldSelector: fields.OneTermEqualSelector("spec.sourceRef", "/"+ingress.Name),
+	})
+	if err != nil {
+		return list, err
+	}
+	if len(legacy.Items) == 0 {
+		return list, nil
+	}
+	existing := make(map[string]struct{}, len(list.Items))
+	for _, m := range list.Items {
+		existing[m.Name] = struct{}{}
+	}
+	for _, m := range legacy.Items {
+		if _, ok := existing[m.Name]; ok {
+			continue
+		}
+		list.Items = append(list.Items, m)
 	}
 	return list, nil
 }
