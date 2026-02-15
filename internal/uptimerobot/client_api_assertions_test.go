@@ -132,6 +132,9 @@ func TestBuildAPIAssertionsConfig(t *testing.T) {
 		if result.Checks[2].Comparison != "less_than" {
 			t.Errorf("expected comparison less_than, got %s", result.Checks[2].Comparison)
 		}
+		if target, ok := result.Checks[2].Target.(int); !ok || target != 1000 {
+			t.Errorf("expected numeric target 1000, got %#v", result.Checks[2].Target)
+		}
 	})
 
 	t.Run("handles all assertion operators", func(t *testing.T) {
@@ -200,6 +203,9 @@ func TestBuildCreateMonitorRequest_APIAssertions(t *testing.T) {
 
 		req := client.buildCreateMonitorRequest(monitor, nil)
 
+		if req.Type != "API" {
+			t.Fatalf("expected monitor type API when apiAssertions are configured, got %s", req.Type)
+		}
 		if req.Config == nil {
 			t.Fatal("expected Config to be non-nil")
 		}

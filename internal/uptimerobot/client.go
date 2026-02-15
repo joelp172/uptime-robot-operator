@@ -212,7 +212,7 @@ func (c Client) buildCreateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 	req := CreateMonitorRequest{
 		FriendlyName: monitor.Name,
 		URL:          monitor.URL,
-		Type:         monitor.Type.ToAPIString(),
+		Type:         monitorTypeForRequest(monitor),
 		Interval:     int(monitor.Interval.Seconds()),
 		Timeout:      int(monitor.Timeout.Seconds()),
 		GracePeriod:  gracePeriod,
@@ -892,10 +892,9 @@ func buildAPIAssertionsConfig(assertions *uptimerobotv1.MonitorAPIAssertions) *A
 			Comparison: check.Operator.ToAPIString(),
 		}
 
-		// Only set target if value is provided
-		// is_null and is_not_null operators don't need a target value
+		// is_null and is_not_null operators don't need a target value.
 		if check.Value != "" {
-			apiCheck.Target = check.Value
+			apiCheck.Target = parseAPIAssertionTarget(check.Operator, check.Value)
 		}
 
 		checks = append(checks, apiCheck)
@@ -905,6 +904,38 @@ func buildAPIAssertionsConfig(assertions *uptimerobotv1.MonitorAPIAssertions) *A
 		Logic:  assertions.Logic.ToAPIString(),
 		Checks: checks,
 	}
+}
+
+// monitorTypeForRequest forces API monitor type when API assertions are configured.
+// UptimeRobot v3 expects config.apiAssertions under type=API.
+func monitorTypeForRequest(monitor uptimerobotv1.MonitorValues) string {
+	if monitor.APIAssertions != nil && len(monitor.APIAssertions.Checks) > 0 {
+		return "API"
+	}
+	return monitor.Type.ToAPIString()
+}
+
+func parseAPIAssertionTarget(operator urtypes.AssertionOperator, value string) interface{} {
+	switch operator {
+	case urtypes.AssertionGreaterThan, urtypes.AssertionLessThan:
+		if i, err := strconv.Atoi(value); err == nil {
+			return i
+		}
+		if f, err := strconv.ParseFloat(value, 64); err == nil {
+			return f
+		}
+	}
+
+	if b, err := strconv.ParseBool(value); err == nil {
+		return b
+	}
+	if i, err := strconv.Atoi(value); err == nil {
+		return i
+	}
+	if f, err := strconv.ParseFloat(value, 64); err == nil {
+		return f
+	}
+	return value
 }
 
 // CreateSlackIntegration creates a Slack integration using the v3 API.
