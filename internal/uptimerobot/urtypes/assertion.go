@@ -1,5 +1,19 @@
 package urtypes
 
+// API string constants for assertion operators.
+const (
+	APIAssertionEquals      = "equals"
+	APIAssertionNotEquals   = "not_equals"
+	APIAssertionContains    = "contains"
+	APIAssertionNotContains = "not_contains"
+	APIAssertionGreaterThan = "greater_than"
+	APIAssertionLessThan    = "less_than"
+	APIAssertionIsNull      = "is_null"
+	APIAssertionIsNotNull   = "is_not_null"
+	APIAssertionLogicAND    = "AND"
+	APIAssertionLogicOR     = "OR"
+)
+
 //go:generate go run github.com/dmarkham/enumer -type AssertionOperator -trimprefix Assertion -json -text
 
 //+kubebuilder:validation:Type:=string
@@ -22,44 +36,44 @@ const (
 func (a AssertionOperator) ToAPIString() string {
 	switch a {
 	case AssertionEquals:
-		return "equals"
+		return APIAssertionEquals
 	case AssertionNotEquals:
-		return "not_equals"
+		return APIAssertionNotEquals
 	case AssertionContains:
-		return "contains"
+		return APIAssertionContains
 	case AssertionNotContains:
-		return "not_contains"
+		return APIAssertionNotContains
 	case AssertionGreaterThan:
-		return "greater_than"
+		return APIAssertionGreaterThan
 	case AssertionLessThan:
-		return "less_than"
+		return APIAssertionLessThan
 	case AssertionIsNull:
-		return "is_null"
+		return APIAssertionIsNull
 	case AssertionIsNotNull:
-		return "is_not_null"
+		return APIAssertionIsNotNull
 	default:
-		return "equals"
+		return APIAssertionEquals
 	}
 }
 
 // AssertionOperatorFromAPIString converts a v3 API string to AssertionOperator.
 func AssertionOperatorFromAPIString(s string) AssertionOperator {
 	switch s {
-	case "equals":
+	case APIAssertionEquals:
 		return AssertionEquals
-	case "not_equals":
+	case APIAssertionNotEquals:
 		return AssertionNotEquals
-	case "contains":
+	case APIAssertionContains:
 		return AssertionContains
-	case "not_contains":
+	case APIAssertionNotContains:
 		return AssertionNotContains
-	case "greater_than":
+	case APIAssertionGreaterThan:
 		return AssertionGreaterThan
-	case "less_than":
+	case APIAssertionLessThan:
 		return AssertionLessThan
-	case "is_null":
+	case APIAssertionIsNull:
 		return AssertionIsNull
-	case "is_not_null":
+	case APIAssertionIsNotNull:
 		return AssertionIsNotNull
 	default:
 		return AssertionEquals
@@ -82,20 +96,20 @@ const (
 func (a AssertionLogic) ToAPIString() string {
 	switch a {
 	case LogicAND:
-		return "AND"
+		return APIAssertionLogicAND
 	case LogicOR:
-		return "OR"
+		return APIAssertionLogicOR
 	default:
-		return "AND"
+		return APIAssertionLogicAND
 	}
 }
 
 // AssertionLogicFromAPIString converts a v3 API string to AssertionLogic.
 func AssertionLogicFromAPIString(s string) AssertionLogic {
 	switch s {
-	case "AND":
+	case APIAssertionLogicAND:
 		return LogicAND
-	case "OR":
+	case APIAssertionLogicOR:
 		return LogicOR
 	default:
 		return LogicAND
