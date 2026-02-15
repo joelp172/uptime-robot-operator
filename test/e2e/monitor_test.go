@@ -371,13 +371,20 @@ spec:
 		baseMonitorName := fmt.Sprintf("e2e-dup-base-%s", testRunID)
 		duplicateMonitorName := fmt.Sprintf("e2e-dup-attempt-%s", testRunID)
 		sharedURL := fmt.Sprintf("https://example.com/?duplicate-test=%s", testRunID)
+		var sharedMonitorID string
 
 		AfterEach(func() {
-			deleteMonitorAndWaitForAPICleanup(duplicateMonitorName)
-			deleteMonitorAndWaitForAPICleanup(baseMonitorName)
+			cmd := exec.Command("kubectl", "delete", "monitor", duplicateMonitorName, "--ignore-not-found=true")
+			_, _ = utils.Run(cmd)
+			cmd = exec.Command("kubectl", "delete", "monitor", baseMonitorName, "--ignore-not-found=true")
+			_, _ = utils.Run(cmd)
+			if sharedMonitorID != "" {
+				WaitForMonitorDeletedFromAPI(os.Getenv("UPTIME_ROBOT_API_KEY"), sharedMonitorID)
+			}
+			sharedMonitorID = ""
 		})
 
-		It("should keep duplicate monitor not-ready with a 409 API error", func() {
+		It("should adopt duplicate monitor and share the existing monitor ID", func() {
 			By("creating the first monitor")
 			applyMonitor(fmt.Sprintf(`
 apiVersion: uptimerobot.com/v1alpha1
@@ -398,6 +405,7 @@ spec:
 
 			baseMonitorID := waitMonitorReadyAndGetID(baseMonitorName)
 			Expect(baseMonitorID).NotTo(BeEmpty())
+			sharedMonitorID = baseMonitorID
 
 			By("creating a second monitor with the same URL but different name")
 			applyMonitor(fmt.Sprintf(`
@@ -414,26 +422,20 @@ spec:
     name: "E2E Duplicate Attempt %s"
     url: %s
     type: HTTPS
-    interval: 5m
+	    interval: 5m
 `, duplicateMonitorName, testRunID, testRunID, sharedURL))
 
-			By("verifying duplicate monitor is not ready and reports duplicate API error")
+			By("verifying duplicate monitor becomes ready and shares the same monitor ID")
 			Eventually(func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "monitor", duplicateMonitorName, "-o", "jsonpath={.status.ready}")
 				ready, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(strings.TrimSpace(ready)).To(Equal("false"))
+				g.Expect(strings.TrimSpace(ready)).To(Equal("true"))
 
-				cmd = exec.Command("kubectl", "get", "monitor", duplicateMonitorName, "-o", "jsonpath={.status.conditions[?(@.type==\"Error\")].reason}")
-				reason, err := utils.Run(cmd)
+				cmd = exec.Command("kubectl", "get", "monitor", duplicateMonitorName, "-o", "jsonpath={.status.id}")
+				duplicateID, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(reason).To(ContainSubstring("APIError"))
-
-				cmd = exec.Command("kubectl", "get", "monitor", duplicateMonitorName, "-o", "jsonpath={.status.conditions[?(@.type==\"Error\")].message}")
-				msg, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(msg).To(ContainSubstring("409"))
-				g.Expect(strings.ToLower(msg)).To(ContainSubstring("duplicate"))
+				g.Expect(strings.TrimSpace(duplicateID)).To(Equal(baseMonitorID))
 			}, 2*time.Minute, 5*time.Second).Should(Succeed())
 		})
 	})
