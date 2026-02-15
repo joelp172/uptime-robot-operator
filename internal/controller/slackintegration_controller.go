@@ -65,8 +65,12 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		if resource.Status.ID == "" {
 			resource.Status.Ready = false
 		}
-		SetReadyCondition(&resource.Status.Conditions, false, ReasonReconcileError, fmt.Sprintf("Failed to get account: %v", err), resource.Generation)
-		SetErrorCondition(&resource.Status.Conditions, true, ReasonReconcileError, fmt.Sprintf("Failed to get account: %v", err), resource.Generation)
+		msg := fmt.Sprintf("Failed to get account: %v", err)
+		SetReadyCondition(&resource.Status.Conditions, false, ReasonReconcileError, msg, resource.Generation)
+		SetErrorCondition(&resource.Status.Conditions, true, ReasonReconcileError, msg, resource.Generation)
+		if r.Recorder != nil {
+			r.Recorder.Event(resource, "Warning", "DependencyNotReady", msg)
+		}
 		if updateErr := r.updateSlackIntegrationStatus(ctx, resource); updateErr != nil {
 			return ctrl.Result{}, updateErr
 		}
@@ -78,8 +82,12 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		if resource.Status.ID == "" {
 			resource.Status.Ready = false
 		}
-		SetReadyCondition(&resource.Status.Conditions, false, ReasonSecretNotFound, fmt.Sprintf("Failed to get API key: %v", err), resource.Generation)
-		SetErrorCondition(&resource.Status.Conditions, true, ReasonSecretNotFound, fmt.Sprintf("Failed to get API key: %v", err), resource.Generation)
+		msg := fmt.Sprintf("Failed to get API key: %v", err)
+		SetReadyCondition(&resource.Status.Conditions, false, ReasonSecretNotFound, msg, resource.Generation)
+		SetErrorCondition(&resource.Status.Conditions, true, ReasonSecretNotFound, msg, resource.Generation)
+		if r.Recorder != nil {
+			r.Recorder.Event(resource, "Warning", "SecretNotFound", msg)
+		}
 		if updateErr := r.updateSlackIntegrationStatus(ctx, resource); updateErr != nil {
 			return ctrl.Result{}, updateErr
 		}
@@ -153,8 +161,12 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	webhookURL, err := r.resolveWebhookURL(ctx, resource)
 	if err != nil {
 		resource.Status.Ready = false
-		SetReadyCondition(&resource.Status.Conditions, false, ReasonReconcileError, fmt.Sprintf("Failed to resolve webhook URL: %v", err), resource.Generation)
-		SetErrorCondition(&resource.Status.Conditions, true, ReasonReconcileError, fmt.Sprintf("Failed to resolve webhook URL: %v", err), resource.Generation)
+		msg := fmt.Sprintf("Failed to resolve webhook URL: %v", err)
+		SetReadyCondition(&resource.Status.Conditions, false, ReasonReconcileError, msg, resource.Generation)
+		SetErrorCondition(&resource.Status.Conditions, true, ReasonReconcileError, msg, resource.Generation)
+		if r.Recorder != nil {
+			r.Recorder.Event(resource, "Warning", "SecretNotFound", msg)
+		}
 		if updateErr := r.updateSlackIntegrationStatus(ctx, resource); updateErr != nil {
 			return ctrl.Result{}, updateErr
 		}
@@ -173,9 +185,13 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	if !resource.Status.Ready || resource.Status.ID == "" {
 		if err := r.recreateSlackIntegration(ctx, urclient, resource, createData, 0); err != nil {
 			resource.Status.Ready = false
-			SetReadyCondition(&resource.Status.Conditions, false, ReasonAPIError, fmt.Sprintf("Failed to create integration: %v", err), resource.Generation)
+			msg := fmt.Sprintf("Failed to create integration: %v", err)
+			SetReadyCondition(&resource.Status.Conditions, false, ReasonAPIError, msg, resource.Generation)
 			SetSyncedCondition(&resource.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to sync with UptimeRobot: %v", err), resource.Generation)
-			SetErrorCondition(&resource.Status.Conditions, true, ReasonAPIError, fmt.Sprintf("Failed to create integration: %v", err), resource.Generation)
+			SetErrorCondition(&resource.Status.Conditions, true, ReasonAPIError, msg, resource.Generation)
+			if r.Recorder != nil {
+				r.Recorder.Event(resource, "Warning", "SyncFailed", msg)
+			}
 			if updateErr := r.updateSlackIntegrationStatus(ctx, resource); updateErr != nil {
 				return ctrl.Result{}, updateErr
 			}
@@ -196,9 +212,13 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 		integrations, err := urclient.ListIntegrations(ctx)
 		if err != nil {
-			SetReadyCondition(&resource.Status.Conditions, false, ReasonAPIError, fmt.Sprintf("Failed to list integrations: %v", err), resource.Generation)
+			msg := fmt.Sprintf("Failed to list integrations: %v", err)
+			SetReadyCondition(&resource.Status.Conditions, false, ReasonAPIError, msg, resource.Generation)
 			SetSyncedCondition(&resource.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to sync with UptimeRobot: %v", err), resource.Generation)
-			SetErrorCondition(&resource.Status.Conditions, true, ReasonAPIError, fmt.Sprintf("Failed to list integrations: %v", err), resource.Generation)
+			SetErrorCondition(&resource.Status.Conditions, true, ReasonAPIError, msg, resource.Generation)
+			if r.Recorder != nil {
+				r.Recorder.Event(resource, "Warning", "SyncFailed", msg)
+			}
 			if updateErr := r.updateSlackIntegrationStatus(ctx, resource); updateErr != nil {
 				return ctrl.Result{}, updateErr
 			}
@@ -216,9 +236,13 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		if existing == nil || !slackIntegrationMatchesDesired(existing, createData) {
 			if err := r.recreateSlackIntegration(ctx, urclient, resource, createData, id); err != nil {
 				resource.Status.Ready = false
-				SetReadyCondition(&resource.Status.Conditions, false, ReasonAPIError, fmt.Sprintf("Failed to recreate integration: %v", err), resource.Generation)
+				msg := fmt.Sprintf("Failed to recreate integration: %v", err)
+				SetReadyCondition(&resource.Status.Conditions, false, ReasonAPIError, msg, resource.Generation)
 				SetSyncedCondition(&resource.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to sync with UptimeRobot: %v", err), resource.Generation)
-				SetErrorCondition(&resource.Status.Conditions, true, ReasonAPIError, fmt.Sprintf("Failed to recreate integration: %v", err), resource.Generation)
+				SetErrorCondition(&resource.Status.Conditions, true, ReasonAPIError, msg, resource.Generation)
+				if r.Recorder != nil {
+					r.Recorder.Event(resource, "Warning", "SyncFailed", msg)
+				}
 				if updateErr := r.updateSlackIntegrationStatus(ctx, resource); updateErr != nil {
 					return ctrl.Result{}, updateErr
 				}
@@ -289,6 +313,7 @@ func (r *SlackIntegrationReconciler) recreateSlackIntegration(
 	createData uptimerobot.SlackIntegrationData,
 	deleteID int,
 ) error {
+	isUpdate := deleteID > 0
 	if deleteID > 0 {
 		if err := urclient.DeleteIntegration(ctx, deleteID); err != nil {
 			return err
@@ -302,6 +327,15 @@ func (r *SlackIntegrationReconciler) recreateSlackIntegration(
 	resource.Status.Ready = true
 	resource.Status.ID = strconv.Itoa(created.ID)
 	resource.Status.Type = "Slack"
+
+	if r.Recorder != nil {
+		if isUpdate {
+			r.Recorder.Event(resource, "Normal", "Updated", fmt.Sprintf("Slack integration updated with ID %s", resource.Status.ID))
+		} else {
+			r.Recorder.Event(resource, "Normal", "Created", fmt.Sprintf("Slack integration created with ID %s", resource.Status.ID))
+		}
+	}
+
 	return r.updateSlackIntegrationStatus(ctx, resource)
 }
 
