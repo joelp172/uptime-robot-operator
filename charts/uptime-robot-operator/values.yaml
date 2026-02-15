@@ -100,6 +100,30 @@ metrics:
   # Service type
   type: ClusterIP
 
+# ServiceMonitor configuration (requires Prometheus Operator)
+serviceMonitor:
+  # Enable ServiceMonitor for Prometheus Operator auto-discovery
+  enabled: false
+  # Scrape interval
+  interval: 30s
+  # Additional labels for ServiceMonitor
+  additionalLabels: {}
+  # Override namespace for ServiceMonitor (defaults to operator namespace)
+  namespaceOverride: ''
+  # TLS configuration for scraping metrics
+  tlsConfig:
+    # Skip TLS certificate verification (set to false for production with proper CA)
+    insecureSkipVerify: true
+
+# PodDisruptionBudget configuration
+podDisruptionBudget:
+  # Enable PodDisruptionBudget for disruption protection
+  enabled: false
+  # Minimum number of available pods (conflicts with maxUnavailable)
+  minAvailable: 1
+  # Maximum number of unavailable pods (conflicts with minAvailable)
+  # maxUnavailable: 1
+
 # Namespace where the operator will be installed
 # If not set, defaults to "uptime-robot-system"
 namespaceOverride: ''
