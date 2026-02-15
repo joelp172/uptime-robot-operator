@@ -185,6 +185,8 @@ var _ = Describe("Ingress Controller", func() {
 			}, time.Second*5, time.Millisecond*250).Should(Succeed())
 
 			Expect(monitor.Spec.Monitor.Name).To(Equal("Test Monitor"))
+			Expect(monitor.Spec.Monitor.Status).To(Equal(uint8(1)))
+			Expect(monitor.Spec.Prune).To(BeTrue())
 			Expect(monitor.Spec.SourceRef).NotTo(BeNil())
 			Expect(monitor.Spec.SourceRef.Kind).To(Equal("Ingress"))
 			Expect(monitor.Spec.SourceRef.Name).To(Equal(namespacedName.Name))

@@ -125,6 +125,14 @@ func (r *IngressReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				Namespace: req.Namespace,
 			},
 			Spec: uptimerobotv1.MonitorSpec{
+				// Ensure ingress-managed monitors are pruned from UptimeRobot on delete
+				// even if CRD defaults are stale/missing in the cluster.
+				Prune: true,
+				Monitor: uptimerobotv1.MonitorValues{
+					// Default ingress-managed monitors to running even if CRD defaults
+					// are stale/missing in the cluster.
+					Status: 1,
+				},
 				SourceRef: &corev1.TypedLocalObjectReference{
 					Kind: ingress.Kind,
 					Name: ingress.Name,
