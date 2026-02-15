@@ -623,10 +623,12 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
-	// Success - reset retry count
-	ResetRetryCount(monitor.Annotations)
-	if err := r.Update(ctx, monitor); err != nil {
-		return ctrl.Result{}, err
+	// Success - reset retry count if it exists
+	if _, exists := monitor.Annotations[AnnotationRetryCount]; exists {
+		ResetRetryCount(monitor.Annotations)
+		if err := r.Update(ctx, monitor); err != nil {
+			return ctrl.Result{}, err
+		}
 	}
 
 	SetReadyCondition(&monitor.Status.Conditions, true, ReasonReconcileSuccess, "Monitor reconciled successfully", monitor.Generation)
@@ -1004,7 +1006,11 @@ func (r *MonitorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 // Returns ctrl.Result and error suitable for returning from Reconcile().
 func (r *MonitorReconciler) handleAPIError(ctx context.Context, monitor *uptimerobotv1.Monitor, err error, errorType string, logMessage string) (ctrl.Result, error) {
 	metrics.ReconciliationErrorsTotal.WithLabelValues("monitor", errorType).Inc()
-	monitor.Status.Ready = false
+	// Only set Ready=false if monitor doesn't exist yet (during creation)
+	// For existing monitors, preserve Ready status since the monitor still exists in UptimeRobot
+	if monitor.Status.ID == "" {
+		monitor.Status.Ready = false
+	}
 	SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, logMessage, monitor.Generation)
 	SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, logMessage, monitor.Generation)
 	SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, logMessage, monitor.Generation)
