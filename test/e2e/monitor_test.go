@@ -422,7 +422,7 @@ spec:
     name: "E2E Duplicate Attempt %s"
     url: %s
     type: HTTPS
-	    interval: 5m
+    interval: 5m
 `, duplicateMonitorName, testRunID, testRunID, sharedURL))
 
 			By("verifying duplicate monitor becomes ready and shares the same monitor ID")
