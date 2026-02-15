@@ -44,7 +44,7 @@ type ContactReconciler struct {
 //+kubebuilder:rbac:groups=uptimerobot.com,resources=contacts,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=uptimerobot.com,resources=contacts/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=uptimerobot.com,resources=contacts/finalizers,verbs=update
-//+kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
+//+kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.

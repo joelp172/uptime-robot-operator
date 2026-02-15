@@ -48,7 +48,7 @@ type SlackIntegrationReconciler struct {
 //+kubebuilder:rbac:groups=uptimerobot.com,resources=slackintegrations/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=uptimerobot.com,resources=slackintegrations/finalizers,verbs=update
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
-//+kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
+//+kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
 // Reconcile reconciles SlackIntegration resources to UptimeRobot integrations.
 func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -165,7 +165,7 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		SetReadyCondition(&resource.Status.Conditions, false, ReasonReconcileError, msg, resource.Generation)
 		SetErrorCondition(&resource.Status.Conditions, true, ReasonReconcileError, msg, resource.Generation)
 		if r.Recorder != nil {
-			r.Recorder.Event(resource, "Warning", "SecretNotFound", msg)
+			r.Recorder.Event(resource, "Warning", "DependencyNotReady", msg)
 		}
 		if updateErr := r.updateSlackIntegrationStatus(ctx, resource); updateErr != nil {
 			return ctrl.Result{}, updateErr
@@ -202,8 +202,12 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		id, convErr := strconv.Atoi(resource.Status.ID)
 		if convErr != nil {
 			resource.Status.Ready = false
-			SetReadyCondition(&resource.Status.Conditions, false, ReasonReconcileError, fmt.Sprintf("Invalid status.id %q: %v", resource.Status.ID, convErr), resource.Generation)
-			SetErrorCondition(&resource.Status.Conditions, true, ReasonReconcileError, fmt.Sprintf("Invalid status.id %q: %v", resource.Status.ID, convErr), resource.Generation)
+			msg := fmt.Sprintf("Invalid status.id %q: %v", resource.Status.ID, convErr)
+			SetReadyCondition(&resource.Status.Conditions, false, ReasonReconcileError, msg, resource.Generation)
+			SetErrorCondition(&resource.Status.Conditions, true, ReasonReconcileError, msg, resource.Generation)
+			if r.Recorder != nil {
+				r.Recorder.Event(resource, "Warning", "ReconcileError", msg)
+			}
 			if updateErr := r.updateSlackIntegrationStatus(ctx, resource); updateErr != nil {
 				return ctrl.Result{}, updateErr
 			}
