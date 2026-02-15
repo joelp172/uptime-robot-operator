@@ -110,6 +110,10 @@ serviceMonitor:
   additionalLabels: {}
   # Override namespace for ServiceMonitor (defaults to operator namespace)
   namespaceOverride: ''
+  # TLS configuration for scraping metrics
+  tlsConfig:
+    # Skip TLS certificate verification (set to false for production with proper CA)
+    insecureSkipVerify: true
 
 # PodDisruptionBudget configuration
 podDisruptionBudget:

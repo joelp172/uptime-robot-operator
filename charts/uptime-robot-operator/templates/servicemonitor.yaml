@@ -18,8 +18,12 @@ spec:
       - {{ include "uptime-robot-operator.namespace" . }}
   endpoints:
     - port: https
-      interval: {{ .Values.serviceMonitor.interval | default "30s" }}
+      interval: {{ .Values.serviceMonitor.interval }}
       scheme: https
       tlsConfig:
+        {{- if hasKey .Values.serviceMonitor.tlsConfig "insecureSkipVerify" }}
+        insecureSkipVerify: {{ .Values.serviceMonitor.tlsConfig.insecureSkipVerify }}
+        {{- else }}
         insecureSkipVerify: true
+        {{- end }}
 {{- end }}

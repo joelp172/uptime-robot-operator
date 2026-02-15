@@ -129,6 +129,7 @@ resources:
 | `serviceMonitor.interval`              | Scrape interval                                       | `30s`      |
 | `serviceMonitor.additionalLabels`      | Additional labels for ServiceMonitor                  | `{}`       |
 | `serviceMonitor.namespaceOverride`     | Override namespace for ServiceMonitor                 | `""`       |
+| `serviceMonitor.tlsConfig.insecureSkipVerify` | Skip TLS certificate verification             | `true`     |
 
 The ServiceMonitor resource enables auto-discovery of metrics by Prometheus Operator. It is disabled by default as it requires the Prometheus Operator to be installed in the cluster.
 
@@ -147,6 +148,8 @@ serviceMonitor:
   interval: 15s
   additionalLabels:
     prometheus: kube-prometheus
+  tlsConfig:
+    insecureSkipVerify: false  # Set to false for production with proper CA certificates
 ```
 
 ### PodDisruptionBudget Parameters
