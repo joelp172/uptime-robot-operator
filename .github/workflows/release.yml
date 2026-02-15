@@ -209,7 +209,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: sbom-v${{ needs.release.outputs.new_release_version }}
-          path: .
+          path: sbom-v${{ needs.release.outputs.new_release_version }}
 
       - name: Prepare SBOM files for semantic-release
         run: |
