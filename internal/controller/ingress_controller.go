@@ -21,9 +21,11 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-viper/mapstructure/v2"
 	uptimerobotv1 "github.com/joelp172/uptime-robot-operator/api/v1alpha1"
+	"github.com/joelp172/uptime-robot-operator/internal/metrics"
 	"github.com/joelp172/uptime-robot-operator/internal/util"
 	"github.com/knadh/koanf/maps"
 	corev1 "k8s.io/api/core/v1"
@@ -66,6 +68,12 @@ type IngressReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.20.2/pkg/reconcile
 func (r *IngressReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	startTime := time.Now()
+	defer func() {
+		duration := time.Since(startTime).Seconds()
+		metrics.ReconciliationDuration.WithLabelValues("ingress").Observe(duration)
+	}()
+
 	_ = log.FromContext(ctx)
 
 	ingress := &networkingv1.Ingress{}
@@ -102,6 +110,7 @@ func (r *IngressReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	var enabled bool
 	if val, ok := annotations["enabled"]; ok {
 		if enabled, err = strconv.ParseBool(val); err != nil {
+			metrics.ReconciliationErrorsTotal.WithLabelValues("ingress", "annotation_parse_error").Inc()
 			return ctrl.Result{}, err
 		}
 	}
@@ -149,6 +158,7 @@ func (r *IngressReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	for _, monitor := range list.Items {
 		if err := r.updateValues(ingress, &monitor, annotations); err != nil {
+			metrics.ReconciliationErrorsTotal.WithLabelValues("ingress", "sync_error").Inc()
 			r.Recorder.Event(ingress, "Warning", "Sync", err.Error())
 			return ctrl.Result{}, err
 		}

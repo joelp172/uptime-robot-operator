@@ -20,7 +20,9 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"time"
 
+	"github.com/joelp172/uptime-robot-operator/internal/metrics"
 	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -53,6 +55,12 @@ type MonitorGroupReconciler struct {
 
 // Reconcile implements the reconciliation loop
 func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	startTime := time.Now()
+	defer func() {
+		duration := time.Since(startTime).Seconds()
+		metrics.ReconciliationDuration.WithLabelValues("monitorgroup").Observe(duration)
+	}()
+
 	logger := log.FromContext(ctx)
 
 	// Step 1: Retrieve the resource from cluster
@@ -128,6 +136,7 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// Step 3: Locate credential vault
 	credentialVault := &uptimerobotv1.Account{}
 	if vaultErr := GetAccount(ctx, r.Client, credentialVault, groupResource.Spec.Account.Name); vaultErr != nil {
+		metrics.ReconciliationErrorsTotal.WithLabelValues("monitorgroup", "account_not_found").Inc()
 		if groupResource.Status.ID == "" {
 			groupResource.Status.Ready = false
 		}
@@ -146,6 +155,7 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// Step 4: Extract API token from secret
 	apiToken, tokenErr := GetApiKey(ctx, r.Client, credentialVault)
 	if tokenErr != nil {
+		metrics.ReconciliationErrorsTotal.WithLabelValues("monitorgroup", "secret_not_found").Inc()
 		if groupResource.Status.ID == "" {
 			groupResource.Status.Ready = false
 		}
@@ -213,6 +223,7 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 		backendResponse, creationErr := backendClient.SpawnGroupInBackend(ctx, creationPayload)
 		if creationErr != nil {
+			metrics.ReconciliationErrorsTotal.WithLabelValues("monitorgroup", "api_error").Inc()
 			groupResource.Status.Ready = false
 			msg := fmt.Sprintf("Group creation failed: %v", creationErr)
 			SetReadyCondition(&groupResource.Status.Conditions, false, ReasonAPIError, msg, groupResource.Generation)
@@ -265,6 +276,7 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 				backendResponse, recreationErr := backendClient.SpawnGroupInBackend(ctx, creationPayload)
 				if recreationErr != nil {
+					metrics.ReconciliationErrorsTotal.WithLabelValues("monitorgroup", "api_error").Inc()
 					groupResource.Status.Ready = false
 					msg := fmt.Sprintf("Group recreation failed: %v", recreationErr)
 					SetReadyCondition(&groupResource.Status.Conditions, false, ReasonAPIError, msg, groupResource.Generation)
@@ -297,6 +309,7 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 				return ctrl.Result{RequeueAfter: groupResource.Spec.SyncInterval.Duration}, nil
 			}
+			metrics.ReconciliationErrorsTotal.WithLabelValues("monitorgroup", "api_error").Inc()
 			msg := fmt.Sprintf("Group update failed: %v", updateErr)
 			SetReadyCondition(&groupResource.Status.Conditions, false, ReasonAPIError, msg, groupResource.Generation)
 			SetSyncedCondition(&groupResource.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to update group in UptimeRobot: %v", updateErr), groupResource.Generation)

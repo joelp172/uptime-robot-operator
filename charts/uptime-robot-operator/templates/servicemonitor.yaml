@@ -17,9 +17,7 @@ spec:
     matchNames:
       - {{ include "uptime-robot-operator.namespace" . }}
   endpoints:
-    - port: https
+    - port: metrics
       interval: {{ .Values.serviceMonitor.interval }}
-      scheme: https
-      tlsConfig:
-        insecureSkipVerify: {{ .Values.serviceMonitor.tlsConfig.insecureSkipVerify }}
+      scheme: http
 {{- end }}
