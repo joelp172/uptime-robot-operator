@@ -1,0 +1,25 @@
+{{- if .Values.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "uptime-robot-operator.fullname" . }}
+  namespace: {{ .Values.serviceMonitor.namespaceOverride | default (include "uptime-robot-operator.namespace" .) }}
+  labels:
+    {{- include "uptime-robot-operator.labels" . | nindent 4 }}
+    {{- with .Values.serviceMonitor.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "uptime-robot-operator.selectorLabels" . | nindent 6 }}
+  namespaceSelector:
+    matchNames:
+      - {{ include "uptime-robot-operator.namespace" . }}
+  endpoints:
+    - port: https
+      interval: {{ .Values.serviceMonitor.interval | default "30s" }}
+      scheme: https
+      tlsConfig:
+        insecureSkipVerify: true
+{{- end }}
