@@ -130,6 +130,27 @@ test-e2e-all: manifests generate fmt vet ## Run all e2e tests including real API
 	@echo "Using Kind cluster: $(KIND_CLUSTER). Ensure kubectl context is set: kubectl config use-context kind-$(KIND_CLUSTER)"
 	KIND_CLUSTER=$(KIND_CLUSTER) go test ./test/e2e/ -v -ginkgo.v -timeout 20m
 
+.PHONY: test-e2e-verbose
+test-e2e-verbose: manifests generate fmt vet ## Run full e2e suite with verbose Ginkgo node-event tracing.
+	@command -v kind >/dev/null 2>&1 || { \
+		echo "Kind is not installed. Please install Kind manually."; \
+		exit 1; \
+	}
+	@kind get clusters | grep -q '$(KIND_CLUSTER)' || { \
+		echo "No Kind cluster \"$(KIND_CLUSTER)\" is running. Start one with: kind create cluster"; \
+		echo "  or use a named cluster: KIND_CLUSTER=e2e-test make test-e2e-verbose"; \
+		exit 1; \
+	}
+	@echo "Ensuring cert-manager $(CERT_MANAGER_VERSION) is installed"
+	@$(MAKE) cert-manager-install
+	@echo "Using Kind cluster: $(KIND_CLUSTER). Ensure kubectl context is set: kubectl config use-context kind-$(KIND_CLUSTER)"
+	@[ -n "$$UPTIME_ROBOT_API_KEY" ] || { \
+		echo "UPTIME_ROBOT_API_KEY is not set. Please set it to run verbose full e2e tests."; \
+		exit 1; \
+	}
+	KIND_CLUSTER=$(KIND_CLUSTER) go test ./test/e2e -run TestE2E -count=1 -v -timeout=20m -args \
+		-ginkgo.v -ginkgo.show-node-events -ginkgo.trace
+
 .PHONY: dev-cluster
 dev-cluster: ## Create a local Kind cluster for development.
 	./hack/setup-dev-cluster.sh

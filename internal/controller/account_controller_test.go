@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -78,9 +79,11 @@ var _ = Describe("Account Controller", func() {
 		})
 
 		It("should set failure conditions when api key secret is missing", func() {
+			recorder := record.NewFakeRecorder(10)
 			controllerReconciler := &AccountReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
+				Client:   k8sClient,
+				Scheme:   k8sClient.Scheme(),
+				Recorder: recorder,
 			}
 
 			Expect(k8sClient.Delete(ctx, secret)).To(Succeed())
@@ -105,6 +108,9 @@ var _ = Describe("Account Controller", func() {
 			Expect(errCond.Reason).To(Equal(ReasonSecretNotFound))
 
 			Expect(findCondition(account.Status.Conditions, TypeSynced)).To(BeNil())
+
+			// Verify that a Warning event was recorded for the failure
+			Eventually(recorder.Events).Should(Receive(ContainSubstring("SecretNotFound")))
 		})
 
 		It("should recover when the missing api key secret is created later", func() {

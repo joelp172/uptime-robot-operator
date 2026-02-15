@@ -25,6 +25,7 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -85,9 +86,11 @@ var _ = Describe("Contact Controller", func() {
 		})
 
 		It("should set failure conditions when account secret is missing", func() {
+			recorder := record.NewFakeRecorder(10)
 			controllerReconciler := &ContactReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
+				Client:   k8sClient,
+				Scheme:   k8sClient.Scheme(),
+				Recorder: recorder,
 			}
 			Expect(k8sClient.Delete(ctx, secret)).To(Succeed())
 
@@ -111,6 +114,9 @@ var _ = Describe("Contact Controller", func() {
 			Expect(errCond.Reason).To(Equal(ReasonSecretNotFound))
 
 			Expect(findCondition(contact.Status.Conditions, TypeSynced)).To(BeNil())
+
+			// Verify that a Warning event was recorded for the failure
+			Eventually(recorder.Events).Should(Receive(ContainSubstring("SecretNotFound")))
 		})
 
 		It("should set ready false and restore success conditions after transient secret failure", func() {
@@ -178,6 +184,34 @@ var _ = Describe("Contact Controller", func() {
 			errCond = findCondition(contact.Status.Conditions, TypeError)
 			Expect(errCond).NotTo(BeNil())
 			Expect(errCond.Status).To(Equal(metav1.ConditionFalse))
+		})
+
+		It("should record DependencyNotReady event when account is missing", func() {
+			recorder := record.NewFakeRecorder(10)
+			controllerReconciler := &ContactReconciler{
+				Client:   k8sClient,
+				Scheme:   k8sClient.Scheme(),
+				Recorder: recorder,
+			}
+
+			// Delete the account to simulate missing dependency
+			Expect(k8sClient.Delete(ctx, account)).To(Succeed())
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).To(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, namespacedName, contact)).To(Succeed())
+			Expect(contact.Status.Ready).To(BeFalse())
+
+			ready := findCondition(contact.Status.Conditions, TypeReady)
+			Expect(ready).NotTo(BeNil())
+			Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+			Expect(ready.Reason).To(Equal(ReasonReconcileError))
+
+			// Verify that a Warning event was recorded for the dependency failure
+			Eventually(recorder.Events).Should(Receive(ContainSubstring("DependencyNotReady")))
 		})
 	})
 })
