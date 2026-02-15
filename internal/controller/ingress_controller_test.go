@@ -111,26 +111,34 @@ var _ = Describe("Ingress Controller", func() {
 		})
 
 		AfterEach(func() {
-			// Stop manager
-			if mgrCancel != nil {
-				mgrCancel()
-			}
-
 			// Skip cleanup if mgrClient not initialized
 			if mgrClient == nil {
+				if mgrCancel != nil {
+					mgrCancel()
+				}
 				return
 			}
 
 			mgrClientLocal := mgrClient
+			cleanupClient := k8sClient
+			if cleanupClient == nil {
+				cleanupClient = mgrClientLocal
+			}
 
 			// Clean up ingress
 			if ingress != nil {
-				err := mgrClientLocal.Get(ctx, namespacedName, ingress)
+				ing := &networkingv1.Ingress{}
+				err := cleanupClient.Get(ctx, namespacedName, ing)
 				if err == nil {
-					Expect(mgrClientLocal.Delete(ctx, ingress)).To(Succeed())
+					// Ensure teardown is deterministic even if a finalizer was left behind.
+					if len(ing.Finalizers) > 0 {
+						ing.Finalizers = nil
+						Expect(cleanupClient.Update(ctx, ing)).To(Succeed())
+					}
+					Expect(cleanupClient.Delete(ctx, ing)).To(Succeed())
 					// Wait for deletion to complete
 					Eventually(func() bool {
-						err := mgrClientLocal.Get(ctx, namespacedName, ingress)
+						err := cleanupClient.Get(ctx, namespacedName, &networkingv1.Ingress{})
 						return errors.IsNotFound(err)
 					}, time.Second*10, time.Millisecond*250).Should(BeTrue())
 				}
@@ -138,11 +146,11 @@ var _ = Describe("Ingress Controller", func() {
 
 			// Clean up any monitors created by the ingress
 			monitorList := &uptimerobotv1.MonitorList{}
-			err := mgrClientLocal.List(ctx, monitorList, client.InNamespace("default"))
+			err := cleanupClient.List(ctx, monitorList, client.InNamespace("default"))
 			if err == nil {
 				for _, monitor := range monitorList.Items {
 					if monitor.Spec.SourceRef != nil && monitor.Spec.SourceRef.Name == namespacedName.Name {
-						Expect(mgrClientLocal.Delete(ctx, &monitor)).To(Succeed())
+						Expect(cleanupClient.Delete(ctx, &monitor)).To(Succeed())
 					}
 				}
 			}
@@ -150,6 +158,11 @@ var _ = Describe("Ingress Controller", func() {
 			// Clean up account
 			if account != nil {
 				CleanupAccount(ctx, account, secret)
+			}
+
+			// Stop manager after cleanup so finalizer-driven deletes can complete.
+			if mgrCancel != nil {
+				mgrCancel()
 			}
 		})
 
