@@ -16,6 +16,7 @@ Manage [UptimeRobot](https://uptimerobot.com/?red=joelpi) monitors as Kubernetes
 - Maintenance window scheduling
 - Alert contact management
 - **Adopt existing monitors** - Migrate monitors created outside Kubernetes without losing history
+- **Prometheus metrics** - API performance, reconciliation duration, error tracking
 
 ## Security
 
@@ -92,6 +93,7 @@ EOF
 | [Getting Started](docs/getting-started.md) | Create your first monitor (tutorial) |
 | [Security](SECURITY.md) | Verify images and deployment best practices |
 | [Monitors](docs/monitors.md) | Configure monitor types and alerts |
+| [Metrics](docs/metrics.md) | Prometheus metrics and Grafana dashboards |
 | [Migration Guide](docs/migration-guide.md) | Adopt existing UptimeRobot resources |
 | [Maintenance Windows](docs/maintenance-windows.md) | Schedule planned downtime |
 | [Architecture](docs/architecture.md) | System architecture and data flows |
@@ -113,6 +115,26 @@ EOF
 ## How It Works
 
 The operator reconciles Monitor resources with UptimeRobot via the API. It detects drift (manual changes in UptimeRobot) and corrects them to match your Kubernetes configuration. When you delete a Monitor resource, the operator removes it from UptimeRobot (configurable via `prune` field).
+
+## Observability
+
+The operator exposes custom Prometheus metrics for monitoring API performance, reconciliation behavior, and resource health:
+
+- **API Metrics**: Request rate, latency percentiles, error rate, retry patterns
+- **Reconciliation Metrics**: Duration, error rate by controller and error type
+- **Resource Metrics**: Monitor counts by type/status, maintenance windows, monitor groups
+
+See [docs/metrics.md](docs/metrics.md) for complete documentation and a sample Grafana dashboard.
+
+```bash
+# Enable metrics endpoint
+kubectl patch deployment -n uptime-robot-system uptime-robot-controller-manager \
+  --type=json -p='[{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--metrics-bind-address=:8080"}]'
+
+# Access metrics
+kubectl port-forward -n uptime-robot-system deployment/uptime-robot-controller-manager 8080:8080
+curl http://localhost:8080/metrics | grep uptimerobot_
+```
 
 ## Contributing
 
