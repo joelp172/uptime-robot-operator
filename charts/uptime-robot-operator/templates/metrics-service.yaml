@@ -12,7 +12,7 @@ spec:
   - name: https
     port: {{ .Values.metrics.port }}
     protocol: TCP
-    targetPort: 8443
+    targetPort: metrics
   selector:
     {{- include "uptime-robot-operator.selectorLabels" . | nindent 4 }}
 {{- end }}
