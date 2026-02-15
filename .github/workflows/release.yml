@@ -214,8 +214,16 @@ jobs:
       - name: Prepare SBOM files for semantic-release
         run: |
           ARTIFACT_DIR="sbom-v${{ needs.release.outputs.new_release_version }}"
-          mv "${ARTIFACT_DIR}/sbom-spdx.json" ./sbom-spdx.json
-          mv "${ARTIFACT_DIR}/sbom-cyclonedx.json" ./sbom-cyclonedx.json
+          if [ ! -f "${ARTIFACT_DIR}/sbom-spdx.json" ]; then
+            echo "Error: ${ARTIFACT_DIR}/sbom-spdx.json not found"
+            exit 1
+          fi
+          if [ ! -f "${ARTIFACT_DIR}/sbom-cyclonedx.json" ]; then
+            echo "Error: ${ARTIFACT_DIR}/sbom-cyclonedx.json not found"
+            exit 1
+          fi
+          mv -v "${ARTIFACT_DIR}/sbom-spdx.json" ./sbom-spdx.json
+          mv -v "${ARTIFACT_DIR}/sbom-cyclonedx.json" ./sbom-cyclonedx.json
 
       - name: Semantic Release (publish)
         id: semantic_publish
