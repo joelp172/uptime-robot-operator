@@ -93,8 +93,11 @@ var _ = Describe("Ingress Controller", func() {
 				_ = mgr.Start(mgrCtx)
 			}()
 
-			// Give manager a moment to start
-			time.Sleep(100 * time.Millisecond)
+			// Wait for manager to be ready
+			Eventually(func() error {
+				// Try a simple operation to verify manager is ready
+				return mgrClient.List(ctx, &uptimerobotv1.MonitorList{})
+			}, time.Second*5, time.Millisecond*100).Should(Succeed())
 
 			// Create event recorder for testing events
 			eventRecorder = record.NewFakeRecorder(10)
@@ -726,7 +729,7 @@ var _ = Describe("Ingress Controller", func() {
 			Expect(monitor.Spec.Monitor.URL).To(Equal("http://first.example.com/api"))
 		})
 
-		It("should record warning event on sync error", func() {
+		It("should record warning event on annotation decode error during sync", func() {
 			By("Creating an Ingress with invalid annotation that will cause decode error")
 			ingress = &networkingv1.Ingress{
 				ObjectMeta: metav1.ObjectMeta{
