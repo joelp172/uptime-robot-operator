@@ -141,6 +141,7 @@ type Monitor struct {
 //+kubebuilder:validation:XValidation:rule="self.type != 'Port' || has(self.port)", message="Port config is required if type is Port"
 //+kubebuilder:validation:XValidation:rule="self.type != 'DNS' || has(self.dns)", message="DNS config is required if type is DNS"
 //+kubebuilder:validation:XValidation:rule="self.type == 'Heartbeat' || (has(self.url) && self.url != '')", message="URL is required for non-Heartbeat monitor types"
+//+kubebuilder:validation:XValidation:rule="!has(self.apiAssertions) || self.type == 'HTTPS'", message="apiAssertions are only supported when type is HTTPS"
 
 type MonitorValues struct {
 	// Name sets the name that is shown in Uptime Robot.
@@ -193,6 +194,10 @@ type MonitorValues struct {
 
 	// Heartbeat provides configuration for the Heartbeat monitor type.
 	Heartbeat *MonitorHeartbeat `json:"heartbeat,omitempty"`
+
+	// APIAssertions provides configuration for API response validation.
+	// Only supported when Type is HTTPS; the operator maps this to UptimeRobot v3 type "API".
+	APIAssertions *MonitorAPIAssertions `json:"apiAssertions,omitempty"`
 
 	// Tags to be assigned to the monitor for organisation.
 	Tags []string `json:"tags,omitempty"`
@@ -329,6 +334,44 @@ type MonitorHeartbeat struct {
 	// If no heartbeat is received within this interval, an alert is triggered.
 	//+kubebuilder:default:="60s"
 	Interval *metav1.Duration `json:"interval,omitempty"`
+}
+
+//+kubebuilder:object:generate=true
+
+// MonitorAPIAssertions provides configuration for API response validation.
+// Validates JSON response content using JSONPath expressions and comparison operators.
+type MonitorAPIAssertions struct {
+	// Logic defines how multiple assertions are combined.
+	// AND requires all assertions to pass, OR requires at least one to pass.
+	//+kubebuilder:default:="AND"
+	Logic urtypes.AssertionLogic `json:"logic,omitempty"`
+
+	// Checks defines the list of assertions to validate against the API response.
+	// Maximum 5 assertions per monitor.
+	//+kubebuilder:validation:MinItems=1
+	//+kubebuilder:validation:MaxItems=5
+	Checks []MonitorAPIAssertion `json:"checks"`
+}
+
+//+kubebuilder:object:generate=true
+//+kubebuilder:validation:XValidation:rule="self.operator == 'is_null' || self.operator == 'is_not_null' || (has(self.value) && self.value != '')", message="value is required unless operator is is_null or is_not_null"
+//+kubebuilder:validation:XValidation:rule="self.operator != 'greater_than' && self.operator != 'less_than' || (has(self.value) && self.value.matches('^[+-]?[0-9]+(\\\\.[0-9]+)?$'))", message="value must be numeric for greater_than and less_than operators"
+
+// MonitorAPIAssertion defines a single assertion check for API response validation.
+type MonitorAPIAssertion struct {
+	// Property is the JSONPath expression to extract the value from the response.
+	// Examples: "$.status", "$.data.items[0].name", "$.metadata.version"
+	//+kubebuilder:validation:MinLength=1
+	Property string `json:"property"`
+
+	// Operator defines the comparison operation to perform.
+	Operator urtypes.AssertionOperator `json:"operator"`
+
+	// Value is the expected value to compare against.
+	// Not required for is_null and is_not_null operators.
+	// Can be a string, number, or boolean depending on the comparison.
+	//+kubebuilder:validation:MaxLength=64
+	Value string `json:"value,omitempty"`
 }
 
 // MonitorContactRef attaches alert contacts. If blank, the default will be used.
