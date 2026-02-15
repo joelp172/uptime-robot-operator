@@ -174,7 +174,7 @@ func TestBuildAPIAssertionsConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("coerces boolean targets when possible", func(t *testing.T) {
+	t.Run("keeps equals target values as strings", func(t *testing.T) {
 		assertions := &uptimerobotv1.MonitorAPIAssertions{
 			Logic: urtypes.LogicAND,
 			Checks: []uptimerobotv1.MonitorAPIAssertion{
@@ -189,8 +189,8 @@ func TestBuildAPIAssertionsConfig(t *testing.T) {
 		if result == nil {
 			t.Fatal("expected non-nil result")
 		}
-		if target, ok := result.Checks[0].Target.(bool); !ok || !target {
-			t.Fatalf("expected bool target true, got %#v", result.Checks[0].Target)
+		if target, ok := result.Checks[0].Target.(string); !ok || target != "true" {
+			t.Fatalf("expected string target \"true\", got %#v", result.Checks[0].Target)
 		}
 	})
 }
@@ -261,7 +261,7 @@ func TestBuildCreateMonitorRequest_APIAssertions(t *testing.T) {
 		}
 	})
 
-	t.Run("combines DNS and API assertions in config", func(t *testing.T) {
+	t.Run("prefers API assertions config over DNS config when assertions are present", func(t *testing.T) {
 		monitor := uptimerobotv1.MonitorValues{
 			Name:        "Test Monitor",
 			URL:         "8.8.8.8",
@@ -285,12 +285,15 @@ func TestBuildCreateMonitorRequest_APIAssertions(t *testing.T) {
 		}
 
 		req := client.buildCreateMonitorRequest(monitor, nil)
+		if req.Type != "API" {
+			t.Fatalf("expected monitor type API when apiAssertions are configured, got %s", req.Type)
+		}
 
 		if req.Config == nil {
 			t.Fatal("expected Config to be non-nil")
 		}
-		if req.Config.DNSRecords == nil {
-			t.Error("expected DNSRecords to be non-nil")
+		if req.Config.DNSRecords != nil {
+			t.Error("expected DNSRecords to be nil when apiAssertions force API monitor type")
 		}
 		if req.Config.APIAssertions == nil {
 			t.Error("expected APIAssertions to be non-nil")
@@ -359,6 +362,32 @@ func TestBuildUpdateMonitorRequest_APIAssertions(t *testing.T) {
 		// Config may be nil or empty depending on monitor type
 		if req.Config != nil && req.Config.APIAssertions != nil {
 			t.Errorf("expected APIAssertions to be nil")
+		}
+	})
+
+	t.Run("includes URL for DNS spec when apiAssertions force API type", func(t *testing.T) {
+		monitor := uptimerobotv1.MonitorValues{
+			Name:        "Test Monitor",
+			URL:         "https://api.example.com/health",
+			Type:        urtypes.TypeDNS,
+			Interval:    &interval,
+			Timeout:     &timeout,
+			GracePeriod: &gracePeriod,
+			APIAssertions: &uptimerobotv1.MonitorAPIAssertions{
+				Logic: urtypes.LogicAND,
+				Checks: []uptimerobotv1.MonitorAPIAssertion{
+					{
+						Property: "$.status",
+						Operator: urtypes.AssertionEquals,
+						Value:    "ok",
+					},
+				},
+			},
+		}
+
+		req := client.buildUpdateMonitorRequest(monitor, nil)
+		if req.URL != "https://api.example.com/health" {
+			t.Fatalf("expected URL to be included for API monitor update, got %q", req.URL)
 		}
 	})
 }

@@ -34,6 +34,8 @@ import (
 	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot/urtypes"
 )
 
+const apiMonitorType = "API"
+
 // NewClient creates a new UptimeRobot API v3 client.
 func NewClient(apiKey string) Client {
 	api := "https://api.uptimerobot.com/v3"
@@ -197,6 +199,8 @@ func (c Client) listAllMonitors(ctx context.Context) ([]MonitorResponse, error) 
 
 // buildCreateMonitorRequest converts internal types to v3 API request format.
 func (c Client) buildCreateMonitorRequest(monitor uptimerobotv1.MonitorValues, contacts uptimerobotv1.MonitorContacts) CreateMonitorRequest {
+	effectiveType := monitorTypeForRequest(monitor)
+
 	// Calculate grace period (default 60s, max 86400s)
 	gracePeriod := 60
 	if monitor.GracePeriod != nil {
@@ -212,7 +216,7 @@ func (c Client) buildCreateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 	req := CreateMonitorRequest{
 		FriendlyName: monitor.Name,
 		URL:          monitor.URL,
-		Type:         monitorTypeForRequest(monitor),
+		Type:         effectiveType,
 		Interval:     int(monitor.Interval.Seconds()),
 		Timeout:      int(monitor.Timeout.Seconds()),
 		GracePeriod:  gracePeriod,
@@ -254,7 +258,7 @@ func (c Client) buildCreateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 	}
 
 	// Handle DNS monitors - v3 API requires a config object with dnsRecords
-	if monitor.Type == urtypes.TypeDNS && monitor.DNS != nil {
+	if effectiveType == urtypes.APITypeDNS && monitor.DNS != nil {
 		req.Config = &MonitorConfig{
 			DNSRecords: &DNSRecordsConfig{
 				A:     monitor.DNS.A,
@@ -273,7 +277,7 @@ func (c Client) buildCreateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 	}
 
 	// Handle Heartbeat monitors - v3 API may require a config object
-	if monitor.Type == urtypes.TypeHeartbeat {
+	if effectiveType == urtypes.APITypeHeartbeat {
 		req.Config = &MonitorConfig{}
 	}
 
@@ -328,6 +332,8 @@ func (c Client) buildCreateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 
 // buildUpdateMonitorRequest converts internal types to v3 API update request format.
 func (c Client) buildUpdateMonitorRequest(monitor uptimerobotv1.MonitorValues, contacts uptimerobotv1.MonitorContacts) UpdateMonitorRequest {
+	effectiveType := monitorTypeForRequest(monitor)
+
 	// Calculate grace period (default 60s, max 86400s)
 	gracePeriod := 60
 	if monitor.GracePeriod != nil {
@@ -350,7 +356,7 @@ func (c Client) buildUpdateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 	}
 
 	// UptimeRobot v3 rejects URL updates for DNS monitors.
-	if monitor.Type != urtypes.TypeDNS && monitor.Type != urtypes.TypeHeartbeat {
+	if effectiveType != urtypes.APITypeDNS && effectiveType != urtypes.APITypeHeartbeat {
 		req.URL = monitor.URL
 	}
 
@@ -389,7 +395,7 @@ func (c Client) buildUpdateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 	}
 
 	// Handle DNS monitors - v3 API requires a config object with dnsRecords
-	if monitor.Type == urtypes.TypeDNS && monitor.DNS != nil {
+	if effectiveType == urtypes.APITypeDNS && monitor.DNS != nil {
 		req.Config = &MonitorConfig{
 			DNSRecords: &DNSRecordsConfig{
 				A:     monitor.DNS.A,
@@ -408,7 +414,7 @@ func (c Client) buildUpdateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 	}
 
 	// Handle Heartbeat monitors - v3 API may require a config object
-	if monitor.Type == urtypes.TypeHeartbeat {
+	if effectiveType == urtypes.APITypeHeartbeat {
 		req.Config = &MonitorConfig{}
 	}
 
@@ -906,11 +912,11 @@ func buildAPIAssertionsConfig(assertions *uptimerobotv1.MonitorAPIAssertions) *A
 	}
 }
 
-// monitorTypeForRequest forces API monitor type when API assertions are configured.
-// UptimeRobot v3 expects config.apiAssertions under type=API.
+// monitorTypeForRequest maps CRD HTTPS+apiAssertions to UptimeRobot v3 type API.
+// CRD validation restricts apiAssertions to HTTPS monitors, so this conversion is explicit.
 func monitorTypeForRequest(monitor uptimerobotv1.MonitorValues) string {
 	if monitor.APIAssertions != nil && len(monitor.APIAssertions.Checks) > 0 {
-		return "API"
+		return apiMonitorType
 	}
 	return monitor.Type.ToAPIString()
 }
@@ -924,16 +930,6 @@ func parseAPIAssertionTarget(operator urtypes.AssertionOperator, value string) i
 		if f, err := strconv.ParseFloat(value, 64); err == nil {
 			return f
 		}
-	}
-
-	if b, err := strconv.ParseBool(value); err == nil {
-		return b
-	}
-	if i, err := strconv.Atoi(value); err == nil {
-		return i
-	}
-	if f, err := strconv.ParseFloat(value, 64); err == nil {
-		return f
 	}
 	return value
 }

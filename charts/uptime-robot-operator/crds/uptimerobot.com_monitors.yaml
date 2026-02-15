@@ -144,8 +144,7 @@ spec:
                   apiAssertions:
                     description: |-
                       APIAssertions provides configuration for API response validation.
-                      Allows validation of JSON response content beyond simple keyword matching.
-                      Supports validating JSON path values with various comparison operators.
+                      Only supported when Type is HTTPS; the operator maps this to UptimeRobot v3 type "API".
                     properties:
                       checks:
                         description: |-
@@ -473,6 +472,8 @@ spec:
                 - message: URL is required for non-Heartbeat monitor types
                   rule: self.type == 'Heartbeat' || (has(self.url) && self.url !=
                     '')
+                - message: apiAssertions are only supported when type is HTTPS
+                  rule: '!has(self.apiAssertions) || self.type == ''HTTPS'''
               prune:
                 default: true
                 description: Prune enables garbage collection.

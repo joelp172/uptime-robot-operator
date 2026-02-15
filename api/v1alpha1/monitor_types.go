@@ -141,6 +141,7 @@ type Monitor struct {
 //+kubebuilder:validation:XValidation:rule="self.type != 'Port' || has(self.port)", message="Port config is required if type is Port"
 //+kubebuilder:validation:XValidation:rule="self.type != 'DNS' || has(self.dns)", message="DNS config is required if type is DNS"
 //+kubebuilder:validation:XValidation:rule="self.type == 'Heartbeat' || (has(self.url) && self.url != '')", message="URL is required for non-Heartbeat monitor types"
+//+kubebuilder:validation:XValidation:rule="!has(self.apiAssertions) || self.type == 'HTTPS'", message="apiAssertions are only supported when type is HTTPS"
 
 type MonitorValues struct {
 	// Name sets the name that is shown in Uptime Robot.
@@ -195,8 +196,7 @@ type MonitorValues struct {
 	Heartbeat *MonitorHeartbeat `json:"heartbeat,omitempty"`
 
 	// APIAssertions provides configuration for API response validation.
-	// Allows validation of JSON response content beyond simple keyword matching.
-	// Supports validating JSON path values with various comparison operators.
+	// Only supported when Type is HTTPS; the operator maps this to UptimeRobot v3 type "API".
 	APIAssertions *MonitorAPIAssertions `json:"apiAssertions,omitempty"`
 
 	// Tags to be assigned to the monitor for organisation.

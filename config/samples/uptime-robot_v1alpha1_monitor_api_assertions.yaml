@@ -18,6 +18,8 @@ spec:
       - api
       - health-check
       - uptime-robot-operator
+    # NOTE: When apiAssertions are set, the operator sends this as UptimeRobot type "API".
+    # Keep type: HTTPS here for CRD compatibility; upstream API type is inferred by assertions.
     # API Assertions validate JSON response content
     apiAssertions:
       logic: AND  # Require all assertions to pass (AND/OR)
