@@ -602,35 +602,57 @@ func extractErrStatusBody(err error) []byte {
 
 // selectDuplicateMonitorCandidate returns a single safe duplicate target for 409 adoption.
 // Matching rules:
-// - name is required; URL-only adoption is not allowed.
-// - if URL is provided, both name and URL must match.
-// - if URL is omitted, name must match exactly one monitor.
+//   - Primary path: match by name (+ URL when provided), requiring a unique candidate.
+//   - Fallback path: if URL is provided and name matching yields none/ambiguous,
+//     allow adoption by unique URL + type (handles API duplicate rules where name can differ).
 func selectDuplicateMonitorCandidate(existing []MonitorResponse, desired uptimerobotv1.MonitorValues) (*MonitorResponse, bool) {
 	name := strings.TrimSpace(desired.Name)
-	if name == "" {
+	wantURL := normalizeURL(desired.URL)
+	wantType := strings.TrimSpace(desired.Type.ToAPIString())
+
+	nameMatches := make([]MonitorResponse, 0, 1)
+	if name != "" {
+		for i := range existing {
+			m := existing[i]
+			if strings.TrimSpace(m.FriendlyName) != name {
+				continue
+			}
+			if wantURL != "" && normalizeURL(m.URL) != wantURL {
+				continue
+			}
+			nameMatches = append(nameMatches, m)
+			if len(nameMatches) > 1 {
+				break
+			}
+		}
+		if len(nameMatches) == 1 {
+			return &nameMatches[0], true
+		}
+	}
+
+	if wantURL == "" {
 		return nil, false
 	}
 
-	wantURL := normalizeURL(desired.URL)
-	matches := make([]MonitorResponse, 0, 1)
+	urlTypeMatches := make([]MonitorResponse, 0, 1)
 	for i := range existing {
 		m := existing[i]
-		if strings.TrimSpace(m.FriendlyName) != name {
+		if normalizeURL(m.URL) != wantURL {
 			continue
 		}
-		if wantURL != "" && normalizeURL(m.URL) != wantURL {
+		if wantType != "" && !strings.EqualFold(strings.TrimSpace(m.Type), wantType) {
 			continue
 		}
-		matches = append(matches, m)
-		if len(matches) > 1 {
+		urlTypeMatches = append(urlTypeMatches, m)
+		if len(urlTypeMatches) > 1 {
 			return nil, false
 		}
 	}
 
-	if len(matches) != 1 {
+	if len(urlTypeMatches) != 1 {
 		return nil, false
 	}
-	return &matches[0], true
+	return &urlTypeMatches[0], true
 }
 
 // FindMonitorByURL searches for a monitor by its URL, listing all pages so the monitor is found.

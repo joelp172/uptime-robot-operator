@@ -236,6 +236,9 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			controllerutil.RemoveFinalizer(monitor, myFinalizerName)
 			if err := r.Update(ctx, monitor); err != nil {
 				recordMonitorError("cleanup_error")
+				if r.Recorder != nil {
+					r.Recorder.Event(monitor, "Warning", "ReconcileError", fmt.Sprintf("Failed to remove finalizer: %v", err))
+				}
 				return ctrl.Result{}, err
 			}
 		}
@@ -247,6 +250,9 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		controllerutil.AddFinalizer(monitor, myFinalizerName)
 		if err := r.Update(ctx, monitor); err != nil {
 			recordMonitorError("reconcile_error")
+			if r.Recorder != nil {
+				r.Recorder.Event(monitor, "Warning", "ReconcileError", fmt.Sprintf("Failed to add finalizer: %v", err))
+			}
 			return ctrl.Result{}, err
 		}
 	}

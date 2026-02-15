@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	uptimerobotv1 "github.com/joelp172/uptime-robot-operator/api/v1alpha1"
+	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot/urtypes"
 )
 
 func TestSelectDuplicateMonitorCandidate(t *testing.T) {
@@ -82,6 +83,42 @@ func TestSelectDuplicateMonitorCandidate(t *testing.T) {
 
 		if _, ok := selectDuplicateMonitorCandidate(existing, desired); ok {
 			t.Fatalf("expected no match for ambiguous duplicates")
+		}
+	})
+
+	t.Run("matches by unique url+type when name differs", func(t *testing.T) {
+		desired := uptimerobotv1.MonitorValues{
+			Name: "API Health Check",
+			URL:  "https://api.example.com/health",
+			Type: urtypes.TypeHTTPS,
+		}
+		existing := []MonitorResponse{
+			{ID: 101, FriendlyName: "Legacy API Monitor", URL: "https://api.example.com/health/", Type: "HTTP"},
+			{ID: 202, FriendlyName: "Other", URL: "https://api.example.com/health", Type: "KEYWORD"},
+		}
+
+		match, ok := selectDuplicateMonitorCandidate(existing, desired)
+		if !ok {
+			t.Fatalf("expected match by unique URL+type, got no match")
+		}
+		if match.ID != 101 {
+			t.Fatalf("expected ID 101, got %d", match.ID)
+		}
+	})
+
+	t.Run("rejects ambiguous url+type fallback", func(t *testing.T) {
+		desired := uptimerobotv1.MonitorValues{
+			Name: "API Health Check",
+			URL:  "https://api.example.com/health",
+			Type: urtypes.TypeHTTPS,
+		}
+		existing := []MonitorResponse{
+			{ID: 101, FriendlyName: "One", URL: "https://api.example.com/health", Type: "HTTP"},
+			{ID: 202, FriendlyName: "Two", URL: "https://api.example.com/health/", Type: "HTTP"},
+		}
+
+		if _, ok := selectDuplicateMonitorCandidate(existing, desired); ok {
+			t.Fatalf("expected no match for ambiguous URL+type fallback")
 		}
 	})
 }
