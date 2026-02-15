@@ -21,6 +21,8 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    permissions:
+      contents: read
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -38,6 +40,8 @@ jobs:
     name: Verify CRDs
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    permissions:
+      contents: read
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -55,6 +59,8 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    permissions:
+      contents: read
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -103,7 +109,7 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      
+
       # Security Scanning and SBOM Generation for PRs
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@0.34.0
@@ -112,13 +118,13 @@ jobs:
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH'
-      
+
       - name: Upload Trivy results to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
           sarif_file: 'trivy-results.sarif'
-      
+
       - name: Run Trivy vulnerability scanner (table format)
         uses: aquasecurity/trivy-action@0.34.0
         with:
@@ -128,21 +134,21 @@ jobs:
           ignore-unfixed: true
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
-      
+
       - name: Generate SBOM (SPDX)
         uses: aquasecurity/trivy-action@0.34.0
         with:
           image-ref: ghcr.io/${{ github.repository_owner }}/uptime-robot-operator:pr-${{ github.event.pull_request.number }}
           format: 'spdx-json'
           output: 'sbom-spdx.json'
-      
+
       - name: Generate SBOM (CycloneDX)
         uses: aquasecurity/trivy-action@0.34.0
         with:
           image-ref: ghcr.io/${{ github.repository_owner }}/uptime-robot-operator:pr-${{ github.event.pull_request.number }}
           format: 'cyclonedx'
           output: 'sbom-cyclonedx.json'
-      
+
       - name: Upload SBOM artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -159,8 +165,8 @@ jobs:
     permissions:
       contents: read
       packages: write
-      id-token: write  # Required for cosign keyless signing
-      security-events: write  # Required for uploading SARIF results
+      id-token: write # Required for cosign keyless signing
+      security-events: write # Required for uploading SARIF results
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -233,21 +239,21 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      
+
       - name: Generate SBOM (SPDX)
         uses: aquasecurity/trivy-action@0.34.0
         with:
           image-ref: ghcr.io/${{ github.repository_owner }}/uptime-robot-operator@${{ steps.build.outputs.digest }}
           format: 'spdx-json'
           output: 'sbom-spdx.json'
-      
+
       - name: Generate SBOM (CycloneDX)
         uses: aquasecurity/trivy-action@0.34.0
         with:
           image-ref: ghcr.io/${{ github.repository_owner }}/uptime-robot-operator@${{ steps.build.outputs.digest }}
           format: 'cyclonedx'
           output: 'sbom-cyclonedx.json'
-      
+
       - name: Upload SBOM artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -255,17 +261,17 @@ jobs:
           path: |
             sbom-spdx.json
             sbom-cyclonedx.json
-      
+
       # Image Signing with Cosign
       - name: Install Cosign
         uses: sigstore/cosign-installer@v4.0.0
-      
+
       - name: Sign container images
         run: |
           IMAGE_DIGEST="ghcr.io/${{ github.repository_owner }}/uptime-robot-operator@${{ steps.build.outputs.digest }}"
           echo "Signing ${IMAGE_DIGEST}"
           cosign sign --yes "${IMAGE_DIGEST}"
-      
+
       - name: Attest SBOM to images
         run: |
           IMAGE_DIGEST="ghcr.io/${{ github.repository_owner }}/uptime-robot-operator@${{ steps.build.outputs.digest }}"
@@ -277,6 +283,8 @@ jobs:
     name: Release
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [lint, test, build]
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
