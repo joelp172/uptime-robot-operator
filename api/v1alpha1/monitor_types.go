@@ -194,6 +194,11 @@ type MonitorValues struct {
 	// Heartbeat provides configuration for the Heartbeat monitor type.
 	Heartbeat *MonitorHeartbeat `json:"heartbeat,omitempty"`
 
+	// APIAssertions provides configuration for API response validation.
+	// Allows validation of JSON response content beyond simple keyword matching.
+	// Supports validating JSON path values with various comparison operators.
+	APIAssertions *MonitorAPIAssertions `json:"apiAssertions,omitempty"`
+
 	// Tags to be assigned to the monitor for organisation.
 	Tags []string `json:"tags,omitempty"`
 
@@ -329,6 +334,41 @@ type MonitorHeartbeat struct {
 	// If no heartbeat is received within this interval, an alert is triggered.
 	//+kubebuilder:default:="60s"
 	Interval *metav1.Duration `json:"interval,omitempty"`
+}
+
+//+kubebuilder:object:generate=true
+
+// MonitorAPIAssertions provides configuration for API response validation.
+// Validates JSON response content using JSONPath expressions and comparison operators.
+type MonitorAPIAssertions struct {
+	// Logic defines how multiple assertions are combined.
+	// AND requires all assertions to pass, OR requires at least one to pass.
+	//+kubebuilder:default:="AND"
+	Logic urtypes.AssertionLogic `json:"logic,omitempty"`
+
+	// Checks defines the list of assertions to validate against the API response.
+	// Maximum 5 assertions per monitor.
+	//+kubebuilder:validation:MinItems=1
+	//+kubebuilder:validation:MaxItems=5
+	Checks []MonitorAPIAssertion `json:"checks"`
+}
+
+//+kubebuilder:object:generate=true
+
+// MonitorAPIAssertion defines a single assertion check for API response validation.
+type MonitorAPIAssertion struct {
+	// Property is the JSONPath expression to extract the value from the response.
+	// Examples: "$.status", "$.data.items[0].name", "$.metadata.version"
+	//+kubebuilder:validation:MinLength=1
+	Property string `json:"property"`
+
+	// Operator defines the comparison operation to perform.
+	Operator urtypes.AssertionOperator `json:"operator"`
+
+	// Value is the expected value to compare against.
+	// Not required for is_null and is_not_null operators.
+	// Can be a string, number, or boolean depending on the comparison.
+	Value string `json:"value,omitempty"`
 }
 
 // MonitorContactRef attaches alert contacts. If blank, the default will be used.

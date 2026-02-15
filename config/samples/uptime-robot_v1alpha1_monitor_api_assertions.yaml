@@ -1,0 +1,39 @@
+apiVersion: uptimerobot.com/v1alpha1
+kind: Monitor
+metadata:
+  labels:
+    app.kubernetes.io/name: uptime-robot-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: example-api-assertions
+spec:
+  syncInterval: 5m  # How often operator syncs with UptimeRobot API (drift detection)
+  prune: true
+  monitor:
+    name: API Health Check with Assertions
+    url: https://api.example.com/health
+    type: HTTPS
+    interval: 5m  # How often UptimeRobot checks the URL
+    method: GET
+    tags:
+      - api
+      - health-check
+      - uptime-robot-operator
+    # API Assertions validate JSON response content
+    apiAssertions:
+      logic: AND  # Require all assertions to pass (AND/OR)
+      checks:
+        # Check that the status field equals "healthy"
+        - property: "$.status"
+          operator: equals
+          value: "healthy"
+        # Check that the version field exists
+        - property: "$.version"
+          operator: is_not_null
+        # Check that latency is less than 1000ms
+        - property: "$.latency"
+          operator: less_than
+          value: "1000"
+        # Check that the environment field contains "production"
+        - property: "$.environment"
+          operator: contains
+          value: "production"

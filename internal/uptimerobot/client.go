@@ -277,6 +277,14 @@ func (c Client) buildCreateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 		req.Config = &MonitorConfig{}
 	}
 
+	// Handle API assertions - can be used with any monitor type
+	if monitor.APIAssertions != nil && len(monitor.APIAssertions.Checks) > 0 {
+		if req.Config == nil {
+			req.Config = &MonitorConfig{}
+		}
+		req.Config.APIAssertions = buildAPIAssertionsConfig(monitor.APIAssertions)
+	}
+
 	// Convert contacts to v3 format
 	req.AssignedAlertContacts = contactsToV3Format(contacts)
 
@@ -402,6 +410,14 @@ func (c Client) buildUpdateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 	// Handle Heartbeat monitors - v3 API may require a config object
 	if monitor.Type == urtypes.TypeHeartbeat {
 		req.Config = &MonitorConfig{}
+	}
+
+	// Handle API assertions - can be used with any monitor type
+	if monitor.APIAssertions != nil && len(monitor.APIAssertions.Checks) > 0 {
+		if req.Config == nil {
+			req.Config = &MonitorConfig{}
+		}
+		req.Config.APIAssertions = buildAPIAssertionsConfig(monitor.APIAssertions)
 	}
 
 	// Convert contacts to v3 format
@@ -838,6 +854,34 @@ func keywordTypeToString(t urtypes.KeywordType) string {
 		return "ALERT_NOT_EXISTS"
 	default:
 		return "ALERT_EXISTS"
+	}
+}
+
+// buildAPIAssertionsConfig converts MonitorAPIAssertions to API format.
+func buildAPIAssertionsConfig(assertions *uptimerobotv1.MonitorAPIAssertions) *APIAssertionsConfig {
+	if assertions == nil || len(assertions.Checks) == 0 {
+		return nil
+	}
+
+	checks := make([]APIAssertionCheck, 0, len(assertions.Checks))
+	for _, check := range assertions.Checks {
+		apiCheck := APIAssertionCheck{
+			Property:   check.Property,
+			Comparison: check.Operator.ToAPIString(),
+		}
+
+		// Only set target if value is provided
+		// is_null and is_not_null operators don't need a target value
+		if check.Value != "" {
+			apiCheck.Target = check.Value
+		}
+
+		checks = append(checks, apiCheck)
+	}
+
+	return &APIAssertionsConfig{
+		Logic:  assertions.Logic.ToAPIString(),
+		Checks: checks,
 	}
 }
 

@@ -141,6 +141,64 @@ spec:
               monitor:
                 description: Monitor configures the Uptime Robot monitor.
                 properties:
+                  apiAssertions:
+                    description: |-
+                      APIAssertions provides configuration for API response validation.
+                      Allows validation of JSON response content beyond simple keyword matching.
+                      Supports validating JSON path values with various comparison operators.
+                    properties:
+                      checks:
+                        description: |-
+                          Checks defines the list of assertions to validate against the API response.
+                          Maximum 5 assertions per monitor.
+                        items:
+                          description: MonitorAPIAssertion defines a single assertion
+                            check for API response validation.
+                          properties:
+                            operator:
+                              description: Operator defines the comparison operation
+                                to perform.
+                              enum:
+                              - equals
+                              - not_equals
+                              - contains
+                              - not_contains
+                              - greater_than
+                              - less_than
+                              - is_null
+                              - is_not_null
+                              type: string
+                            property:
+                              description: |-
+                                Property is the JSONPath expression to extract the value from the response.
+                                Examples: "$.status", "$.data.items[0].name", "$.metadata.version"
+                              minLength: 1
+                              type: string
+                            value:
+                              description: |-
+                                Value is the expected value to compare against.
+                                Not required for is_null and is_not_null operators.
+                                Can be a string, number, or boolean depending on the comparison.
+                              type: string
+                          required:
+                          - operator
+                          - property
+                          type: object
+                        maxItems: 5
+                        minItems: 1
+                        type: array
+                      logic:
+                        default: AND
+                        description: |-
+                          Logic defines how multiple assertions are combined.
+                          AND requires all assertions to pass, OR requires at least one to pass.
+                        enum:
+                        - AND
+                        - OR
+                        type: string
+                    required:
+                    - checks
+                    type: object
                   auth:
                     description: Auth enables monitor auth.
                     properties:
