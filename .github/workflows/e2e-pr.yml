@@ -6,6 +6,11 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     branches:
       - main
+    paths-ignore:
+      - '.github/workflows/**'
+      - '.releaserc*'
+      - 'docs/**'
+      - '**/*.md'
   workflow_dispatch: {}
 
 concurrency:

@@ -19,3 +19,7 @@ plugins:
           label: Kubernetes Installation Manifest
         - path: dist/uptime-robot-operator-*.tgz
           label: Helm Chart
+        - path: sbom-spdx.json
+          label: SPDX SBOM
+        - path: sbom-cyclonedx.json
+          label: CycloneDX SBOM
