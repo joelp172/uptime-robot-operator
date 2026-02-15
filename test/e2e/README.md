@@ -4,6 +4,39 @@ End-to-end tests validate the operator against the real UptimeRobot API.
 
 ## Running Tests
 
+### Full Suite Locally (Verbose, Recommended for Debugging)
+
+This runs the full `TestE2E` suite with detailed node event output and stack traces.
+
+```bash
+# 1) Start from a clean Kind cluster (recommended)
+kind delete cluster --name kind || true
+kind create cluster --name kind
+kubectl config use-context kind-kind
+
+# 2) Ensure cert-manager is installed
+make cert-manager-install
+
+# 3) If running real API scenarios, set a test API key
+export UPTIME_ROBOT_API_KEY=your-test-key
+
+# 4) Run verbose e2e
+go test ./test/e2e -run TestE2E -count=1 -v -timeout=20m -args \
+  -ginkgo.v -ginkgo.show-node-events -ginkgo.trace
+```
+
+Equivalent Make target:
+
+```bash
+make test-e2e-verbose
+```
+
+If your Kind cluster name is not `kind`, set it explicitly:
+
+```bash
+KIND_CLUSTER=e2e-test make test-e2e-verbose
+```
+
 ### Basic Tests (No API Key)
 
 Tests operator deployment and metrics only:
@@ -116,6 +149,12 @@ Enable debug logging:
 
 ```bash
 E2E_DEBUG=1 make test-e2e-real
+```
+
+Or run the verbose suite with node event tracing:
+
+```bash
+make test-e2e-verbose
 ```
 
 Debug output shows:
