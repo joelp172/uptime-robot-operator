@@ -157,7 +157,7 @@ print_next_steps() {
     echo ""
     echo "  4. Check Prometheus metrics locally:"
     echo "     kubectl -n uptime-robot-system port-forward svc/uptime-robot-controller-manager-metrics-service 8443:8443"
-    echo "     curl -k https://127.0.0.1:8443/metrics"
+    echo "     curl http://127.0.0.1:8443/metrics"
     echo ""
     echo "  5. Run full e2e tests (requires UPTIME_ROBOT_API_KEY):"
     echo "     export UPTIME_ROBOT_API_KEY=your-test-api-key"

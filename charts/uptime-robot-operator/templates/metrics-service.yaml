@@ -9,7 +9,7 @@ metadata:
 spec:
   type: {{ .Values.metrics.type }}
   ports:
-  - name: https
+  - name: metrics
     port: {{ .Values.metrics.port }}
     protocol: TCP
     targetPort: metrics
