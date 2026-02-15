@@ -81,6 +81,8 @@ func AssertionOperatorFromAPIString(s string) AssertionOperator {
 }
 
 //go:generate go run github.com/dmarkham/enumer -type AssertionLogic -trimprefix Logic -json -text
+// NOTE: API request payloads must use ToAPIString() instead of generated enum String/JSON methods.
+// This keeps serialization aligned with the upstream UptimeRobot contract.
 
 //+kubebuilder:validation:Type:=string
 //+kubebuilder:validation:Enum:=AND;OR

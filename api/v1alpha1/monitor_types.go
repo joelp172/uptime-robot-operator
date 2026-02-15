@@ -354,6 +354,8 @@ type MonitorAPIAssertions struct {
 }
 
 //+kubebuilder:object:generate=true
+//+kubebuilder:validation:XValidation:rule="self.operator == 'is_null' || self.operator == 'is_not_null' || (has(self.value) && self.value != '')", message="value is required unless operator is is_null or is_not_null"
+//+kubebuilder:validation:XValidation:rule="self.operator != 'greater_than' && self.operator != 'less_than' || (has(self.value) && self.value.matches('^-?(0|[1-9][0-9]*)(\\\\.[0-9]+)?$'))", message="value must be numeric for greater_than and less_than operators"
 
 // MonitorAPIAssertion defines a single assertion check for API response validation.
 type MonitorAPIAssertion struct {
