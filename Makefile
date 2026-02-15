@@ -144,6 +144,10 @@ test-e2e-verbose: manifests generate fmt vet ## Run full e2e suite with verbose 
 	@echo "Ensuring cert-manager $(CERT_MANAGER_VERSION) is installed"
 	@$(MAKE) cert-manager-install
 	@echo "Using Kind cluster: $(KIND_CLUSTER). Ensure kubectl context is set: kubectl config use-context kind-$(KIND_CLUSTER)"
+	@[ -n "$$UPTIME_ROBOT_API_KEY" ] || { \
+		echo "UPTIME_ROBOT_API_KEY is not set. Please set it to run verbose full e2e tests."; \
+		exit 1; \
+	}
 	KIND_CLUSTER=$(KIND_CLUSTER) go test ./test/e2e -run TestE2E -count=1 -v -timeout=20m -args \
 		-ginkgo.v -ginkgo.show-node-events -ginkgo.trace
 
