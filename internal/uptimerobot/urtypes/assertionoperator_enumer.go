@@ -123,7 +123,7 @@ func (i AssertionOperator) IsAAssertionOperator() bool {
 
 // MarshalJSON implements the json.Marshaler interface for AssertionOperator
 func (i AssertionOperator) MarshalJSON() ([]byte, error) {
-	return json.Marshal(i.String())
+	return json.Marshal(i.ToAPIString())
 }
 
 // UnmarshalJSON implements the json.Unmarshaler interface for AssertionOperator
@@ -140,7 +140,7 @@ func (i *AssertionOperator) UnmarshalJSON(data []byte) error {
 
 // MarshalText implements the encoding.TextMarshaler interface for AssertionOperator
 func (i AssertionOperator) MarshalText() ([]byte, error) {
-	return []byte(i.String()), nil
+	return []byte(i.ToAPIString()), nil
 }
 
 // UnmarshalText implements the encoding.TextUnmarshaler interface for AssertionOperator

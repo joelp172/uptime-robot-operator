@@ -108,6 +108,26 @@ func TestAssertionOperator_UnmarshalJSON_AcceptsAPIStrings(t *testing.T) {
 	}
 }
 
+func TestAssertionOperator_MarshalJSON_UsesAPIString(t *testing.T) {
+	data, err := json.Marshal(AssertionIsNotNull)
+	if err != nil {
+		t.Fatalf("expected no error marshaling, got %v", err)
+	}
+	if string(data) != `"is_not_null"` {
+		t.Fatalf("expected %q, got %q", `"is_not_null"`, string(data))
+	}
+}
+
+func TestAssertionOperator_MarshalText_UsesAPIString(t *testing.T) {
+	data, err := AssertionNotContains.MarshalText()
+	if err != nil {
+		t.Fatalf("expected no error marshaling text, got %v", err)
+	}
+	if string(data) != "not_contains" {
+		t.Fatalf("expected %q, got %q", "not_contains", string(data))
+	}
+}
+
 func TestAssertionLogic_ToAPIString(t *testing.T) {
 	tests := []struct {
 		logic    AssertionLogic
