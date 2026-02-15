@@ -29,6 +29,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot"
+	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot/urtypes"
 	"github.com/joelp172/uptime-robot-operator/test/utils"
 )
 
@@ -1577,6 +1578,71 @@ spec:
 			By("verifying the monitor is deleted from UptimeRobot API")
 			apiKey := os.Getenv("UPTIME_ROBOT_API_KEY")
 			WaitForMonitorDeletedFromAPI(apiKey, existingMonitorID)
+		})
+	})
+
+	Context("API Assertions", func() {
+		monitorName := fmt.Sprintf("e2e-api-assertions-%s", testRunID)
+		friendlyName := fmt.Sprintf("E2E API Assertions Monitor (%s)", monitorName)
+
+		AfterEach(func() {
+			deleteMonitorAndWaitForAPICleanup(monitorName)
+		})
+
+		It("should reconcile apiAssertions as API type with typed targets", func() {
+			applyMonitor(fmt.Sprintf(`
+apiVersion: uptimerobot.com/v1alpha1
+kind: Monitor
+metadata:
+  name: %s
+spec:
+  syncInterval: 1m
+  prune: true
+  account:
+    name: e2e-account-%s
+  monitor:
+    name: %q
+    url: https://api.example.com/health
+    type: HTTPS
+    interval: 5m
+    timeout: 30s
+    apiAssertions:
+      logic: AND
+      checks:
+        - property: "$.status"
+          operator: equals
+          value: "healthy"
+        - property: "$.version"
+          operator: is_not_null
+        - property: "$.latency"
+          operator: less_than
+          value: "1000"
+`, monitorName, testRunID, friendlyName))
+
+			monitorID := waitMonitorReadyAndGetID(monitorName)
+			Expect(monitorID).NotTo(BeEmpty())
+
+			apiKey := os.Getenv("UPTIME_ROBOT_API_KEY")
+			Eventually(func(g Gomega) {
+				monitor, err := getMonitorFromAPI(apiKey, monitorID)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(monitor.Type).To(Equal("API"))
+				g.Expect(monitor.Config).NotTo(BeNil())
+				g.Expect(monitor.Config.APIAssertions).NotTo(BeNil())
+				g.Expect(strings.ToUpper(monitor.Config.APIAssertions.Logic)).To(Equal("AND"))
+				g.Expect(monitor.Config.APIAssertions.Checks).To(HaveLen(3))
+				g.Expect(monitor.Config.APIAssertions.Checks[1].Comparison).To(Equal(urtypes.APIAssertionIsNotNull))
+
+				target := monitor.Config.APIAssertions.Checks[2].Target
+				switch typed := target.(type) {
+				case float64:
+					g.Expect(typed).To(Equal(1000.0))
+				case int:
+					g.Expect(typed).To(Equal(1000))
+				default:
+					Fail(fmt.Sprintf("expected numeric target for less_than, got %#v", target))
+				}
+			}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
 		})
 	})
 })

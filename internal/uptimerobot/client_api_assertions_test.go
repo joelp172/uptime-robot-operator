@@ -173,6 +173,26 @@ func TestBuildAPIAssertionsConfig(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("coerces boolean targets when possible", func(t *testing.T) {
+		assertions := &uptimerobotv1.MonitorAPIAssertions{
+			Logic: urtypes.LogicAND,
+			Checks: []uptimerobotv1.MonitorAPIAssertion{
+				{
+					Property: "$.enabled",
+					Operator: urtypes.AssertionEquals,
+					Value:    "true",
+				},
+			},
+		}
+		result := buildAPIAssertionsConfig(assertions)
+		if result == nil {
+			t.Fatal("expected non-nil result")
+		}
+		if target, ok := result.Checks[0].Target.(bool); !ok || !target {
+			t.Fatalf("expected bool target true, got %#v", result.Checks[0].Target)
+		}
+	})
 }
 
 func TestBuildCreateMonitorRequest_APIAssertions(t *testing.T) {
@@ -224,12 +244,16 @@ func TestBuildCreateMonitorRequest_APIAssertions(t *testing.T) {
 		monitor := uptimerobotv1.MonitorValues{
 			Name:        "Test Monitor",
 			URL:         "https://example.com",
+			Type:        urtypes.TypeHTTPS,
 			Interval:    &interval,
 			Timeout:     &timeout,
 			GracePeriod: &gracePeriod,
 		}
 
 		req := client.buildCreateMonitorRequest(monitor, nil)
+		if req.Type != "HTTP" {
+			t.Fatalf("expected monitor type HTTP when apiAssertions are omitted, got %s", req.Type)
+		}
 
 		// Config may be nil or empty depending on monitor type
 		if req.Config != nil && req.Config.APIAssertions != nil {

@@ -128,6 +128,25 @@ func TestAssertionOperator_MarshalText_UsesAPIString(t *testing.T) {
 	}
 }
 
+func TestAssertionOperator_JSONRoundTrip_UsesSnakeCase(t *testing.T) {
+	in := AssertionIsNotNull
+	data, err := json.Marshal(in)
+	if err != nil {
+		t.Fatalf("expected no error marshaling, got %v", err)
+	}
+	if string(data) != `"is_not_null"` {
+		t.Fatalf("expected snake_case JSON, got %s", string(data))
+	}
+
+	var out AssertionOperator
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatalf("expected no error unmarshaling, got %v", err)
+	}
+	if out != in {
+		t.Fatalf("expected %v after round trip, got %v", in, out)
+	}
+}
+
 func TestAssertionLogic_ToAPIString(t *testing.T) {
 	tests := []struct {
 		logic    AssertionLogic
