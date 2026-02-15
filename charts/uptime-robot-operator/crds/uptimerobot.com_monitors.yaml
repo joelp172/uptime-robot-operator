@@ -178,6 +178,7 @@ spec:
                                 Value is the expected value to compare against.
                                 Not required for is_null and is_not_null operators.
                                 Can be a string, number, or boolean depending on the comparison.
+                              maxLength: 64
                               type: string
                           required:
                           - operator
@@ -191,7 +192,7 @@ spec:
                           - message: value must be numeric for greater_than and less_than
                               operators
                             rule: self.operator != 'greater_than' && self.operator
-                              != 'less_than' || (has(self.value) && self.value.matches('^-?(0|[1-9][0-9]*)(\\.[0-9]+)?$'))
+                              != 'less_than' || (has(self.value) && self.value.matches('^[+-]?[0-9]+(\\.[0-9]+)?$'))
                         maxItems: 5
                         minItems: 1
                         type: array
