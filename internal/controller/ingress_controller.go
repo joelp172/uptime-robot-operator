@@ -178,19 +178,7 @@ func (r *IngressReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			predicate.Or(predicate.GenerationChangedPredicate{}, predicate.AnnotationChangedPredicate{}),
 		)).
 		Watches(&uptimerobotv1.Monitor{}, handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
-			monitor, ok := obj.(*uptimerobotv1.Monitor)
-			if !ok || monitor.Spec.SourceRef == nil {
-				return nil
-			}
-			if monitor.Spec.SourceRef.Kind != "Ingress" || monitor.Spec.SourceRef.Name == "" {
-				return nil
-			}
-			return []reconcile.Request{{
-				NamespacedName: types.NamespacedName{
-					Namespace: monitor.Namespace,
-					Name:      monitor.Spec.SourceRef.Name,
-				},
-			}}
+			return monitorToIngressRequests(obj)
 		}), builder.WithPredicates(predicate.Funcs{
 			// Reconcile source ingress when an ingress-managed monitor is deleted manually.
 			// Return false for other events to avoid unnecessary reconciles.
@@ -201,8 +189,7 @@ func (r *IngressReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				return false
 			},
 			DeleteFunc: func(e event.DeleteEvent) bool {
-				monitor, ok := e.Object.(*uptimerobotv1.Monitor)
-				return ok && monitor.Spec.SourceRef != nil && monitor.Spec.SourceRef.Kind == "Ingress"
+				return isIngressSourcedMonitor(e.Object)
 			},
 			GenericFunc: func(e event.GenericEvent) bool {
 				return false
@@ -210,6 +197,27 @@ func (r *IngressReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		})).
 		Named("ingress").
 		Complete(r)
+}
+
+func monitorToIngressRequests(obj client.Object) []reconcile.Request {
+	monitor, ok := obj.(*uptimerobotv1.Monitor)
+	if !ok || monitor.Spec.SourceRef == nil {
+		return nil
+	}
+	if monitor.Spec.SourceRef.Kind != "Ingress" || monitor.Spec.SourceRef.Name == "" {
+		return nil
+	}
+	return []reconcile.Request{{
+		NamespacedName: types.NamespacedName{
+			Namespace: monitor.Namespace,
+			Name:      monitor.Spec.SourceRef.Name,
+		},
+	}}
+}
+
+func isIngressSourcedMonitor(obj client.Object) bool {
+	monitor, ok := obj.(*uptimerobotv1.Monitor)
+	return ok && monitor.Spec.SourceRef != nil && monitor.Spec.SourceRef.Kind == "Ingress"
 }
 
 func (r *IngressReconciler) findMonitors(ctx context.Context, ingress *networkingv1.Ingress) (*uptimerobotv1.MonitorList, error) {
