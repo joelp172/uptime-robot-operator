@@ -261,23 +261,17 @@ jobs:
         uses: sigstore/cosign-installer@v4.0.0
       
       - name: Sign container images
-        env:
-          TAGS: ${{ steps.meta.outputs.tags }}
         run: |
-          for tag in ${TAGS}; do
-            echo "Signing ${tag}"
-            cosign sign --yes "${tag}"
-          done
+          IMAGE_DIGEST="ghcr.io/${{ github.repository_owner }}/uptime-robot-operator@${{ steps.build.outputs.digest }}"
+          echo "Signing ${IMAGE_DIGEST}"
+          cosign sign --yes "${IMAGE_DIGEST}"
       
       - name: Attest SBOM to images
-        env:
-          TAGS: ${{ steps.meta.outputs.tags }}
         run: |
-          for tag in ${TAGS}; do
-            echo "Attesting SBOM to ${tag}"
-            cosign attest --yes --predicate sbom-spdx.json --type spdx "${tag}"
-            cosign attest --yes --predicate sbom-cyclonedx.json --type cyclonedx "${tag}"
-          done
+          IMAGE_DIGEST="ghcr.io/${{ github.repository_owner }}/uptime-robot-operator@${{ steps.build.outputs.digest }}"
+          echo "Attesting SBOM to ${IMAGE_DIGEST}"
+          cosign attest --yes --predicate sbom-spdx.json --type spdxjson "${IMAGE_DIGEST}"
+          cosign attest --yes --predicate sbom-cyclonedx.json --type cyclonedx "${IMAGE_DIGEST}"
 
   release:
     name: Release
