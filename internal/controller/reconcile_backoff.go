@@ -72,12 +72,13 @@ func IsTransientError(err error) bool {
 	errMsg := err.Error()
 
 	// Check for HTTP status codes in error message
-	// The uptimerobot client wraps errors with status codes
-	if strings.Contains(errMsg, "429") || // Too Many Requests
-		strings.Contains(errMsg, "500") || // Internal Server Error
-		strings.Contains(errMsg, "502") || // Bad Gateway
-		strings.Contains(errMsg, "503") || // Service Unavailable
-		strings.Contains(errMsg, "504") { // Gateway Timeout
+	// Use more precise patterns to avoid false positives (e.g., "500" matching "1500")
+	// The uptimerobot client wraps errors with status codes in format "status code: NNN"
+	if strings.Contains(errMsg, " 429") || strings.Contains(errMsg, ":429") || // Too Many Requests
+		strings.Contains(errMsg, " 500") || strings.Contains(errMsg, ":500") || // Internal Server Error
+		strings.Contains(errMsg, " 502") || strings.Contains(errMsg, ":502") || // Bad Gateway
+		strings.Contains(errMsg, " 503") || strings.Contains(errMsg, ":503") || // Service Unavailable
+		strings.Contains(errMsg, " 504") || strings.Contains(errMsg, ":504") { // Gateway Timeout
 		return true
 	}
 
@@ -111,10 +112,12 @@ func IsPermanentError(err error) bool {
 	errMsg := err.Error()
 
 	// Check for HTTP status codes in error message
-	if strings.Contains(errMsg, "400") || // Bad Request
-		strings.Contains(errMsg, "401") || // Unauthorized
-		strings.Contains(errMsg, "403") || // Forbidden
-		strings.Contains(errMsg, "404") { // Not Found
+	// Use more precise patterns to avoid false positives (e.g., "400" matching "1400")
+	// The uptimerobot client wraps errors with status codes in format "status code: NNN"
+	if strings.Contains(errMsg, " 400") || strings.Contains(errMsg, ":400") || // Bad Request
+		strings.Contains(errMsg, " 401") || strings.Contains(errMsg, ":401") || // Unauthorized
+		strings.Contains(errMsg, " 403") || strings.Contains(errMsg, ":403") || // Forbidden
+		strings.Contains(errMsg, " 404") || strings.Contains(errMsg, ":404") { // Not Found
 		return true
 	}
 
@@ -220,8 +223,9 @@ func HandleReconcileError(err error, retryCount int) (ctrl.Result, error) {
 		return ctrl.Result{RequeueAfter: delay}, nil
 	}
 
-	// Unknown error type - treat as transient but log for investigation
-	// Use a moderate delay
+	// Unknown error type - treat as transient and apply backoff
+	// Note: Controllers should log these errors at the call site for investigation
+	// Consider classifying this error type explicitly as transient or permanent
 	delay := CalculateRequeueDelay(retryCount)
 	return ctrl.Result{RequeueAfter: delay}, nil
 }

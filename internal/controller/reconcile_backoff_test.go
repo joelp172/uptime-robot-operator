@@ -273,11 +273,18 @@ func TestCalculateRequeueDelay(t *testing.T) {
 			description: "5s * 2^4 = 80s",
 		},
 		{
-			name:        "attempt 5 (capped at 5m)",
+			name:        "attempt 5",
 			attempt:     5,
+			wantMin:     136 * time.Second, // 160s - 15%
+			wantMax:     184 * time.Second, // 160s + 15%
+			description: "5s * 2^5 = 160s",
+		},
+		{
+			name:        "attempt 6 (capped at 5m)",
+			attempt:     6,
 			wantMin:     4*time.Minute + 15*time.Second, // 5m - 15%
 			wantMax:     5*time.Minute + 45*time.Second, // 5m + 15%
-			description: "5s * 2^5 = 160s = 2m40s, but capped at 5m",
+			description: "5s * 2^6 = 320s, capped at 5m",
 		},
 		{
 			name:        "attempt 10 (capped at 5m)",
