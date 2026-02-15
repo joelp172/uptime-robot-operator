@@ -97,6 +97,9 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		// Don't set Synced here since we haven't attempted sync with UptimeRobot yet.
 		SetReadyCondition(&monitor.Status.Conditions, false, ReasonReconcileError, msg, monitor.Generation)
 		SetErrorCondition(&monitor.Status.Conditions, true, ReasonReconcileError, msg, monitor.Generation)
+		if r.Recorder != nil {
+			r.Recorder.Event(monitor, "Warning", "DependencyNotReady", msg)
+		}
 		if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
 			return ctrl.Result{}, updateErr
 		}
@@ -110,6 +113,9 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		// Don't set Synced here since we haven't attempted sync with UptimeRobot yet.
 		SetReadyCondition(&monitor.Status.Conditions, false, ReasonSecretNotFound, msg, monitor.Generation)
 		SetErrorCondition(&monitor.Status.Conditions, true, ReasonSecretNotFound, msg, monitor.Generation)
+		if r.Recorder != nil {
+			r.Recorder.Event(monitor, "Warning", "SecretNotFound", msg)
+		}
 		if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
 			return ctrl.Result{}, updateErr
 		}
@@ -237,6 +243,9 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
 			SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
 			SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, msg, monitor.Generation)
+			if r.Recorder != nil {
+				r.Recorder.Event(monitor, "Warning", "SyncFailed", msg)
+			}
 			if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
 				return ctrl.Result{}, updateErr
 			}
@@ -258,6 +267,9 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		if contact.Status.ID == "" {
 			// Contact hasn't been reconciled yet - requeue without error
 			log.FromContext(ctx).Info("Contact not ready yet, requeuing", "contact", ref.Name)
+			if r.Recorder != nil {
+				r.Recorder.Event(monitor, "Warning", "DependencyNotReady", fmt.Sprintf("Contact %s not ready yet", ref.Name))
+			}
 			return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
 		}
 
@@ -306,6 +318,9 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					// This is validation during adoption - treat same as type mismatch validation
 					SetReadyCondition(&monitor.Status.Conditions, false, ReasonReconcileError, msg, monitor.Generation)
 					SetErrorCondition(&monitor.Status.Conditions, true, ReasonReconcileError, msg, monitor.Generation)
+					if r.Recorder != nil {
+						r.Recorder.Event(monitor, "Warning", "SyncFailed", msg)
+					}
 					if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
 						return ctrl.Result{}, updateErr
 					}
@@ -315,6 +330,9 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
 				SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
 				SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, msg, monitor.Generation)
+				if r.Recorder != nil {
+					r.Recorder.Event(monitor, "Warning", "SyncFailed", msg)
+				}
 				if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
 					return ctrl.Result{}, updateErr
 				}
@@ -345,6 +363,9 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			if monitor.Spec.Monitor.Type == urtypes.TypeHeartbeat && existingMonitor.URL != "" {
 				monitor.Status.HeartbeatURL = buildHeartbeatURL(configuredHeartbeatBaseURL(), monitor.Status.ID, existingMonitor.URL)
 			}
+			if r.Recorder != nil {
+				r.Recorder.Event(monitor, "Normal", "Adopted", fmt.Sprintf("Adopted existing monitor with ID %s", adoptID))
+			}
 			if err := r.updateMonitorStatus(ctx, monitor); err != nil {
 				return ctrl.Result{}, err
 			}
@@ -357,6 +378,9 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
 				SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
 				SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, msg, monitor.Generation)
+				if r.Recorder != nil {
+					r.Recorder.Event(monitor, "Warning", "SyncFailed", msg)
+				}
 				if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
 					return ctrl.Result{}, updateErr
 				}
@@ -373,6 +397,9 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
 					SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
 					SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, msg, monitor.Generation)
+					if r.Recorder != nil {
+						r.Recorder.Event(monitor, "Warning", "SyncFailed", msg)
+					}
 					if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
 						return ctrl.Result{}, updateErr
 					}
@@ -403,6 +430,9 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
 				SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
 				SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, msg, monitor.Generation)
+				if r.Recorder != nil {
+					r.Recorder.Event(monitor, "Warning", "SyncFailed", msg)
+				}
 				if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
 					return ctrl.Result{}, updateErr
 				}
@@ -416,6 +446,9 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			if monitor.Spec.Monitor.Type == urtypes.TypeHeartbeat && result.URL != "" {
 				monitor.Status.HeartbeatURL = buildHeartbeatURL(configuredHeartbeatBaseURL(), monitor.Status.ID, result.URL)
 			}
+			if r.Recorder != nil {
+				r.Recorder.Event(monitor, "Normal", "Created", fmt.Sprintf("Monitor created with ID %s", result.ID))
+			}
 
 			// If monitor should be created in paused state, pause it before setting status
 			if monitor.Spec.Monitor.Status == urtypes.MonitorPaused {
@@ -427,6 +460,9 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
 					SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
 					SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, msg, monitor.Generation)
+					if r.Recorder != nil {
+						r.Recorder.Event(monitor, "Warning", "SyncFailed", msg)
+					}
 					if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
 						return ctrl.Result{}, updateErr
 					}
@@ -455,6 +491,9 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
 			SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
 			SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, msg, monitor.Generation)
+			if r.Recorder != nil {
+				r.Recorder.Event(monitor, "Warning", "SyncFailed", msg)
+			}
 			if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
 				return ctrl.Result{}, updateErr
 			}
@@ -494,6 +533,10 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 		// Handle status changes using pause/start endpoints
 		if !monitorMissing && desiredStatus != currentStatus {
+			// Drift detected - status changed out-of-band
+			if r.Recorder != nil {
+				r.Recorder.Event(monitor, "Warning", "DriftDetected", fmt.Sprintf("Monitor status changed out-of-band from %s to %s, correcting", monitorStateLabel(currentStatus), monitorStateLabel(desiredStatus)))
+			}
 			switch desiredStatus {
 			case urtypes.MonitorPaused:
 				// Pause the monitor
@@ -505,6 +548,9 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
 					SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
 					SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, msg, monitor.Generation)
+					if r.Recorder != nil {
+						r.Recorder.Event(monitor, "Warning", "SyncFailed", msg)
+					}
 					if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
 						return ctrl.Result{}, updateErr
 					}
@@ -528,6 +574,9 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
 					SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
 					SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, msg, monitor.Generation)
+					if r.Recorder != nil {
+						r.Recorder.Event(monitor, "Warning", "SyncFailed", msg)
+					}
 					if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
 						return ctrl.Result{}, updateErr
 					}
@@ -550,6 +599,9 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
 			SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
 			SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, msg, monitor.Generation)
+			if r.Recorder != nil {
+				r.Recorder.Event(monitor, "Warning", "SyncFailed", msg)
+			}
 			if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
 				return ctrl.Result{}, updateErr
 			}
@@ -565,6 +617,9 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				SetReadyCondition(&monitor.Status.Conditions, false, ReasonAPIError, msg, monitor.Generation)
 				SetSyncedCondition(&monitor.Status.Conditions, false, ReasonSyncError, msg, monitor.Generation)
 				SetErrorCondition(&monitor.Status.Conditions, true, ReasonAPIError, msg, monitor.Generation)
+				if r.Recorder != nil {
+					r.Recorder.Event(monitor, "Warning", "SyncFailed", msg)
+				}
 				if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
 					return ctrl.Result{}, updateErr
 				}
@@ -580,6 +635,9 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		// Update HeartbeatURL for heartbeat monitors (API returns token, we need full URL)
 		if monitor.Spec.Monitor.Type == urtypes.TypeHeartbeat && result.URL != "" {
 			monitor.Status.HeartbeatURL = buildHeartbeatURL(configuredHeartbeatBaseURL(), monitor.Status.ID, result.URL)
+		}
+		if r.Recorder != nil {
+			r.Recorder.Event(monitor, "Normal", "Updated", "Monitor updated successfully")
 		}
 		if err := r.updateMonitorStatus(ctx, monitor); err != nil {
 			return ctrl.Result{}, err
@@ -606,6 +664,9 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	SetErrorCondition(&monitor.Status.Conditions, false, ReasonReconcileSuccess, "", monitor.Generation)
 	now := metav1.Now()
 	monitor.Status.LastSyncedTime = &now
+	if r.Recorder != nil {
+		r.Recorder.Event(monitor, "Normal", "Synced", "Monitor reconciled successfully")
+	}
 	if err := r.updateMonitorStatus(ctx, monitor); err != nil {
 		return ctrl.Result{}, err
 	}

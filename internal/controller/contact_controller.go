@@ -24,6 +24,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -36,12 +37,14 @@ import (
 // ContactReconciler reconciles a Contact object
 type ContactReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme   *runtime.Scheme
+	Recorder record.EventRecorder
 }
 
 //+kubebuilder:rbac:groups=uptimerobot.com,resources=contacts,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=uptimerobot.com,resources=contacts/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=uptimerobot.com,resources=contacts/finalizers,verbs=update
+//+kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -60,9 +63,13 @@ func (r *ContactReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	account := &uptimerobotv1.Account{}
 	if err := GetAccount(ctx, r.Client, account, contact.Spec.Account.Name); err != nil {
 		contact.Status.Ready = false
+		msg := "Failed to get account: " + err.Error()
 		// Don't set Synced here since we haven't attempted sync with UptimeRobot yet
-		SetReadyCondition(&contact.Status.Conditions, false, ReasonReconcileError, "Failed to get account: "+err.Error(), contact.Generation)
-		SetErrorCondition(&contact.Status.Conditions, true, ReasonReconcileError, "Failed to get account: "+err.Error(), contact.Generation)
+		SetReadyCondition(&contact.Status.Conditions, false, ReasonReconcileError, msg, contact.Generation)
+		SetErrorCondition(&contact.Status.Conditions, true, ReasonReconcileError, msg, contact.Generation)
+		if r.Recorder != nil {
+			r.Recorder.Event(contact, "Warning", "DependencyNotReady", msg)
+		}
 		if updateErr := r.Status().Update(ctx, contact); updateErr != nil {
 			return ctrl.Result{}, updateErr
 		}
@@ -72,9 +79,13 @@ func (r *ContactReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	apiKey, err := GetApiKey(ctx, r.Client, account)
 	if err != nil {
 		contact.Status.Ready = false
+		msg := "Failed to get API key: " + err.Error()
 		// Don't set Synced here since we haven't attempted sync with UptimeRobot yet
-		SetReadyCondition(&contact.Status.Conditions, false, ReasonSecretNotFound, "Failed to get API key: "+err.Error(), contact.Generation)
-		SetErrorCondition(&contact.Status.Conditions, true, ReasonSecretNotFound, "Failed to get API key: "+err.Error(), contact.Generation)
+		SetReadyCondition(&contact.Status.Conditions, false, ReasonSecretNotFound, msg, contact.Generation)
+		SetErrorCondition(&contact.Status.Conditions, true, ReasonSecretNotFound, msg, contact.Generation)
+		if r.Recorder != nil {
+			r.Recorder.Event(contact, "Warning", "SecretNotFound", msg)
+		}
 		if updateErr := r.Status().Update(ctx, contact); updateErr != nil {
 			return ctrl.Result{}, updateErr
 		}
@@ -95,9 +106,13 @@ func (r *ContactReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			id, err = urclient.FindContactID(ctx, contact.Spec.Contact.Name)
 			if err != nil {
 				contact.Status.Ready = false
-				SetReadyCondition(&contact.Status.Conditions, false, ReasonAPIError, "Failed to find contact: "+err.Error(), contact.Generation)
-				SetSyncedCondition(&contact.Status.Conditions, false, ReasonSyncError, "Failed to find contact: "+err.Error(), contact.Generation)
-				SetErrorCondition(&contact.Status.Conditions, true, ReasonAPIError, "Failed to find contact: "+err.Error(), contact.Generation)
+				msg := "Failed to find contact: " + err.Error()
+				SetReadyCondition(&contact.Status.Conditions, false, ReasonAPIError, msg, contact.Generation)
+				SetSyncedCondition(&contact.Status.Conditions, false, ReasonSyncError, msg, contact.Generation)
+				SetErrorCondition(&contact.Status.Conditions, true, ReasonAPIError, msg, contact.Generation)
+				if r.Recorder != nil {
+					r.Recorder.Event(contact, "Warning", "SyncFailed", msg)
+				}
 				if updateErr := r.Status().Update(ctx, contact); updateErr != nil {
 					return ctrl.Result{}, updateErr
 				}
@@ -121,6 +136,9 @@ func (r *ContactReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		SetReadyCondition(&contact.Status.Conditions, true, ReasonReconcileSuccess, "Contact reconciled successfully", contact.Generation)
 		if validated {
 			SetSyncedCondition(&contact.Status.Conditions, true, ReasonSyncSuccess, "Successfully validated contact reference", contact.Generation)
+			if r.Recorder != nil {
+				r.Recorder.Event(contact, "Normal", "Synced", "Contact reconciled successfully")
+			}
 		} else {
 			SetCondition(&contact.Status.Conditions, TypeSynced, metav1.ConditionUnknown, ReasonSyncSkipped, "Skipped contact validation; using spec.contact.id", contact.Generation)
 		}
