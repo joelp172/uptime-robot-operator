@@ -227,9 +227,10 @@ func main() {
 		os.Exit(1)
 	}
 	if err = (&controller.MaintenanceWindowReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("maintenancewindow-controller"),
+		Client:    mgr.GetClient(),
+		APIReader: mgr.GetAPIReader(),
+		Scheme:    mgr.GetScheme(),
+		Recorder:  mgr.GetEventRecorderFor("maintenancewindow-controller"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "MaintenanceWindow")
 		os.Exit(1)

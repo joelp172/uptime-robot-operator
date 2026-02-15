@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	uptimerobotv1 "github.com/joelp172/uptime-robot-operator/api/v1alpha1"
+	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot/urtypes"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -213,4 +214,32 @@ func TestBuildUpdateMonitorRequest_Region(t *testing.T) {
 			t.Errorf("expected RegionalData to be empty, got %q", req.RegionalData)
 		}
 	})
+}
+
+func TestBuildUpdateMonitorRequest_PingOmitsUnsupportedFields(t *testing.T) {
+	client := NewClient("test-api-key")
+	interval := metav1.Duration{Duration: 300000000000}   // 5m
+	timeout := metav1.Duration{Duration: 30000000000}     // 30s
+	gracePeriod := metav1.Duration{Duration: 60000000000} // 60s
+
+	monitor := uptimerobotv1.MonitorValues{
+		Name:        "Ping Monitor",
+		Type:        urtypes.TypePing,
+		URL:         "8.8.8.8",
+		Interval:    &interval,
+		Timeout:     &timeout,
+		GracePeriod: &gracePeriod,
+	}
+
+	req := client.buildUpdateMonitorRequest(monitor, nil)
+
+	if req.URL != "" {
+		t.Errorf("expected URL to be omitted for ping updates, got %q", req.URL)
+	}
+	if req.HTTPMethod != "" {
+		t.Errorf("expected HTTPMethod to be omitted for ping updates, got %q", req.HTTPMethod)
+	}
+	if req.Timeout != 0 {
+		t.Errorf("expected Timeout to be omitted for ping updates, got %d", req.Timeout)
+	}
 }

@@ -349,15 +349,19 @@ func (c Client) buildUpdateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 	req := UpdateMonitorRequest{
 		FriendlyName: monitor.Name,
 		Interval:     int(monitor.Interval.Seconds()),
-		Timeout:      int(monitor.Timeout.Seconds()),
 		GracePeriod:  gracePeriod,
 		// Note: Status is not supported in v3 PATCH requests - use pause/resume endpoints instead
-		HTTPMethod: httpMethodToString(monitor.Method),
 	}
 
-	// UptimeRobot v3 rejects URL updates for DNS monitors.
-	if effectiveType != urtypes.APITypeDNS && effectiveType != urtypes.APITypeHeartbeat {
+	// UptimeRobot v3 rejects URL updates for DNS/Heartbeat/PING monitors.
+	if effectiveType != urtypes.APITypeDNS && effectiveType != urtypes.APITypeHeartbeat && effectiveType != urtypes.APITypePing {
 		req.URL = monitor.URL
+	}
+	if effectiveType == urtypes.APITypeHTTP || effectiveType == urtypes.APITypeKeyword || effectiveType == urtypes.APITypeAPI {
+		req.HTTPMethod = httpMethodToString(monitor.Method)
+	}
+	if effectiveType == urtypes.APITypeHTTP || effectiveType == urtypes.APITypeKeyword || effectiveType == urtypes.APITypePort || effectiveType == urtypes.APITypeAPI {
+		req.Timeout = int(monitor.Timeout.Seconds())
 	}
 
 	// Handle auth

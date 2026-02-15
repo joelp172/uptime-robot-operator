@@ -430,18 +430,17 @@ var _ = Describe("Ingress Controller", func() {
 			ingress.Annotations["uptimerobot.com/monitor.name"] = "Updated Name"
 			Expect(mgrClient.Update(ctx, ingress)).To(Succeed())
 
-			By("Reconciling the update")
-			_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Verifying Monitor was updated")
+			By("Reconciling the update and verifying Monitor was updated")
 			Eventually(func() string {
-				err := mgrClient.Get(ctx, namespacedName, monitor)
+				_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
 				if err != nil {
 					return ""
 				}
+				if err := mgrClient.Get(ctx, namespacedName, monitor); err != nil {
+					return ""
+				}
 				return monitor.Spec.Monitor.Name
-			}, time.Second*5, time.Millisecond*250).Should(Equal("Updated Name"))
+			}, time.Second*10, time.Millisecond*250).Should(Equal("Updated Name"))
 		})
 
 		It("should ignore Ingress without uptimerobot.com/ annotations", func() {

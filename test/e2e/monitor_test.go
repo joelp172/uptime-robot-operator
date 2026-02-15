@@ -997,7 +997,7 @@ kind: Monitor
 metadata:
   name: %s
 spec:
-  syncInterval: 1m
+  syncInterval: 15s
   prune: true
   account:
     name: e2e-account-%s
@@ -1018,6 +1018,21 @@ spec:
 				g.Expect(monitor.URL).To(Equal("8.8.8.8"))
 				g.Expect(monitor.FriendlyName).To(Equal("E2E Ping Monitor"))
 			}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
+
+			By("verifying monitor remains synced after a follow-up reconcile")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "monitor", monitorName,
+					"-o", "jsonpath={.status.conditions[?(@.type==\"Synced\")].status}")
+				syncedStatus, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(strings.TrimSpace(syncedStatus)).To(Equal("True"))
+
+				cmd = exec.Command("kubectl", "get", "monitor", monitorName,
+					"-o", "jsonpath={.status.conditions[?(@.type==\"Error\")].status}")
+				errorStatus, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(strings.TrimSpace(errorStatus)).To(Equal("False"))
+			}, 45*time.Second, 5*time.Second).Should(Succeed())
 		})
 	})
 
