@@ -32,6 +32,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -67,7 +68,10 @@ var _ = Describe("Ingress Controller", func() {
 			// Set up manager with field indexer for spec.sourceRef
 			var err error
 			mgr, err = ctrl.NewManager(cfg, ctrl.Options{
-				Scheme: k8sClient.Scheme(),
+				Scheme:                 k8sClient.Scheme(),
+				Metrics:                metricsserver.Options{BindAddress: "0"},
+				HealthProbeBindAddress: "0",
+				LeaderElection:         false,
 			})
 			Expect(err).NotTo(HaveOccurred())
 
@@ -89,8 +93,8 @@ var _ = Describe("Ingress Controller", func() {
 				_ = mgr.Start(mgrCtx)
 			}()
 
-			// Wait for cache to sync
-			mgr.GetCache().WaitForCacheSync(mgrCtx)
+			// Give manager a moment to start
+			time.Sleep(100 * time.Millisecond)
 
 			// Create event recorder for testing events
 			eventRecorder = record.NewFakeRecorder(10)
@@ -108,16 +112,21 @@ var _ = Describe("Ingress Controller", func() {
 				mgrCancel()
 			}
 
-			mgrClient := mgr.GetClient()
+			// Skip cleanup if mgrClient not initialized
+			if mgrClient == nil {
+				return
+			}
+
+			mgrClientLocal := mgrClient
 
 			// Clean up ingress
 			if ingress != nil {
-				err := mgrClient.Get(ctx, namespacedName, ingress)
+				err := mgrClientLocal.Get(ctx, namespacedName, ingress)
 				if err == nil {
-					Expect(mgrClient.Delete(ctx, ingress)).To(Succeed())
+					Expect(mgrClientLocal.Delete(ctx, ingress)).To(Succeed())
 					// Wait for deletion to complete
 					Eventually(func() bool {
-						err := mgrClient.Get(ctx, namespacedName, ingress)
+						err := mgrClientLocal.Get(ctx, namespacedName, ingress)
 						return errors.IsNotFound(err)
 					}, time.Second*10, time.Millisecond*250).Should(BeTrue())
 				}
@@ -125,11 +134,11 @@ var _ = Describe("Ingress Controller", func() {
 
 			// Clean up any monitors created by the ingress
 			monitorList := &uptimerobotv1.MonitorList{}
-			err := mgrClient.List(ctx, monitorList, client.InNamespace("default"))
+			err := mgrClientLocal.List(ctx, monitorList, client.InNamespace("default"))
 			if err == nil {
 				for _, monitor := range monitorList.Items {
 					if monitor.Spec.SourceRef != nil && monitor.Spec.SourceRef.Name == namespacedName.Name {
-						Expect(mgrClient.Delete(ctx, &monitor)).To(Succeed())
+						Expect(mgrClientLocal.Delete(ctx, &monitor)).To(Succeed())
 					}
 				}
 			}
