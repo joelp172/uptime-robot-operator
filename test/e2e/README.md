@@ -4,61 +4,64 @@ End-to-end tests validate the operator against the real UptimeRobot API.
 
 ## Running Tests
 
-### Full Suite Locally (Verbose, Recommended for Debugging)
+Choose the mode that matches your goal:
 
-This runs the full `TestE2E` suite with detailed node event output and stack traces.
-
-```bash
-# 1) Start from a clean Kind cluster (recommended)
-kind delete cluster --name kind || true
-kind create cluster --name kind
-kubectl config use-context kind-kind
-
-# 2) Ensure cert-manager is installed
-make cert-manager-install
-
-# 3) If running real API scenarios, set a test API key
-export UPTIME_ROBOT_API_KEY=your-test-key
-
-# 4) Run verbose e2e
-go test ./test/e2e -run TestE2E -count=1 -v -timeout=20m -args \
-  -ginkgo.v -ginkgo.show-node-events -ginkgo.trace
-```
-
-Equivalent Make target:
-
-```bash
-make test-e2e-verbose
-```
-
-If your Kind cluster name is not `kind`, set it explicitly:
-
-```bash
-KIND_CLUSTER=e2e-test make test-e2e-verbose
-```
+| Mode | Command | API Key | What it runs |
+|------|---------|---------|--------------|
+| **Basic** | `make test-e2e` | Not needed | Operator deployment, metrics endpoint |
+| **Full** | `make test-e2e-real` | Required | CRD reconciliation (monitors, maintenance windows, etc.) |
+| **Verbose** | `make test-e2e-verbose` | Required | All tests (basic + full) with detailed debug output |
 
 ### Basic Tests (No API Key)
 
-Tests operator deployment and metrics only:
+Validates operator deployment and metrics. Skips all CRD reconciliation tests that call the UptimeRobot API.
 
 ```bash
+# 1) Create Kind cluster and deploy operator
 make dev-cluster
-make test-e2e
 
-# Optional manual install/update of pinned cert-manager
-make cert-manager-install
+# 2) Run basic tests
+make test-e2e
 ```
+
+Prerequisites: Kind cluster named `kind`. Use `KIND_CLUSTER=e2e-test make dev-cluster` if your cluster has a different name.
 
 ### Full Tests (Requires API Key)
 
-Creates real monitors in UptimeRobot:
+Creates real monitors, maintenance windows, and other resources in UptimeRobot. Use a test account, not production.
 
 ```bash
+make dev-cluster
 export UPTIME_ROBOT_API_KEY=your-test-key
 make test-e2e-real
 ```
 
-**Warning:** Use a test account, not production.
+Prerequisites: Kind cluster named `kind`, and `UPTIME_ROBOT_API_KEY` set.
+
+### Verbose Mode (Debugging)
+
+When tests fail, run with verbose output to see node events and stack traces:
+
+```bash
+make dev-cluster
+export UPTIME_ROBOT_API_KEY=your-test-key
+make test-e2e-verbose
+```
+
+Or use the raw `go test` command for full control:
+
+```bash
+kind delete cluster --name kind || true
+kind create cluster --name kind
+kubectl config use-context kind-kind
+make cert-manager-install
+
+export UPTIME_ROBOT_API_KEY=your-test-key
+go test ./test/e2e -run TestE2E -count=1 -v -timeout=20m -args \
+  -ginkgo.v -ginkgo.show-node-events -ginkgo.trace
+```
+
+Use `KIND_CLUSTER=e2e-test` if your cluster name is not `kind`.
 
 ### Running Specific Test Suites
 
