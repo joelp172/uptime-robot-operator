@@ -288,7 +288,7 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				SetErrorCondition(&groupResource.Status.Conditions, false, ReasonReconcileSuccess, "", groupResource.Generation)
 
 				if r.Recorder != nil {
-					r.Recorder.Event(groupResource, "Normal", "Created", fmt.Sprintf("Monitor group recreated with ID %s", groupResource.Status.ID))
+					r.Recorder.Event(groupResource, "Normal", "Recreated", fmt.Sprintf("Monitor group recreated with ID %s", groupResource.Status.ID))
 				}
 
 				if statusErr := r.Status().Update(ctx, groupResource); statusErr != nil {
