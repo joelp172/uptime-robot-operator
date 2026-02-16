@@ -219,6 +219,13 @@ spec:
 `, legacyContactName, legacyAccountName, strings.TrimSpace(contactID))
 	out, err = applyYAMLWithWebhookRetry("Contact", legacyContactYAML)
 	Expect(err).NotTo(HaveOccurred(), "Failed to create legacy Contact: %s", out)
+
+	Eventually(func(g Gomega) {
+		cmd := exec.Command("kubectl", "get", "contact", legacyContactName, "-o", "jsonpath={.status.ready}")
+		ready, err := utils.Run(cmd)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(strings.TrimSpace(ready)).To(Equal("true"))
+	}, 1*time.Minute, 5*time.Second).Should(Succeed())
 }
 
 func cleanupSharedAccountAndContact() {

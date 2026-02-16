@@ -197,6 +197,8 @@ spec:
 
 	Context("Contact Setup", func() {
 		It("should create default Contact", func() {
+			contactName := fmt.Sprintf("e2e-contact-setup-%s", testRunID)
+
 			By("creating a baseline Account")
 			var cmd *exec.Cmd
 			accountYAML := fmt.Sprintf(`
@@ -228,19 +230,19 @@ spec:
 				contactID = output
 			}, 2*time.Minute, 5*time.Second).Should(Succeed())
 
-			By("creating a default Contact resource")
+			By("creating a Contact resource")
 			contactYAML := fmt.Sprintf(`
 apiVersion: uptimerobot.com/v1alpha1
 kind: Contact
 metadata:
-  name: e2e-default-contact-%s
+  name: %s
 spec:
   isDefault: false
   account:
     name: e2e-account-%s
   contact:
     id: "%s"
-`, testRunID, testRunID, contactID)
+`, contactName, testRunID, contactID)
 
 			cmd = exec.Command("kubectl", "apply", "-f", "-")
 			cmd.Stdin = strings.NewReader(contactYAML)
@@ -250,7 +252,7 @@ spec:
 			By("waiting for Contact to become ready")
 			Eventually(func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "contact",
-					fmt.Sprintf("e2e-default-contact-%s", testRunID),
+					contactName,
 					"-o", "jsonpath={.status.ready}")
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
@@ -260,7 +262,7 @@ spec:
 			By("verifying Contact status conditions and observedGeneration")
 			Eventually(func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "contact",
-					fmt.Sprintf("e2e-default-contact-%s", testRunID),
+					contactName,
 					"-o", "jsonpath={.status.observedGeneration}")
 				observedGeneration, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
@@ -269,7 +271,7 @@ spec:
 
 			Eventually(func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "contact",
-					fmt.Sprintf("e2e-default-contact-%s", testRunID),
+					contactName,
 					"-o", "jsonpath={.status.conditions[?(@.type==\"Ready\")].status}")
 				readyStatus, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
@@ -278,7 +280,7 @@ spec:
 
 			Eventually(func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "contact",
-					fmt.Sprintf("e2e-default-contact-%s", testRunID),
+					contactName,
 					"-o", "jsonpath={.status.conditions[?(@.type==\"Synced\")].status}")
 				syncedStatus, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
@@ -287,7 +289,7 @@ spec:
 
 			Eventually(func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "contact",
-					fmt.Sprintf("e2e-default-contact-%s", testRunID),
+					contactName,
 					"-o", "jsonpath={.status.conditions[?(@.type==\"Synced\")].reason}")
 				syncedReason, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
@@ -296,7 +298,7 @@ spec:
 
 			Eventually(func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "contact",
-					fmt.Sprintf("e2e-default-contact-%s", testRunID),
+					contactName,
 					"-o", "jsonpath={.status.conditions[?(@.type==\"Error\")].status}")
 				errorStatus, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
