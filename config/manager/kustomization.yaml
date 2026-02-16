@@ -5,5 +5,5 @@ resources:
 # NOTE: Replace the image registry below with your own (e.g., ghcr.io or docker.io)
 images:
 - name: controller
-  newName: uptime-robot-operator
-  newTag: dev
+  newName: example.com/uptime-robot-operator
+  newTag: v0.0.1

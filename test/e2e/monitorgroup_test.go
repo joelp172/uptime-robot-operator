@@ -36,117 +36,15 @@ var _ = Describe("MonitorGroup CRD Reconciliation", Ordered, Label("monitorgroup
 		monitorGroupName string
 		monitorName      string
 	)
+	accountName := sharedAccountName
 
 	// Skip all tests in this suite if no API key is provided
 	BeforeAll(func() {
 		if skipCRDReconciliation {
 			Skip("Skipping MonitorGroup CRD reconciliation tests: UPTIME_ROBOT_API_KEY not set")
 		}
-
-		apiKey := os.Getenv("UPTIME_ROBOT_API_KEY")
-		debugLog("Setting up Account for MonitorGroup tests with testRunID: %s", testRunID)
-
-		By("creating Secret with API key for MonitorGroup tests")
-		secretYAML := fmt.Sprintf(`
-apiVersion: v1
-kind: Secret
-metadata:
-  name: uptime-robot-e2e-mg
-  namespace: %s
-type: Opaque
-stringData:
-  apiKey: %s
-`, namespace, apiKey)
-		debugLog("Applying Secret for MonitorGroup tests (name: uptime-robot-e2e-mg, namespace: %s)", namespace)
-		cmd := exec.Command("kubectl", "apply", "-f", "-")
-		cmd.Stdin = strings.NewReader(secretYAML)
-		output, err := utils.Run(cmd)
-		if err != nil {
-			debugLog("Failed to create Secret: %v, output: %s", err, output)
-		} else {
-			debugLog("Secret created successfully: %s", output)
-		}
-		Expect(err).NotTo(HaveOccurred())
-
-		By("creating Account resource for MonitorGroup tests")
-		By("ensuring webhook endpoint is ready for MonitorGroup tests")
-		waitForWebhookEndpointReady()
-
-		accountYAML := fmt.Sprintf(`
-apiVersion: uptimerobot.com/v1alpha1
-kind: Account
-metadata:
-  name: e2e-account-mg-%s
-spec:
-  isDefault: true
-  apiKeySecretRef:
-    name: uptime-robot-e2e-mg
-    key: apiKey
-`, testRunID)
-		debugLog("Applying Account YAML:\n%s", accountYAML)
-		output, err = applyYAMLWithWebhookRetry("Account", accountYAML)
-		if err != nil {
-			debugLog("Failed to create Account: %v, output: %s", err, output)
-		} else {
-			debugLog("Account created successfully: %s", output)
-		}
-		Expect(err).NotTo(HaveOccurred())
-
-		// Wait for Account to be ready
-		debugLog("Waiting for Account e2e-account-mg-%s to become ready", testRunID)
-		waitForAccountReady(fmt.Sprintf("e2e-account-mg-%s", testRunID))
-		debugLog("Account e2e-account-mg-%s is ready", testRunID)
-
-		By("getting the first contact ID from Account status")
-		cmd = exec.Command("kubectl", "get", "account",
-			fmt.Sprintf("e2e-account-mg-%s", testRunID),
-			"-o", "jsonpath={.status.alertContacts[0].id}")
-		contactID, err := utils.Run(cmd)
-		if err != nil {
-			debugLog("Failed to get contact ID: %v", err)
-		} else {
-			debugLog("Got contact ID: %s", contactID)
-		}
-		Expect(err).NotTo(HaveOccurred())
-		Expect(contactID).NotTo(BeEmpty(), "Account should have at least one alert contact")
-
-		By("creating a default Contact resource for MonitorGroup tests")
-		contactYAML := fmt.Sprintf(`
-apiVersion: uptimerobot.com/v1alpha1
-kind: Contact
-metadata:
-  name: e2e-default-contact-mg-%s
-spec:
-  isDefault: true
-  contact:
-    id: "%s"
-`, testRunID, contactID)
-		debugLog("Applying Contact YAML:\n%s", contactYAML)
-		cmd = exec.Command("kubectl", "apply", "-f", "-")
-		cmd.Stdin = strings.NewReader(contactYAML)
-		output, err = utils.Run(cmd)
-		if err != nil {
-			debugLog("Failed to create Contact: %v, output: %s", err, output)
-		} else {
-			debugLog("Contact created successfully: %s", output)
-		}
-		Expect(err).NotTo(HaveOccurred())
-
-		By("waiting for Contact to become ready")
-		Eventually(func(g Gomega) {
-			cmd := exec.Command("kubectl", "get", "contact",
-				fmt.Sprintf("e2e-default-contact-mg-%s", testRunID),
-				"-o", "jsonpath={.status.ready}")
-			output, err := utils.Run(cmd)
-			if err != nil {
-				debugLog("Failed to get Contact: %v", err)
-			} else {
-				debugLog("Contact status ready=%s", output)
-			}
-			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(output).To(Equal("true"))
-		}, 1*time.Minute, 5*time.Second).Should(Succeed())
-		debugLog("Contact e2e-default-contact-mg-%s is ready", testRunID)
+		ensureE2EInfra()
+		ensureSharedAccountAndContact()
 	})
 
 	AfterAll(func() {
@@ -154,17 +52,7 @@ spec:
 			return
 		}
 
-		By("cleaning up Contact resource for MonitorGroup tests")
-		cmd := exec.Command("kubectl", "delete", "contact", fmt.Sprintf("e2e-default-contact-mg-%s", testRunID), "--ignore-not-found=true")
-		_, _ = utils.Run(cmd)
-
-		By("cleaning up Account resource for MonitorGroup tests")
-		cmd = exec.Command("kubectl", "delete", "account", fmt.Sprintf("e2e-account-mg-%s", testRunID), "--ignore-not-found=true")
-		_, _ = utils.Run(cmd)
-
-		By("cleaning up Secret for MonitorGroup tests")
-		cmd = exec.Command("kubectl", "delete", "secret", "uptime-robot-e2e-mg", "-n", namespace, "--ignore-not-found=true")
-		_, _ = utils.Run(cmd)
+		By("monitorgroup suite cleanup completed")
 	})
 
 	Context("Basic MonitorGroup lifecycle", func() {
@@ -187,11 +75,11 @@ metadata:
   namespace: %s
 spec:
   account:
-    name: e2e-account-mg-%s
+    name: %s
   friendlyName: "E2E Test Group %s"
   syncInterval: 24h
   prune: true
-`, monitorGroupName, namespace, testRunID, testRunID)
+`, monitorGroupName, namespace, accountName, testRunID)
 
 			debugLog("Applying MonitorGroup YAML:\n%s", monitorGroupYAML)
 			cmd := exec.Command("kubectl", "apply", "-f", "-")
@@ -269,10 +157,10 @@ metadata:
   namespace: %s
 spec:
   account:
-    name: e2e-account-mg-%s
+    name: %s
   friendlyName: "E2E Test Group Original %s"
   prune: true
-`, monitorGroupName, namespace, testRunID, testRunID)
+`, monitorGroupName, namespace, accountName, testRunID)
 
 			cmd := exec.Command("kubectl", "apply", "-f", "-")
 			cmd.Stdin = strings.NewReader(monitorGroupYAML)
@@ -306,10 +194,10 @@ metadata:
   namespace: %s
 spec:
   account:
-    name: e2e-account-mg-%s
+    name: %s
   friendlyName: "E2E Test Group Updated %s"
   prune: true
-`, monitorGroupName, namespace, testRunID, testRunID)
+`, monitorGroupName, namespace, accountName, testRunID)
 
 			cmd = exec.Command("kubectl", "apply", "-f", "-")
 			cmd.Stdin = strings.NewReader(updatedYAML)
@@ -372,10 +260,10 @@ metadata:
   namespace: %s
 spec:
   account:
-    name: e2e-account-mg-%s
+    name: %s
   friendlyName: "E2E Test Group Delete %s"
   prune: true
-`, monitorGroupName, namespace, testRunID, testRunID)
+`, monitorGroupName, namespace, accountName, testRunID)
 
 			cmd := exec.Command("kubectl", "apply", "-f", "-")
 			cmd.Stdin = strings.NewReader(monitorGroupYAML)
@@ -413,28 +301,7 @@ spec:
 
 			By("verifying MonitorGroup is deleted from UptimeRobot API")
 			apiKey := os.Getenv("UPTIME_ROBOT_API_KEY")
-			client := uptimerobot.NewClient(apiKey)
-
-			Eventually(func(g Gomega) {
-				groups, err := client.EnumerateGroupsFromBackend(context.Background())
-				g.Expect(err).NotTo(HaveOccurred())
-
-				found := false
-				groupName := fmt.Sprintf("E2E Test Group Delete %s", testRunID)
-				for _, group := range groups {
-					if group.Name == groupName {
-						found = true
-						debugLog("MonitorGroup still exists in UptimeRobot API: %s (ID: %d)", group.Name, group.ID)
-						break
-					}
-				}
-
-				if !found {
-					debugLog("MonitorGroup successfully deleted from UptimeRobot API: %s", groupName)
-				}
-
-				g.Expect(found).To(BeFalse(), "MonitorGroup should be deleted from UptimeRobot API")
-			}, 30*time.Second, 5*time.Second).Should(Succeed())
+			WaitForMonitorGroupDeletedFromAPI(apiKey, strings.TrimSpace(groupID))
 		})
 	})
 
@@ -463,12 +330,12 @@ metadata:
   namespace: %s
 spec:
   account:
-    name: e2e-account-mg-%s
+    name: %s
   monitor:
     name: "E2E Test Monitor For Group %s"
     url: "https://example-group-test-%s.com"
     type: HTTPS
-`, monitorName, namespace, testRunID, testRunID, testRunID)
+`, monitorName, namespace, accountName, testRunID, testRunID)
 
 			cmd := exec.Command("kubectl", "apply", "-f", "-")
 			cmd.Stdin = strings.NewReader(monitorYAML)
@@ -493,12 +360,12 @@ metadata:
   namespace: %s
 spec:
   account:
-    name: e2e-account-mg-%s
+    name: %s
   friendlyName: "E2E Test Group With Monitors %s"
   prune: true
   monitors:
     - name: %s
-`, monitorGroupName, namespace, testRunID, testRunID, monitorName)
+`, monitorGroupName, namespace, accountName, testRunID, monitorName)
 
 			cmd = exec.Command("kubectl", "apply", "-f", "-")
 			cmd.Stdin = strings.NewReader(monitorGroupYAML)
