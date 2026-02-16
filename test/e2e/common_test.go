@@ -37,6 +37,7 @@ const (
 	e2ePollInterval = 5 * time.Second
 	e2ePollTimeout  = 3 * time.Minute
 	defaultAPIURL   = "https://api.uptimerobot.com/v3"
+	envBoolTrue     = "true"
 )
 
 // testRunID is a unique identifier for this test run to avoid conflicts.
@@ -46,6 +47,149 @@ var testRunID = fmt.Sprintf("e2e-%d", time.Now().UnixNano())
 // skipCRDReconciliation determines if CRD reconciliation tests should be skipped
 // Tests require UPTIME_ROBOT_API_KEY environment variable to be set
 var skipCRDReconciliation = os.Getenv("UPTIME_ROBOT_API_KEY") == ""
+
+var (
+	e2eSkipSetup     = envBool("E2E_SKIP_SETUP")
+	e2eKeepResources = envBool("E2E_KEEP_RESOURCES")
+
+	sharedSecretName  = "uptime-robot-e2e"
+	sharedAccountName = fmt.Sprintf("e2e-account-%s", testRunID)
+	sharedContactName = fmt.Sprintf("e2e-default-contact-%s", testRunID)
+
+	e2eInfraReady      bool
+	sharedFixtureReady bool
+)
+
+func envBool(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
+	case "1", envBoolTrue, "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+func ensureE2EInfra() {
+	if e2eInfraReady {
+		return
+	}
+
+	By("ensuring manager namespace exists")
+	cmd := exec.Command("kubectl", "get", "ns", namespace)
+	_, err := utils.Run(cmd)
+	if err != nil {
+		cmd = exec.Command("kubectl", "create", "ns", namespace)
+		out, runErr := utils.Run(cmd)
+		Expect(runErr).NotTo(HaveOccurred(), "Failed to create namespace: %s", out)
+	}
+
+	By("labeling the namespace to enforce the restricted security policy")
+	cmd = exec.Command("kubectl", "label", "--overwrite", "ns", namespace,
+		"pod-security.kubernetes.io/enforce=restricted")
+	out, err := utils.Run(cmd)
+	Expect(err).NotTo(HaveOccurred(), "Failed to label namespace: %s", out)
+
+	if !e2eSkipSetup {
+		By("installing CRDs")
+		cmd = exec.Command("make", "install")
+		out, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to install CRDs: %s", out)
+
+		By("deploying the controller-manager")
+		cmd = exec.Command("make", "deploy", fmt.Sprintf("IMG=%s", projectImage))
+		out, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager: %s", out)
+	}
+
+	By("ensuring webhook endpoint is ready")
+	waitForWebhookEndpointReady()
+	e2eInfraReady = true
+}
+
+func ensureSharedAccountAndContact() {
+	if sharedFixtureReady {
+		return
+	}
+
+	apiKey := os.Getenv("UPTIME_ROBOT_API_KEY")
+	Expect(apiKey).NotTo(BeEmpty(), "UPTIME_ROBOT_API_KEY must be set for e2e tests")
+
+	By("ensuring shared API key secret exists")
+	secretYAML := fmt.Sprintf(`
+apiVersion: v1
+kind: Secret
+metadata:
+  name: %s
+  namespace: %s
+type: Opaque
+stringData:
+  apiKey: %s
+`, sharedSecretName, namespace, apiKey)
+	cmd := exec.Command("kubectl", "apply", "-f", "-")
+	cmd.Stdin = strings.NewReader(secretYAML)
+	out, err := utils.Run(cmd)
+	Expect(err).NotTo(HaveOccurred(), "Failed to create API key secret: %s", out)
+
+	By("ensuring shared Account exists")
+	accountYAML := fmt.Sprintf(`
+apiVersion: uptimerobot.com/v1alpha1
+kind: Account
+metadata:
+  name: %s
+spec:
+  isDefault: true
+  apiKeySecretRef:
+    name: %s
+    key: apiKey
+`, sharedAccountName, sharedSecretName)
+	out, err = applyYAMLWithWebhookRetry("Account", accountYAML)
+	Expect(err).NotTo(HaveOccurred(), "Failed to create Account: %s", out)
+	waitForAccountReady(sharedAccountName)
+
+	By("ensuring shared default Contact exists")
+	cmd = exec.Command("kubectl", "get", "account", sharedAccountName, "-o", "jsonpath={.status.alertContacts[0].id}")
+	contactID, err := utils.Run(cmd)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(strings.TrimSpace(contactID)).NotTo(BeEmpty(), "Account should have at least one alert contact")
+
+	contactYAML := fmt.Sprintf(`
+apiVersion: uptimerobot.com/v1alpha1
+kind: Contact
+metadata:
+  name: %s
+spec:
+  isDefault: true
+  account:
+    name: %s
+  contact:
+    id: "%s"
+`, sharedContactName, sharedAccountName, strings.TrimSpace(contactID))
+	out, err = applyYAMLWithWebhookRetry("Contact", contactYAML)
+	Expect(err).NotTo(HaveOccurred(), "Failed to create Contact: %s", out)
+
+	Eventually(func(g Gomega) {
+		cmd := exec.Command("kubectl", "get", "contact", sharedContactName, "-o", "jsonpath={.status.ready}")
+		ready, err := utils.Run(cmd)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(strings.TrimSpace(ready)).To(Equal("true"))
+	}, 1*time.Minute, 5*time.Second).Should(Succeed())
+
+	sharedFixtureReady = true
+}
+
+func cleanupSharedAccountAndContact() {
+	if e2eKeepResources {
+		return
+	}
+
+	cmd := exec.Command("kubectl", "delete", "contact", sharedContactName, "--ignore-not-found=true")
+	_, _ = utils.Run(cmd)
+	cmd = exec.Command("kubectl", "delete", "account", sharedAccountName, "--ignore-not-found=true")
+	_, _ = utils.Run(cmd)
+	cmd = exec.Command("kubectl", "delete", "secret", sharedSecretName, "-n", namespace, "--ignore-not-found=true")
+	_, _ = utils.Run(cmd)
+	sharedFixtureReady = false
+}
 
 // Common helper functions for monitor tests
 

@@ -36,39 +36,13 @@ var _ = Describe("Account and Contact Resources", Ordered, Label("account", "con
 			Skip("Skipping Account/Contact tests: UPTIME_ROBOT_API_KEY not set")
 		}
 
-		By("ensuring manager namespace exists")
-		cmd := exec.Command("kubectl", "get", "ns", namespace)
-		_, err := utils.Run(cmd)
-		if err != nil {
-			cmd = exec.Command("kubectl", "create", "ns", namespace)
-			out, runErr := utils.Run(cmd)
-			Expect(runErr).NotTo(HaveOccurred(), "Failed to create namespace: %s", out)
-		}
-
-		By("labeling the namespace to enforce the restricted security policy")
-		cmd = exec.Command("kubectl", "label", "--overwrite", "ns", namespace,
-			"pod-security.kubernetes.io/enforce=restricted")
-		out, err := utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to label namespace: %s", out)
-
-		By("installing CRDs")
-		cmd = exec.Command("make", "install")
-		out, err = utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to install CRDs: %s", out)
-
-		By("deploying the controller-manager")
-		cmd = exec.Command("make", "deploy", fmt.Sprintf("IMG=%s", projectImage))
-		out, err = utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager: %s", out)
-
-		By("ensuring webhook endpoint is ready")
-		waitForWebhookEndpointReady()
+		ensureE2EInfra()
 
 		By("creating the API key secret")
 		apiKey := os.Getenv("UPTIME_ROBOT_API_KEY")
 		Expect(apiKey).NotTo(BeEmpty(), "UPTIME_ROBOT_API_KEY must be set for Account/Contact tests")
 		// Delete existing secret from a previous run so create succeeds
-		cmd = exec.Command("kubectl", "delete", "secret", "uptime-robot-e2e", "-n", namespace, "--ignore-not-found=true")
+		cmd := exec.Command("kubectl", "delete", "secret", "uptime-robot-e2e", "-n", namespace, "--ignore-not-found=true")
 		_, _ = utils.Run(cmd)
 		// Use kubectl apply with stdin to avoid exposing API key in command line logs
 		secretYAML := fmt.Sprintf(`
@@ -83,7 +57,7 @@ stringData:
 `, namespace, apiKey)
 		cmd = exec.Command("kubectl", "apply", "-f", "-")
 		cmd.Stdin = strings.NewReader(secretYAML)
-		out, err = utils.Run(cmd)
+		out, err := utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to create API key secret: %s", out)
 	})
 

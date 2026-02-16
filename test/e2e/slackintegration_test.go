@@ -37,70 +37,8 @@ var _ = Describe("SlackIntegration CRD Reconciliation", Ordered, Label("slackint
 			Skip("Skipping SlackIntegration tests: UPTIME_ROBOT_SLACK_WEBHOOK_URL not set")
 		}
 
-		By("ensuring manager namespace exists")
-		cmd := exec.Command("kubectl", "get", "ns", namespace)
-		_, err := utils.Run(cmd)
-		if err != nil {
-			cmd = exec.Command("kubectl", "create", "ns", namespace)
-			out, runErr := utils.Run(cmd)
-			Expect(runErr).NotTo(HaveOccurred(), "Failed to create namespace: %s", out)
-		}
-
-		By("labeling the namespace to enforce the restricted security policy")
-		cmd = exec.Command("kubectl", "label", "--overwrite", "ns", namespace,
-			"pod-security.kubernetes.io/enforce=restricted")
-		out, err := utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to label namespace: %s", out)
-
-		By("installing CRDs")
-		cmd = exec.Command("make", "install")
-		out, err = utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to install CRDs: %s", out)
-
-		By("deploying the controller-manager")
-		cmd = exec.Command("make", "deploy", fmt.Sprintf("IMG=%s", projectImage))
-		out, err = utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager: %s", out)
-
-		By("ensuring webhook endpoint is ready")
-		waitForWebhookEndpointReady()
-
-		By("creating account API key secret")
-		apiKey := os.Getenv("UPTIME_ROBOT_API_KEY")
-		cmd = exec.Command("kubectl", "delete", "secret", "uptime-robot-e2e", "-n", namespace, "--ignore-not-found=true")
-		_, _ = utils.Run(cmd)
-		secretYAML := fmt.Sprintf(`
-apiVersion: v1
-kind: Secret
-metadata:
-  name: uptime-robot-e2e
-  namespace: %s
-type: Opaque
-stringData:
-  apiKey: %s
-`, namespace, apiKey)
-		cmd = exec.Command("kubectl", "apply", "-f", "-")
-		cmd.Stdin = strings.NewReader(secretYAML)
-		out, err = utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to create API key secret: %s", out)
-
-		By("creating Account resource")
-		accountYAML := fmt.Sprintf(`
-apiVersion: uptimerobot.com/v1alpha1
-kind: Account
-metadata:
-  name: e2e-account-%s
-spec:
-  isDefault: true
-  apiKeySecretRef:
-    name: uptime-robot-e2e
-    key: apiKey
-`, testRunID)
-		out, err = applyYAMLWithWebhookRetry("Account", accountYAML)
-		Expect(err).NotTo(HaveOccurred(), "Failed to create Account: %s", out)
-
-		By("waiting for Account to become ready")
-		waitForAccountReady(fmt.Sprintf("e2e-account-%s", testRunID))
+		ensureE2EInfra()
+		ensureSharedAccountAndContact()
 	})
 
 	AfterAll(func() {
@@ -110,10 +48,6 @@ spec:
 		cmd := exec.Command("kubectl", "delete", "slackintegration", fmt.Sprintf("e2e-slackintegration-%s", testRunID), "-n", namespace, "--ignore-not-found=true")
 		_, _ = utils.Run(cmd)
 		cmd = exec.Command("kubectl", "delete", "secret", fmt.Sprintf("e2e-slack-webhook-%s", testRunID), "-n", namespace, "--ignore-not-found=true")
-		_, _ = utils.Run(cmd)
-		cmd = exec.Command("kubectl", "delete", "account", fmt.Sprintf("e2e-account-%s", testRunID), "--ignore-not-found=true")
-		_, _ = utils.Run(cmd)
-		cmd = exec.Command("kubectl", "delete", "secret", "uptime-robot-e2e", "-n", namespace, "--ignore-not-found=true")
 		_, _ = utils.Run(cmd)
 	})
 
