@@ -52,12 +52,14 @@ var (
 	e2eSkipSetup     = envBool("E2E_SKIP_SETUP")
 	e2eKeepResources = envBool("E2E_KEEP_RESOURCES")
 
-	sharedSecretName  = "uptime-robot-e2e"
-	sharedAccountName = fmt.Sprintf("e2e-account-%s", testRunID)
-	sharedContactName = fmt.Sprintf("e2e-default-contact-%s", testRunID)
+	sharedSecretName  = fmt.Sprintf("uptime-robot-e2e-shared-%s", testRunID)
+	sharedAccountName = fmt.Sprintf("e2e-shared-account-%s", testRunID)
+	sharedContactName = fmt.Sprintf("e2e-shared-contact-%s", testRunID)
+	legacySecretName  = "uptime-robot-e2e"
+	legacyAccountName = fmt.Sprintf("e2e-account-%s", testRunID)
+	legacyContactName = fmt.Sprintf("e2e-default-contact-%s", testRunID)
 
-	e2eInfraReady      bool
-	sharedFixtureReady bool
+	e2eInfraReady bool
 )
 
 func envBool(key string) bool {
@@ -107,10 +109,6 @@ func ensureE2EInfra() {
 }
 
 func ensureSharedAccountAndContact() {
-	if sharedFixtureReady {
-		return
-	}
-
 	apiKey := os.Getenv("UPTIME_ROBOT_API_KEY")
 	Expect(apiKey).NotTo(BeEmpty(), "UPTIME_ROBOT_API_KEY must be set for e2e tests")
 
@@ -174,7 +172,53 @@ spec:
 		g.Expect(strings.TrimSpace(ready)).To(Equal("true"))
 	}, 1*time.Minute, 5*time.Second).Should(Succeed())
 
-	sharedFixtureReady = true
+	By("ensuring legacy-compatible API key secret exists")
+	legacySecretYAML := fmt.Sprintf(`
+apiVersion: v1
+kind: Secret
+metadata:
+  name: %s
+  namespace: %s
+type: Opaque
+stringData:
+  apiKey: %s
+`, legacySecretName, namespace, apiKey)
+	cmd = exec.Command("kubectl", "apply", "-f", "-")
+	cmd.Stdin = strings.NewReader(legacySecretYAML)
+	out, err = utils.Run(cmd)
+	Expect(err).NotTo(HaveOccurred(), "Failed to create legacy API key secret: %s", out)
+
+	By("ensuring legacy-compatible Account exists")
+	legacyAccountYAML := fmt.Sprintf(`
+apiVersion: uptimerobot.com/v1alpha1
+kind: Account
+metadata:
+  name: %s
+spec:
+  isDefault: false
+  apiKeySecretRef:
+    name: %s
+    key: apiKey
+`, legacyAccountName, legacySecretName)
+	out, err = applyYAMLWithWebhookRetry("Account", legacyAccountYAML)
+	Expect(err).NotTo(HaveOccurred(), "Failed to create legacy Account: %s", out)
+	waitForAccountReady(legacyAccountName)
+
+	By("ensuring legacy-compatible Contact exists")
+	legacyContactYAML := fmt.Sprintf(`
+apiVersion: uptimerobot.com/v1alpha1
+kind: Contact
+metadata:
+  name: %s
+spec:
+  isDefault: false
+  account:
+    name: %s
+  contact:
+    id: "%s"
+`, legacyContactName, legacyAccountName, strings.TrimSpace(contactID))
+	out, err = applyYAMLWithWebhookRetry("Contact", legacyContactYAML)
+	Expect(err).NotTo(HaveOccurred(), "Failed to create legacy Contact: %s", out)
 }
 
 func cleanupSharedAccountAndContact() {
@@ -188,7 +232,12 @@ func cleanupSharedAccountAndContact() {
 	_, _ = utils.Run(cmd)
 	cmd = exec.Command("kubectl", "delete", "secret", sharedSecretName, "-n", namespace, "--ignore-not-found=true")
 	_, _ = utils.Run(cmd)
-	sharedFixtureReady = false
+	cmd = exec.Command("kubectl", "delete", "contact", legacyContactName, "--ignore-not-found=true")
+	_, _ = utils.Run(cmd)
+	cmd = exec.Command("kubectl", "delete", "account", legacyAccountName, "--ignore-not-found=true")
+	_, _ = utils.Run(cmd)
+	cmd = exec.Command("kubectl", "delete", "secret", legacySecretName, "-n", namespace, "--ignore-not-found=true")
+	_, _ = utils.Run(cmd)
 }
 
 // Common helper functions for monitor tests

@@ -88,35 +88,45 @@ spec:
 			Expect(monitorID).NotTo(BeEmpty(), "Monitor should have ID in status")
 
 			By("verifying monitor status conditions, observedGeneration and lastSyncedTime")
-			cmd := exec.Command("kubectl", "get", "monitor", monitorName,
-				"-o", "jsonpath={.status.observedGeneration}")
-			observedGeneration, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(strings.TrimSpace(observedGeneration)).NotTo(BeEmpty())
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "monitor", monitorName,
+					"-o", "jsonpath={.status.observedGeneration}")
+				observedGeneration, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(strings.TrimSpace(observedGeneration)).NotTo(BeEmpty())
+			}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
 
-			cmd = exec.Command("kubectl", "get", "monitor", monitorName,
-				"-o", "jsonpath={.status.lastSyncedTime}")
-			lastSyncedTime, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(strings.TrimSpace(lastSyncedTime)).NotTo(BeEmpty())
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "monitor", monitorName,
+					"-o", "jsonpath={.status.lastSyncedTime}")
+				lastSyncedTime, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(strings.TrimSpace(lastSyncedTime)).NotTo(BeEmpty())
+			}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
 
-			cmd = exec.Command("kubectl", "get", "monitor", monitorName,
-				"-o", "jsonpath={.status.conditions[?(@.type==\"Ready\")].status}")
-			readyStatus, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(readyStatus).To(Equal("True"))
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "monitor", monitorName,
+					"-o", "jsonpath={.status.conditions[?(@.type==\"Ready\")].status}")
+				readyStatus, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(readyStatus).To(Equal("True"))
+			}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
 
-			cmd = exec.Command("kubectl", "get", "monitor", monitorName,
-				"-o", "jsonpath={.status.conditions[?(@.type==\"Synced\")].status}")
-			syncedStatus, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(syncedStatus).To(Equal("True"))
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "monitor", monitorName,
+					"-o", "jsonpath={.status.conditions[?(@.type==\"Synced\")].status}")
+				syncedStatus, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(syncedStatus).To(Equal("True"))
+			}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
 
-			cmd = exec.Command("kubectl", "get", "monitor", monitorName,
-				"-o", "jsonpath={.status.conditions[?(@.type==\"Error\")].status}")
-			errorStatus, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(errorStatus).To(Equal("False"))
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "monitor", monitorName,
+					"-o", "jsonpath={.status.conditions[?(@.type==\"Error\")].status}")
+				errorStatus, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(errorStatus).To(Equal("False"))
+			}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
 
 			By("verifying monitor fields in UptimeRobot API")
 			apiKey := os.Getenv("UPTIME_ROBOT_API_KEY")

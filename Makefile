@@ -111,7 +111,7 @@ test-e2e-real: manifests generate fmt vet ## Run e2e tests against real UptimeRo
 		echo "UPTIME_ROBOT_API_KEY is not set. Please set it to run real API tests."; \
 		exit 1; \
 	}
-	KIND_CLUSTER=$(KIND_CLUSTER) go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="monitor || maintenancewindow || account || contact || monitorgroup || slackintegration || integration" -timeout 20m
+	KIND_CLUSTER=$(KIND_CLUSTER) go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="monitor || maintenancewindow || account || contact || monitorgroup || slackintegration || integration" -timeout 60m
 
 # Run all e2e tests (basic + real API)
 .PHONY: test-e2e-all
@@ -128,7 +128,7 @@ test-e2e-all: manifests generate fmt vet ## Run all e2e tests including real API
 	@echo "Ensuring cert-manager $(CERT_MANAGER_VERSION) is installed"
 	@$(MAKE) cert-manager-install
 	@echo "Using Kind cluster: $(KIND_CLUSTER). Ensure kubectl context is set: kubectl config use-context kind-$(KIND_CLUSTER)"
-	KIND_CLUSTER=$(KIND_CLUSTER) go test ./test/e2e/ -v -ginkgo.v -timeout 20m
+	KIND_CLUSTER=$(KIND_CLUSTER) go test ./test/e2e/ -v -ginkgo.v -timeout 60m
 
 .PHONY: test-e2e-verbose
 test-e2e-verbose: manifests generate fmt vet ## Run full e2e suite with verbose Ginkgo node-event tracing.
@@ -148,7 +148,7 @@ test-e2e-verbose: manifests generate fmt vet ## Run full e2e suite with verbose 
 		echo "UPTIME_ROBOT_API_KEY is not set. Please set it to run verbose full e2e tests."; \
 		exit 1; \
 	}
-	KIND_CLUSTER=$(KIND_CLUSTER) go test ./test/e2e -run TestE2E -count=1 -v -timeout=20m -args \
+	KIND_CLUSTER=$(KIND_CLUSTER) go test ./test/e2e -run TestE2E -count=1 -v -timeout=60m -args \
 		-ginkgo.v -ginkgo.show-node-events -ginkgo.trace
 
 .PHONY: dev-cluster

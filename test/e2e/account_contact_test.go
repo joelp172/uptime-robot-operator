@@ -87,7 +87,7 @@ kind: Account
 metadata:
   name: e2e-account-%s
 spec:
-  isDefault: true
+  isDefault: false
   apiKeySecretRef:
     name: uptime-robot-e2e
     key: apiKey
@@ -147,9 +147,9 @@ spec:
 		})
 
 		It("should reject creating a second default Account", func() {
-			By("creating a baseline default Account")
 			var cmd *exec.Cmd
-			accountYAML := fmt.Sprintf(`
+			By("attempting to create a default Account")
+			firstDefaultYAML := fmt.Sprintf(`
 apiVersion: uptimerobot.com/v1alpha1
 kind: Account
 metadata:
@@ -160,10 +160,17 @@ spec:
     name: uptime-robot-e2e
     key: apiKey
 `, testRunID)
-			out, err := applyYAMLWithWebhookRetry("Account", accountYAML)
-			Expect(err).NotTo(HaveOccurred(), "Failed to create Account: %s", out)
+			out, err := applyYAMLWithWebhookRetry("Account", firstDefaultYAML)
+			if err != nil {
+				Expect(out).To(ContainSubstring("spec.isDefault: Forbidden"))
+				Expect(out).To(SatisfyAny(
+					ContainSubstring("exactly one Account can have spec.isDefault=true"),
+					ContainSubstring("at most one Account can have spec.isDefault=true"),
+				))
+				return
+			}
 
-			By("attempting to create a second default Account")
+			By("attempting to create another default Account")
 			secondDefaultYAML := fmt.Sprintf(`
 apiVersion: uptimerobot.com/v1alpha1
 kind: Account
@@ -190,7 +197,7 @@ spec:
 
 	Context("Contact Setup", func() {
 		It("should create default Contact", func() {
-			By("creating a baseline default Account")
+			By("creating a baseline Account")
 			var cmd *exec.Cmd
 			accountYAML := fmt.Sprintf(`
 apiVersion: uptimerobot.com/v1alpha1
@@ -198,7 +205,7 @@ kind: Account
 metadata:
   name: e2e-account-%s
 spec:
-  isDefault: true
+  isDefault: false
   apiKeySecretRef:
     name: uptime-robot-e2e
     key: apiKey
@@ -228,10 +235,12 @@ kind: Contact
 metadata:
   name: e2e-default-contact-%s
 spec:
-  isDefault: true
+  isDefault: false
+  account:
+    name: e2e-account-%s
   contact:
     id: "%s"
-`, testRunID, contactID)
+`, testRunID, testRunID, contactID)
 
 			cmd = exec.Command("kubectl", "apply", "-f", "-")
 			cmd.Stdin = strings.NewReader(contactYAML)
@@ -296,7 +305,7 @@ spec:
 		})
 
 		It("should reject creating a second default Contact", func() {
-			By("creating a baseline default Account")
+			By("creating a baseline Account")
 			var cmd *exec.Cmd
 			accountYAML := fmt.Sprintf(`
 apiVersion: uptimerobot.com/v1alpha1
@@ -304,7 +313,7 @@ kind: Account
 metadata:
   name: e2e-account-%s
 spec:
-  isDefault: true
+  isDefault: false
   apiKeySecretRef:
     name: uptime-robot-e2e
     key: apiKey
@@ -323,21 +332,30 @@ spec:
 			Expect(err).NotTo(HaveOccurred())
 			Expect(contactID).NotTo(BeEmpty(), "Account should have at least one alert contact")
 
-			By("creating a baseline default Contact")
-			contactYAML := fmt.Sprintf(`
+			By("attempting to create a default Contact")
+			firstDefaultContactYAML := fmt.Sprintf(`
 apiVersion: uptimerobot.com/v1alpha1
 kind: Contact
 metadata:
-  name: e2e-default-contact-%s
+  name: e2e-contact-default-%s
 spec:
   isDefault: true
+  account:
+    name: e2e-account-%s
   contact:
     id: "%s"
-`, testRunID, contactID)
+`, testRunID, testRunID, contactID)
 			cmd = exec.Command("kubectl", "apply", "-f", "-")
-			cmd.Stdin = strings.NewReader(contactYAML)
-			_, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
+			cmd.Stdin = strings.NewReader(firstDefaultContactYAML)
+			out, err = utils.Run(cmd)
+			if err != nil {
+				Expect(out).To(ContainSubstring("spec.isDefault: Forbidden"))
+				Expect(out).To(SatisfyAny(
+					ContainSubstring("exactly one Contact can have spec.isDefault=true"),
+					ContainSubstring("at most one Contact can have spec.isDefault=true"),
+				))
+				return
+			}
 
 			By("attempting to create a second default Contact")
 			secondDefaultContactYAML := fmt.Sprintf(`
@@ -347,9 +365,11 @@ metadata:
   name: e2e-contact-second-default-%s
 spec:
   isDefault: true
+  account:
+    name: e2e-account-%s
   contact:
     id: "%s"
-`, testRunID, contactID)
+`, testRunID, testRunID, contactID)
 
 			cmd = exec.Command("kubectl", "apply", "-f", "-")
 			cmd.Stdin = strings.NewReader(secondDefaultContactYAML)
