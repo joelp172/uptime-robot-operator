@@ -30,9 +30,7 @@ import (
 )
 
 var _ = Describe("Ingress Controller", Ordered, Label("integration", "ingress"), func() {
-	accountName := fmt.Sprintf("e2e-ingress-account-%s", testRunID)
-	contactName := fmt.Sprintf("e2e-ingress-contact-%s", testRunID)
-	secretName := fmt.Sprintf("e2e-ingress-secret-%s", testRunID)
+	accountName := sharedAccountName
 	ingressName := fmt.Sprintf("e2e-ingress-%s", testRunID)
 	monitorName := ingressName
 	monitorFriendlyName := fmt.Sprintf("E2E Ingress Monitor (%s)", testRunID)
@@ -68,99 +66,8 @@ var _ = Describe("Ingress Controller", Ordered, Label("integration", "ingress"),
 		apiKey = os.Getenv("UPTIME_ROBOT_API_KEY")
 		Expect(apiKey).NotTo(BeEmpty(), "UPTIME_ROBOT_API_KEY must be set for ingress e2e tests")
 
-		By("ensuring manager namespace exists")
-		cmd := exec.Command("kubectl", "get", "ns", namespace)
-		_, err := utils.Run(cmd)
-		if err != nil {
-			cmd = exec.Command("kubectl", "create", "ns", namespace)
-			out, runErr := utils.Run(cmd)
-			Expect(runErr).NotTo(HaveOccurred(), "Failed to create namespace: %s", out)
-		}
-
-		By("labeling the namespace to enforce the restricted security policy")
-		cmd = exec.Command("kubectl", "label", "--overwrite", "ns", namespace,
-			"pod-security.kubernetes.io/enforce=restricted")
-		out, err := utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to label namespace: %s", out)
-
-		By("installing CRDs")
-		cmd = exec.Command("make", "install")
-		out, err = utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to install CRDs: %s", out)
-
-		By("deploying the controller-manager")
-		cmd = exec.Command("make", "deploy", fmt.Sprintf("IMG=%s", projectImage))
-		out, err = utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager: %s", out)
-
-		By("ensuring webhook endpoint is ready")
-		waitForWebhookEndpointReady()
-
-		By("creating API key secret for ingress account")
-		cmd = exec.Command("kubectl", "delete", "secret", secretName, "-n", namespace, "--ignore-not-found=true")
-		_, _ = utils.Run(cmd)
-
-		secretYAML := fmt.Sprintf(`
-apiVersion: v1
-kind: Secret
-metadata:
-  name: %s
-  namespace: %s
-type: Opaque
-stringData:
-  apiKey: %s
-`, secretName, namespace, apiKey)
-		cmd = exec.Command("kubectl", "apply", "-f", "-")
-		cmd.Stdin = strings.NewReader(secretYAML)
-		out, err = utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to create ingress API key secret: %s", out)
-
-		By("creating account used by ingress-managed monitors")
-		accountYAML := fmt.Sprintf(`
-apiVersion: uptimerobot.com/v1alpha1
-kind: Account
-metadata:
-  name: %s
-spec:
-  isDefault: true
-  apiKeySecretRef:
-    name: %s
-    key: apiKey
-`, accountName, secretName)
-		out, err = applyYAMLWithWebhookRetry("Account", accountYAML)
-		Expect(err).NotTo(HaveOccurred(), "Failed to create ingress account: %s", out)
-
-		By("waiting for ingress account to become ready")
-		waitForAccountReady(accountName)
-
-		By("creating default Contact resource for ingress-managed monitors")
-		cmd = exec.Command("kubectl", "get", "account", accountName, "-o", "jsonpath={.status.alertContacts[0].id}")
-		contactID, err := utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(strings.TrimSpace(contactID)).NotTo(BeEmpty(), "Account should have at least one alert contact")
-
-		contactYAML := fmt.Sprintf(`
-apiVersion: uptimerobot.com/v1alpha1
-kind: Contact
-metadata:
-  name: %s
-spec:
-  isDefault: true
-  account:
-    name: %s
-  contact:
-    id: "%s"
-`, contactName, accountName, strings.TrimSpace(contactID))
-		out, err = applyYAMLWithWebhookRetry("Contact", contactYAML)
-		Expect(err).NotTo(HaveOccurred(), "Failed to create ingress default contact: %s", out)
-
-		By("waiting for ingress default contact to become ready")
-		Eventually(func(g Gomega) {
-			cmd := exec.Command("kubectl", "get", "contact", contactName, "-o", "jsonpath={.status.ready}")
-			ready, err := utils.Run(cmd)
-			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(ready).To(Equal("true"))
-		}, 3*time.Minute, 5*time.Second).Should(Succeed())
+		ensureE2EInfra()
+		ensureSharedAccountAndContact()
 	})
 
 	AfterAll(func() {
@@ -168,12 +75,6 @@ spec:
 		cmd := exec.Command("kubectl", "delete", "ingress", ingressName, "--ignore-not-found=true")
 		_, _ = utils.Run(cmd)
 		cmd = exec.Command("kubectl", "delete", "monitor", monitorName, "--ignore-not-found=true")
-		_, _ = utils.Run(cmd)
-		cmd = exec.Command("kubectl", "delete", "contact", contactName, "--ignore-not-found=true")
-		_, _ = utils.Run(cmd)
-		cmd = exec.Command("kubectl", "delete", "account", accountName, "--ignore-not-found=true")
-		_, _ = utils.Run(cmd)
-		cmd = exec.Command("kubectl", "delete", "secret", secretName, "-n", namespace, "--ignore-not-found=true")
 		_, _ = utils.Run(cmd)
 
 		if monitorID != "" {
