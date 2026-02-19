@@ -1018,7 +1018,13 @@ func (r *MonitorReconciler) handleAPIError(ctx context.Context, monitor *uptimer
 		r.Recorder.Event(monitor, "Warning", "SyncFailed", logMessage)
 	}
 
+	// Update status first to ensure conditions are persisted
+	if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
+		return ctrl.Result{}, updateErr
+	}
+
 	// Track retry count and apply exponential backoff for transient errors
+	// Update annotations after status to avoid overwriting status changes
 	retryCount := GetRetryCount(monitor.Annotations)
 	if IsTransientError(err) {
 		monitor.Annotations = IncrementRetryCount(monitor.Annotations)
@@ -1027,8 +1033,5 @@ func (r *MonitorReconciler) handleAPIError(ctx context.Context, monitor *uptimer
 		}
 	}
 
-	if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
-		return ctrl.Result{}, updateErr
-	}
 	return HandleReconcileError(err, retryCount)
 }
