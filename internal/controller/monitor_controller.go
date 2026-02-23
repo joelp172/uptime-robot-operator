@@ -623,14 +623,6 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
-	// Success - reset retry count if it exists
-	if _, exists := monitor.Annotations[AnnotationRetryCount]; exists {
-		ResetRetryCount(monitor.Annotations)
-		if err := r.Update(ctx, monitor); err != nil {
-			return ctrl.Result{}, err
-		}
-	}
-
 	SetReadyCondition(&monitor.Status.Conditions, true, ReasonReconcileSuccess, "Monitor reconciled successfully", monitor.Generation)
 	SetSyncedCondition(&monitor.Status.Conditions, true, ReasonSyncSuccess, "Successfully synced with UptimeRobot", monitor.Generation)
 	SetErrorCondition(&monitor.Status.Conditions, false, ReasonReconcileSuccess, "", monitor.Generation)

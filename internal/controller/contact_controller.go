@@ -153,14 +153,6 @@ func (r *ContactReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			return ctrl.Result{}, err
 		}
 
-		// Success - reset retry count if it exists
-		if _, exists := contact.Annotations[AnnotationRetryCount]; exists {
-			ResetRetryCount(contact.Annotations)
-			if err := r.Update(ctx, contact); err != nil {
-				return ctrl.Result{}, err
-			}
-		}
-
 		contact.Status.Ready = true
 		contact.Status.ID = id
 		SetReadyCondition(&contact.Status.Conditions, true, ReasonReconcileSuccess, "Contact reconciled successfully", contact.Generation)

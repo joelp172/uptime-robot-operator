@@ -146,14 +146,6 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		alertContacts = append(alertContacts, info)
 	}
 
-	// Success - reset retry count if it exists
-	if _, exists := account.Annotations[AnnotationRetryCount]; exists {
-		ResetRetryCount(account.Annotations)
-		if err := r.Update(ctx, account); err != nil {
-			return ctrl.Result{}, err
-		}
-	}
-
 	account.Status.Ready = true
 	account.Status.Email = email
 	account.Status.AlertContacts = alertContacts
