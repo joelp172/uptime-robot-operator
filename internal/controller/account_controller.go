@@ -109,10 +109,20 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		if r.Recorder != nil {
 			r.Recorder.Event(account, "Warning", "SyncFailed", msg)
 		}
+
+		// Track retry count and apply exponential backoff for transient errors
+		retryCount := GetRetryCount(account.Annotations)
+		if IsTransientError(err) {
+			account.Annotations = IncrementRetryCount(account.Annotations)
+			if updateErr := r.Update(ctx, account); updateErr != nil {
+				return ctrl.Result{}, updateErr
+			}
+		}
+
 		if updateErr := r.Status().Update(ctx, account); updateErr != nil {
 			return ctrl.Result{}, updateErr
 		}
-		return ctrl.Result{}, err
+		return HandleReconcileError(err, retryCount)
 	}
 
 	// Fetch alert contacts
