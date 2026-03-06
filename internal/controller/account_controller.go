@@ -114,9 +114,13 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		retryCount := GetRetryCount(account.Annotations)
 		if IsTransientError(err) {
 			account.Annotations = IncrementRetryCount(account.Annotations)
+			// Save status before r.Update, which refreshes the object from the server
+			// (clearing any in-memory status changes not yet persisted to the status subresource).
+			savedStatus := account.Status
 			if updateErr := r.Update(ctx, account); updateErr != nil {
 				return ctrl.Result{}, updateErr
 			}
+			account.Status = savedStatus
 		}
 
 		if updateErr := r.Status().Update(ctx, account); updateErr != nil {
