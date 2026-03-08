@@ -27,7 +27,7 @@ import (
 )
 
 // validateAccountRef checks that the referenced Account exists. When accountName
-// is empty the function verifies that at least one default Account is present.
+// is empty the function verifies that exactly one default Account is present.
 func validateAccountRef(ctx context.Context, c client.Reader, accountName string, fldPath *field.Path, kind string) *field.Error {
 	if accountName != "" {
 		account := &Account{}
@@ -45,13 +45,23 @@ func validateAccountRef(ctx context.Context, c client.Reader, accountName string
 	if err := c.List(ctx, list); err != nil {
 		return field.InternalError(fldPath, fmt.Errorf("listing accounts: %w", err))
 	}
+
+	defaultCount := 0
 	for i := range list.Items {
 		if list.Items[i].Spec.IsDefault {
-			return nil
+			defaultCount++
 		}
 	}
-	return field.Required(fldPath,
-		fmt.Sprintf("no account name specified and no default Account exists for %s", kind))
+
+	if defaultCount == 1 {
+		return nil
+	}
+	if defaultCount == 0 {
+		return field.Required(fldPath,
+			fmt.Sprintf("no account name specified and no default Account exists for %s", kind))
+	}
+	return field.Invalid(fldPath, accountName,
+		fmt.Sprintf("no account name specified and multiple default Accounts exist for %s", kind))
 }
 
 // invalidErr wraps a field.ErrorList in an apierrors.StatusError for the given kind and name.
