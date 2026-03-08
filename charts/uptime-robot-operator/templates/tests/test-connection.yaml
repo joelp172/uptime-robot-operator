@@ -12,7 +12,7 @@ spec:
   serviceAccountName: {{ include "uptime-robot-operator.serviceAccountName" . }}
   containers:
     - name: kubectl
-      image: bitnami/kubectl:1.30
+      image: alpine/kubectl:1.35.2
       command: ["/bin/sh", "-ec"]
       args:
         - |
