@@ -260,6 +260,22 @@ func main() {
 			setupLog.Error(err, "unable to create webhook", "webhook", "Contact")
 			os.Exit(1)
 		}
+		if err = (&uptimerobotv1.Monitor{}).SetupWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "Monitor")
+			os.Exit(1)
+		}
+		if err = (&uptimerobotv1.MaintenanceWindow{}).SetupWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "MaintenanceWindow")
+			os.Exit(1)
+		}
+		if err = (&uptimerobotv1.MonitorGroup{}).SetupWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "MonitorGroup")
+			os.Exit(1)
+		}
+		if err = (&uptimerobotv1.SlackIntegration{}).SetupWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "SlackIntegration")
+			os.Exit(1)
+		}
 	} else {
 		setupLog.Info("webhooks are disabled: webhook server will not listen")
 	}

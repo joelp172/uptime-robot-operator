@@ -44,3 +44,83 @@ webhooks:
     resources:
     - contacts
   sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-uptimerobot-com-v1alpha1-maintenancewindow
+  failurePolicy: Fail
+  name: vmaintenancewindow.uptimerobot.com
+  rules:
+  - apiGroups:
+    - uptimerobot.com
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - maintenancewindows
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-uptimerobot-com-v1alpha1-monitor
+  failurePolicy: Fail
+  name: vmonitor.uptimerobot.com
+  rules:
+  - apiGroups:
+    - uptimerobot.com
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - monitors
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-uptimerobot-com-v1alpha1-monitorgroup
+  failurePolicy: Fail
+  name: vmonitorgroup.uptimerobot.com
+  rules:
+  - apiGroups:
+    - uptimerobot.com
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - monitorgroups
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-uptimerobot-com-v1alpha1-slackintegration
+  failurePolicy: Fail
+  name: vslackintegration.uptimerobot.com
+  rules:
+  - apiGroups:
+    - uptimerobot.com
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - slackintegrations
+  sideEffects: None

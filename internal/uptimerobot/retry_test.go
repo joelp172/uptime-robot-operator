@@ -165,6 +165,7 @@ func TestDoWithRetry_Success(t *testing.T) {
 	}
 	if resp == nil {
 		t.Fatal("doWithRetry() response is nil")
+		return
 	}
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("doWithRetry() status = %d, want %d", resp.StatusCode, http.StatusOK)
@@ -205,6 +206,7 @@ func TestDoWithRetry_429WithRetryAfter(t *testing.T) {
 	}
 	if resp == nil {
 		t.Fatal("doWithRetry() response is nil")
+		return
 	}
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("doWithRetry() status = %d, want %d", resp.StatusCode, http.StatusOK)
@@ -254,6 +256,7 @@ func TestDoWithRetry_429ExponentialBackoff(t *testing.T) {
 	}
 	if resp == nil {
 		t.Fatal("doWithRetry() response is nil")
+		return
 	}
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("doWithRetry() status = %d, want %d", resp.StatusCode, http.StatusOK)
@@ -486,6 +489,7 @@ func TestDoWithRetry_POSTRequestWithBody(t *testing.T) {
 	}
 	if resp == nil {
 		t.Fatal("doWithRetry() response is nil")
+		return
 	}
 	if resp.StatusCode != http.StatusCreated {
 		t.Errorf("doWithRetry() status = %d, want %d", resp.StatusCode, http.StatusCreated)
@@ -547,6 +551,7 @@ func TestDoWithRetry_PATCHRequestWithBody(t *testing.T) {
 	}
 	if resp == nil {
 		t.Fatal("doWithRetry() response is nil")
+		return
 	}
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("doWithRetry() status = %d, want %d", resp.StatusCode, http.StatusOK)
