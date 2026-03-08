@@ -12,6 +12,8 @@ image:
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
   tag: ''
+  # If set, overrides tag and pins the image by digest (for example, sha256:abc123...).
+  digest: ''
 
 # Image pull secrets for private registries
 imagePullSecrets: []

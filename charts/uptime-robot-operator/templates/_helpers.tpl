@@ -73,6 +73,10 @@ Create the namespace to use
 Create the image string
 */}}
 {{- define "uptime-robot-operator.image" -}}
+{{- if .Values.image.digest -}}
+{{- printf "%s@%s" .Values.image.repository .Values.image.digest }}
+{{- else -}}
 {{- $tag := .Values.image.tag | default .Chart.AppVersion | default "latest" }}
 {{- printf "%s:%s" .Values.image.repository $tag }}
+{{- end -}}
 {{- end }}
