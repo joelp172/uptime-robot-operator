@@ -55,7 +55,7 @@ func NewClient(apiKey string) Client {
 
 	baseDelay := DefaultBaseDelay
 	if env := os.Getenv("UPTIME_ROBOT_BASE_DELAY"); env != "" {
-		if d, err := time.ParseDuration(env); err == nil && d >= 0 {
+		if d, err := time.ParseDuration(env); err == nil && d > 0 {
 			baseDelay = d
 		}
 	}
