@@ -38,6 +38,9 @@ serviceAccount:
 podAnnotations:
   kubectl.kubernetes.io/default-container: manager
 
+# Priority class name for the operator pod
+priorityClassName: ''
+
 # Pod security context
 podSecurityContext:
   runAsNonRoot: true
