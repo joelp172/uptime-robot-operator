@@ -620,8 +620,9 @@ func CreateMaintenanceWindow(ctx context.Context, name string, accountName strin
 // ReconcileMaintenanceWindow reconciles a MaintenanceWindow resource
 func ReconcileMaintenanceWindow(ctx context.Context, mw *uptimerobotv1.MaintenanceWindow) (reconcile.Result, error) {
 	reconciler := &MaintenanceWindowReconciler{
-		Client: k8sClient,
-		Scheme: k8sClient.Scheme(),
+		Client:    k8sClient,
+		APIReader: k8sClient,
+		Scheme:    k8sClient.Scheme(),
 	}
 	return reconciler.Reconcile(ctx, reconcile.Request{
 		NamespacedName: types.NamespacedName{

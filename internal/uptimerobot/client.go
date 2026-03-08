@@ -34,18 +34,37 @@ import (
 	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot/urtypes"
 )
 
+const apiMonitorType = "API"
+
 // NewClient creates a new UptimeRobot API v3 client.
+// The following environment variables can override retry defaults (useful for testing):
+//   - UPTIME_ROBOT_MAX_RETRIES: maximum number of retry attempts (positive integer)
+//   - UPTIME_ROBOT_BASE_DELAY: base delay between retries (Go duration string, e.g. "1ms")
 func NewClient(apiKey string) Client {
 	api := "https://api.uptimerobot.com/v3"
 	if env := os.Getenv("UPTIME_ROBOT_API"); env != "" {
 		api = strings.TrimSuffix(env, "/")
 	}
 
+	maxRetries := DefaultMaxRetries
+	if env := os.Getenv("UPTIME_ROBOT_MAX_RETRIES"); env != "" {
+		if n, err := strconv.Atoi(env); err == nil && n > 0 {
+			maxRetries = n
+		}
+	}
+
+	baseDelay := DefaultBaseDelay
+	if env := os.Getenv("UPTIME_ROBOT_BASE_DELAY"); env != "" {
+		if d, err := time.ParseDuration(env); err == nil && d > 0 {
+			baseDelay = d
+		}
+	}
+
 	return Client{
 		url:            api,
 		apiKey:         apiKey,
-		maxRetries:     DefaultMaxRetries,
-		baseDelay:      DefaultBaseDelay,
+		maxRetries:     maxRetries,
+		baseDelay:      baseDelay,
 		maxDelay:       DefaultMaxDelay,
 		jitterFraction: DefaultJitterFraction,
 	}
@@ -197,6 +216,8 @@ func (c Client) listAllMonitors(ctx context.Context) ([]MonitorResponse, error) 
 
 // buildCreateMonitorRequest converts internal types to v3 API request format.
 func (c Client) buildCreateMonitorRequest(monitor uptimerobotv1.MonitorValues, contacts uptimerobotv1.MonitorContacts) CreateMonitorRequest {
+	effectiveType := monitorTypeForRequest(monitor)
+
 	// Calculate grace period (default 60s, max 86400s)
 	gracePeriod := 60
 	if monitor.GracePeriod != nil {
@@ -212,7 +233,7 @@ func (c Client) buildCreateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 	req := CreateMonitorRequest{
 		FriendlyName: monitor.Name,
 		URL:          monitor.URL,
-		Type:         monitor.Type.ToAPIString(),
+		Type:         effectiveType,
 		Interval:     int(monitor.Interval.Seconds()),
 		Timeout:      int(monitor.Timeout.Seconds()),
 		GracePeriod:  gracePeriod,
@@ -254,7 +275,7 @@ func (c Client) buildCreateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 	}
 
 	// Handle DNS monitors - v3 API requires a config object with dnsRecords
-	if monitor.Type == urtypes.TypeDNS && monitor.DNS != nil {
+	if effectiveType == urtypes.APITypeDNS && monitor.DNS != nil {
 		req.Config = &MonitorConfig{
 			DNSRecords: &DNSRecordsConfig{
 				A:     monitor.DNS.A,
@@ -273,8 +294,16 @@ func (c Client) buildCreateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 	}
 
 	// Handle Heartbeat monitors - v3 API may require a config object
-	if monitor.Type == urtypes.TypeHeartbeat {
+	if effectiveType == urtypes.APITypeHeartbeat {
 		req.Config = &MonitorConfig{}
+	}
+
+	// Handle API assertions for CRD HTTPS monitors (mapped to upstream API type "API").
+	if monitor.APIAssertions != nil && len(monitor.APIAssertions.Checks) > 0 {
+		if req.Config == nil {
+			req.Config = &MonitorConfig{}
+		}
+		req.Config.APIAssertions = buildAPIAssertionsConfig(monitor.APIAssertions)
 	}
 
 	// Convert contacts to v3 format
@@ -320,6 +349,8 @@ func (c Client) buildCreateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 
 // buildUpdateMonitorRequest converts internal types to v3 API update request format.
 func (c Client) buildUpdateMonitorRequest(monitor uptimerobotv1.MonitorValues, contacts uptimerobotv1.MonitorContacts) UpdateMonitorRequest {
+	effectiveType := monitorTypeForRequest(monitor)
+
 	// Calculate grace period (default 60s, max 86400s)
 	gracePeriod := 60
 	if monitor.GracePeriod != nil {
@@ -335,15 +366,19 @@ func (c Client) buildUpdateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 	req := UpdateMonitorRequest{
 		FriendlyName: monitor.Name,
 		Interval:     int(monitor.Interval.Seconds()),
-		Timeout:      int(monitor.Timeout.Seconds()),
 		GracePeriod:  gracePeriod,
 		// Note: Status is not supported in v3 PATCH requests - use pause/resume endpoints instead
-		HTTPMethod: httpMethodToString(monitor.Method),
 	}
 
-	// UptimeRobot v3 rejects URL updates for DNS monitors.
-	if monitor.Type != urtypes.TypeDNS && monitor.Type != urtypes.TypeHeartbeat {
+	// UptimeRobot v3 rejects URL updates for DNS/Heartbeat/PING monitors.
+	if effectiveType != urtypes.APITypeDNS && effectiveType != urtypes.APITypeHeartbeat && effectiveType != urtypes.APITypePing {
 		req.URL = monitor.URL
+	}
+	if effectiveType == urtypes.APITypeHTTP || effectiveType == urtypes.APITypeKeyword || effectiveType == urtypes.APITypeAPI {
+		req.HTTPMethod = httpMethodToString(monitor.Method)
+	}
+	if effectiveType == urtypes.APITypeHTTP || effectiveType == urtypes.APITypeKeyword || effectiveType == urtypes.APITypePort || effectiveType == urtypes.APITypeAPI {
+		req.Timeout = int(monitor.Timeout.Seconds())
 	}
 
 	// Handle auth
@@ -381,7 +416,7 @@ func (c Client) buildUpdateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 	}
 
 	// Handle DNS monitors - v3 API requires a config object with dnsRecords
-	if monitor.Type == urtypes.TypeDNS && monitor.DNS != nil {
+	if effectiveType == urtypes.APITypeDNS && monitor.DNS != nil {
 		req.Config = &MonitorConfig{
 			DNSRecords: &DNSRecordsConfig{
 				A:     monitor.DNS.A,
@@ -400,8 +435,16 @@ func (c Client) buildUpdateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 	}
 
 	// Handle Heartbeat monitors - v3 API may require a config object
-	if monitor.Type == urtypes.TypeHeartbeat {
+	if effectiveType == urtypes.APITypeHeartbeat {
 		req.Config = &MonitorConfig{}
+	}
+
+	// Handle API assertions for CRD HTTPS monitors (mapped to upstream API type "API").
+	if monitor.APIAssertions != nil && len(monitor.APIAssertions.Checks) > 0 {
+		if req.Config == nil {
+			req.Config = &MonitorConfig{}
+		}
+		req.Config.APIAssertions = buildAPIAssertionsConfig(monitor.APIAssertions)
 	}
 
 	// Convert contacts to v3 format
@@ -586,35 +629,57 @@ func extractErrStatusBody(err error) []byte {
 
 // selectDuplicateMonitorCandidate returns a single safe duplicate target for 409 adoption.
 // Matching rules:
-// - name is required; URL-only adoption is not allowed.
-// - if URL is provided, both name and URL must match.
-// - if URL is omitted, name must match exactly one monitor.
+//   - Primary path: match by name (+ URL when provided), requiring a unique candidate.
+//   - Fallback path: if URL is provided and name matching yields none/ambiguous,
+//     allow adoption by unique URL + type (handles API duplicate rules where name can differ).
 func selectDuplicateMonitorCandidate(existing []MonitorResponse, desired uptimerobotv1.MonitorValues) (*MonitorResponse, bool) {
 	name := strings.TrimSpace(desired.Name)
-	if name == "" {
+	wantURL := normalizeURL(desired.URL)
+	wantType := strings.TrimSpace(monitorTypeForRequest(desired))
+
+	nameMatches := make([]MonitorResponse, 0, 1)
+	if name != "" {
+		for i := range existing {
+			m := existing[i]
+			if strings.TrimSpace(m.FriendlyName) != name {
+				continue
+			}
+			if wantURL != "" && normalizeURL(m.URL) != wantURL {
+				continue
+			}
+			nameMatches = append(nameMatches, m)
+			if len(nameMatches) > 1 {
+				break
+			}
+		}
+		if len(nameMatches) == 1 {
+			return &nameMatches[0], true
+		}
+	}
+
+	if wantURL == "" {
 		return nil, false
 	}
 
-	wantURL := normalizeURL(desired.URL)
-	matches := make([]MonitorResponse, 0, 1)
+	urlTypeMatches := make([]MonitorResponse, 0, 1)
 	for i := range existing {
 		m := existing[i]
-		if strings.TrimSpace(m.FriendlyName) != name {
+		if normalizeURL(m.URL) != wantURL {
 			continue
 		}
-		if wantURL != "" && normalizeURL(m.URL) != wantURL {
+		if wantType != "" && !strings.EqualFold(strings.TrimSpace(m.Type), wantType) {
 			continue
 		}
-		matches = append(matches, m)
-		if len(matches) > 1 {
+		urlTypeMatches = append(urlTypeMatches, m)
+		if len(urlTypeMatches) > 1 {
 			return nil, false
 		}
 	}
 
-	if len(matches) != 1 {
+	if len(urlTypeMatches) != 1 {
 		return nil, false
 	}
-	return &matches[0], true
+	return &urlTypeMatches[0], true
 }
 
 // FindMonitorByURL searches for a monitor by its URL, listing all pages so the monitor is found.
@@ -839,6 +904,55 @@ func keywordTypeToString(t urtypes.KeywordType) string {
 	default:
 		return "ALERT_EXISTS"
 	}
+}
+
+// buildAPIAssertionsConfig converts MonitorAPIAssertions to API format.
+func buildAPIAssertionsConfig(assertions *uptimerobotv1.MonitorAPIAssertions) *APIAssertionsConfig {
+	if assertions == nil || len(assertions.Checks) == 0 {
+		return nil
+	}
+
+	checks := make([]APIAssertionCheck, 0, len(assertions.Checks))
+	for _, check := range assertions.Checks {
+		apiCheck := APIAssertionCheck{
+			Property:   check.Property,
+			Comparison: check.Operator.ToAPIString(),
+		}
+
+		// is_null and is_not_null operators don't need a target value.
+		if check.Value != "" {
+			apiCheck.Target = parseAPIAssertionTarget(check.Operator, check.Value)
+		}
+
+		checks = append(checks, apiCheck)
+	}
+
+	return &APIAssertionsConfig{
+		Logic:  assertions.Logic.ToAPIString(),
+		Checks: checks,
+	}
+}
+
+// monitorTypeForRequest maps CRD HTTPS+apiAssertions to UptimeRobot v3 type API.
+// CRD validation restricts apiAssertions to HTTPS monitors, so this conversion is explicit.
+func monitorTypeForRequest(monitor uptimerobotv1.MonitorValues) string {
+	if monitor.APIAssertions != nil && len(monitor.APIAssertions.Checks) > 0 {
+		return apiMonitorType
+	}
+	return monitor.Type.ToAPIString()
+}
+
+func parseAPIAssertionTarget(operator urtypes.AssertionOperator, value string) interface{} {
+	switch operator {
+	case urtypes.AssertionGreaterThan, urtypes.AssertionLessThan:
+		if i, err := strconv.Atoi(value); err == nil {
+			return i
+		}
+		if f, err := strconv.ParseFloat(value, 64); err == nil {
+			return f
+		}
+	}
+	return value
 }
 
 // CreateSlackIntegration creates a Slack integration using the v3 API.

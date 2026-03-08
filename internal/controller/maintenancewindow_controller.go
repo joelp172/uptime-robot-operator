@@ -48,8 +48,9 @@ const (
 // MaintenanceWindowReconciler reconciles a MaintenanceWindow object
 type MaintenanceWindowReconciler struct {
 	client.Client
-	Scheme   *runtime.Scheme
-	Recorder record.EventRecorder
+	APIReader client.Reader
+	Scheme    *runtime.Scheme
+	Recorder  record.EventRecorder
 }
 
 //+kubebuilder:rbac:groups=uptimerobot.com,resources=maintenancewindows,verbs=get;list;watch;create;update;patch;delete
@@ -70,7 +71,11 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	logger := log.FromContext(ctx)
 
 	mw := &uptimerobotv1.MaintenanceWindow{}
-	if err := r.Get(ctx, req.NamespacedName, mw); err != nil {
+	var getter client.Reader = r.Client
+	if r.APIReader != nil {
+		getter = r.APIReader
+	}
+	if err := getter.Get(ctx, req.NamespacedName, mw); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 

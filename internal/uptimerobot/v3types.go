@@ -24,6 +24,9 @@ type MonitorConfig struct {
 	// DNSRecords contains expected DNS record values keyed by record type.
 	DNSRecords *DNSRecordsConfig `json:"dnsRecords,omitempty"`
 
+	// APIAssertions contains API response validation configuration.
+	APIAssertions *APIAssertionsConfig `json:"apiAssertions,omitempty"`
+
 	// SSLExpirationPeriodDays - days before SSL expiration to notify.
 	SSLExpirationPeriodDays []int `json:"sslExpirationPeriodDays,omitempty"`
 }
@@ -44,6 +47,19 @@ type DNSRecordsConfig struct {
 	DS     []string `json:"DS,omitempty"`
 	NSEC   []string `json:"NSEC,omitempty"`
 	NSEC3  []string `json:"NSEC3,omitempty"`
+}
+
+// APIAssertionsConfig represents API response validation configuration in v3 API.
+type APIAssertionsConfig struct {
+	Logic  string              `json:"logic"`  // "AND" or "OR"
+	Checks []APIAssertionCheck `json:"checks"` // List of assertion checks
+}
+
+// APIAssertionCheck represents a single assertion check in v3 API.
+type APIAssertionCheck struct {
+	Property   string      `json:"property"`         // JSONPath expression
+	Comparison string      `json:"comparison"`       // Comparison operator
+	Target     interface{} `json:"target,omitempty"` // Expected value (can be string, number, bool, or null)
 }
 
 // CreateMonitorRequest represents the v3 API request payload for creating a monitor.
@@ -155,8 +171,9 @@ type RegionalDataResponse struct {
 
 // MonitorConfigResponse represents the config object in v3 API monitor responses.
 type MonitorConfigResponse struct {
-	DNSRecords              *DNSRecordsConfig `json:"dnsRecords,omitempty"`
-	SSLExpirationPeriodDays []int             `json:"sslExpirationPeriodDays,omitempty"`
+	DNSRecords              *DNSRecordsConfig    `json:"dnsRecords,omitempty"`
+	APIAssertions           *APIAssertionsConfig `json:"apiAssertions,omitempty"`
+	SSLExpirationPeriodDays []int                `json:"sslExpirationPeriodDays,omitempty"`
 }
 
 // MonitorResponse represents a single monitor in v3 API responses.

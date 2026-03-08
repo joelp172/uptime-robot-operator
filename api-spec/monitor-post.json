@@ -244,6 +244,42 @@
             }
           }
         },
+        "apiAssertions": {
+          "type": "object",
+          "description": "API response validation configuration - validates JSON response content",
+          "properties": {
+            "logic": {
+              "type": "string",
+              "description": "Logic to combine multiple assertions",
+              "enum": ["AND", "OR"],
+              "default": "AND"
+            },
+            "checks": {
+              "type": "array",
+              "description": "List of assertion checks to validate against API response",
+              "minItems": 1,
+              "maxItems": 5,
+              "items": {
+                "type": "object",
+                "required": ["property", "comparison"],
+                "properties": {
+                  "property": {
+                    "type": "string",
+                    "description": "JSONPath expression to extract value from response (e.g., $.status, $.data.items[0].name)"
+                  },
+                  "comparison": {
+                    "type": "string",
+                    "description": "Comparison operator to apply",
+                    "enum": ["equals", "not_equals", "contains", "not_contains", "greater_than", "less_than", "is_null", "is_not_null"]
+                  },
+                  "target": {
+                    "description": "Expected value to compare against (not required for is_null/is_not_null operators)"
+                  }
+                }
+              }
+            }
+          }
+        },
         "sslExpirationPeriodDays": {
           "type": "array",
           "description": "SSL expiration period in days - get notified X days before expiration",
