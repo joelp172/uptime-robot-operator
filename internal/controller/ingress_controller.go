@@ -21,9 +21,11 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-viper/mapstructure/v2"
 	uptimerobotv1 "github.com/joelp172/uptime-robot-operator/api/v1alpha1"
+	"github.com/joelp172/uptime-robot-operator/internal/metrics"
 	"github.com/joelp172/uptime-robot-operator/internal/util"
 	"github.com/knadh/koanf/maps"
 	corev1 "k8s.io/api/core/v1"
@@ -31,16 +33,22 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 var IngressAnnotationPrefix = "uptimerobot.com/"
+
+const ingressSourceKind = "Ingress"
 
 // IngressReconciler reconciles a Ingress object
 type IngressReconciler struct {
@@ -60,6 +68,12 @@ type IngressReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.20.2/pkg/reconcile
 func (r *IngressReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	startTime := time.Now()
+	defer func() {
+		duration := time.Since(startTime).Seconds()
+		metrics.ReconciliationDuration.WithLabelValues("ingress").Observe(duration)
+	}()
+
 	_ = log.FromContext(ctx)
 
 	ingress := &networkingv1.Ingress{}
@@ -96,6 +110,7 @@ func (r *IngressReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	var enabled bool
 	if val, ok := annotations["enabled"]; ok {
 		if enabled, err = strconv.ParseBool(val); err != nil {
+			metrics.ReconciliationErrorsTotal.WithLabelValues("ingress", "annotation_parse_error").Inc()
 			return ctrl.Result{}, err
 		}
 	}
@@ -125,8 +140,16 @@ func (r *IngressReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				Namespace: req.Namespace,
 			},
 			Spec: uptimerobotv1.MonitorSpec{
+				// Ensure ingress-managed monitors are pruned from UptimeRobot on delete
+				// even if CRD defaults are stale/missing in the cluster.
+				Prune: true,
+				Monitor: uptimerobotv1.MonitorValues{
+					// Default ingress-managed monitors to running even if CRD defaults
+					// are stale/missing in the cluster.
+					Status: 1,
+				},
 				SourceRef: &corev1.TypedLocalObjectReference{
-					Kind: ingress.Kind,
+					Kind: ingressSourceKind,
 					Name: ingress.Name,
 				},
 			},
@@ -135,6 +158,7 @@ func (r *IngressReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	for _, monitor := range list.Items {
 		if err := r.updateValues(ingress, &monitor, annotations); err != nil {
+			metrics.ReconciliationErrorsTotal.WithLabelValues("ingress", "sync_error").Inc()
 			r.Recorder.Event(ingress, "Warning", "Sync", err.Error())
 			return ctrl.Result{}, err
 		}
@@ -165,17 +189,80 @@ func (r *IngressReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&networkingv1.Ingress{}, builder.WithPredicates(
 			predicate.Or(predicate.GenerationChangedPredicate{}, predicate.AnnotationChangedPredicate{}),
 		)).
+		Watches(&uptimerobotv1.Monitor{}, handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
+			return monitorToIngressRequests(obj)
+		}), builder.WithPredicates(predicate.Funcs{
+			// Reconcile source ingress when an ingress-managed monitor is deleted manually.
+			// Return false for other events to avoid unnecessary reconciles.
+			CreateFunc: func(e event.CreateEvent) bool {
+				return false
+			},
+			UpdateFunc: func(e event.UpdateEvent) bool {
+				return false
+			},
+			DeleteFunc: func(e event.DeleteEvent) bool {
+				return isIngressSourcedMonitor(e.Object)
+			},
+			GenericFunc: func(e event.GenericEvent) bool {
+				return false
+			},
+		})).
 		Named("ingress").
 		Complete(r)
+}
+
+func monitorToIngressRequests(obj client.Object) []reconcile.Request {
+	monitor, ok := obj.(*uptimerobotv1.Monitor)
+	if !ok || monitor.Spec.SourceRef == nil {
+		return nil
+	}
+	if monitor.Spec.SourceRef.Kind != ingressSourceKind || monitor.Spec.SourceRef.Name == "" {
+		return nil
+	}
+	return []reconcile.Request{{
+		NamespacedName: types.NamespacedName{
+			Namespace: monitor.Namespace,
+			Name:      monitor.Spec.SourceRef.Name,
+		},
+	}}
+}
+
+func isIngressSourcedMonitor(obj client.Object) bool {
+	monitor, ok := obj.(*uptimerobotv1.Monitor)
+	return ok && monitor.Spec.SourceRef != nil && monitor.Spec.SourceRef.Kind == ingressSourceKind
 }
 
 func (r *IngressReconciler) findMonitors(ctx context.Context, ingress *networkingv1.Ingress) (*uptimerobotv1.MonitorList, error) {
 	list := &uptimerobotv1.MonitorList{}
 	err := r.List(ctx, list, &client.ListOptions{
-		FieldSelector: fields.OneTermEqualSelector("spec.sourceRef", ingress.Kind+"/"+ingress.Name),
+		Namespace:     ingress.Namespace,
+		FieldSelector: fields.OneTermEqualSelector("spec.sourceRef", ingressSourceKind+"/"+ingress.Name),
 	})
 	if err != nil {
 		return list, err
+	}
+
+	// Backwards compatibility for monitors created before sourceRef.kind was normalized.
+	legacy := &uptimerobotv1.MonitorList{}
+	err = r.List(ctx, legacy, &client.ListOptions{
+		Namespace:     ingress.Namespace,
+		FieldSelector: fields.OneTermEqualSelector("spec.sourceRef", "/"+ingress.Name),
+	})
+	if err != nil {
+		return list, err
+	}
+	if len(legacy.Items) == 0 {
+		return list, nil
+	}
+	existing := make(map[string]struct{}, len(list.Items))
+	for _, m := range list.Items {
+		existing[m.Name] = struct{}{}
+	}
+	for _, m := range legacy.Items {
+		if _, ok := existing[m.Name]; ok {
+			continue
+		}
+		list.Items = append(list.Items, m)
 	}
 	return list, nil
 }
@@ -207,27 +294,27 @@ func (r *IngressReconciler) getMatchingAnnotations(ingress *networkingv1.Ingress
 
 func (r *IngressReconciler) updateValues(ingress *networkingv1.Ingress, monitor *uptimerobotv1.Monitor, annotations map[string]string) error {
 	monitor.Spec.Monitor.Name = ingress.Name
-	if _, ok := annotations["monitor.url"]; !ok {
-		if len(ingress.Spec.Rules) != 0 {
-			var u url.URL
-			if u.Scheme, ok = annotations["monitor.scheme"]; !ok {
-				if len(ingress.Spec.TLS) == 0 {
-					u.Scheme = "http"
-				} else {
-					u.Scheme = "https"
-				}
+	if urlVal, ok := annotations["monitor.url"]; ok {
+		monitor.Spec.Monitor.URL = urlVal
+	} else if len(ingress.Spec.Rules) != 0 {
+		var u url.URL
+		if u.Scheme, ok = annotations["monitor.scheme"]; !ok {
+			if len(ingress.Spec.TLS) == 0 {
+				u.Scheme = "http"
+			} else {
+				u.Scheme = "https"
 			}
-			rule := ingress.Spec.Rules[0]
-			if u.Host, ok = annotations["monitor.host"]; !ok {
-				u.Host = rule.Host
-			}
-			if u.Path, ok = annotations["monitor.path"]; !ok && len(rule.HTTP.Paths) != 0 {
-				if path := rule.HTTP.Paths[0].Path; path != "/" {
-					u.Path = path
-				}
-			}
-			monitor.Spec.Monitor.URL = u.String()
 		}
+		rule := ingress.Spec.Rules[0]
+		if u.Host, ok = annotations["monitor.host"]; !ok {
+			u.Host = rule.Host
+		}
+		if u.Path, ok = annotations["monitor.path"]; !ok && rule.HTTP != nil && len(rule.HTTP.Paths) != 0 {
+			if path := rule.HTTP.Paths[0].Path; path != "/" {
+				u.Path = path
+			}
+		}
+		monitor.Spec.Monitor.URL = u.String()
 	}
 	delete(annotations, "enabled")
 	delete(annotations, "monitor.url")

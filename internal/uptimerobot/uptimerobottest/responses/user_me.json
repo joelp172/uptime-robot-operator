@@ -1,9 +1,7 @@
 {
-  "user": {
-    "email": "test@example.com",
-    "monitor_limit": 50,
-    "monitor_usage": 5,
-    "sms_limit": 100,
-    "sms_usage": 0
-  }
+  "email": "test@example.com",
+  "fullName": "Test User",
+  "monitorsCount": 5,
+  "monitorLimit": 50,
+  "smsCredits": 100
 }

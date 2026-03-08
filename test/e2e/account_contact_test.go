@@ -36,39 +36,13 @@ var _ = Describe("Account and Contact Resources", Ordered, Label("account", "con
 			Skip("Skipping Account/Contact tests: UPTIME_ROBOT_API_KEY not set")
 		}
 
-		By("ensuring manager namespace exists")
-		cmd := exec.Command("kubectl", "get", "ns", namespace)
-		_, err := utils.Run(cmd)
-		if err != nil {
-			cmd = exec.Command("kubectl", "create", "ns", namespace)
-			out, runErr := utils.Run(cmd)
-			Expect(runErr).NotTo(HaveOccurred(), "Failed to create namespace: %s", out)
-		}
-
-		By("labeling the namespace to enforce the restricted security policy")
-		cmd = exec.Command("kubectl", "label", "--overwrite", "ns", namespace,
-			"pod-security.kubernetes.io/enforce=restricted")
-		out, err := utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to label namespace: %s", out)
-
-		By("installing CRDs")
-		cmd = exec.Command("make", "install")
-		out, err = utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to install CRDs: %s", out)
-
-		By("deploying the controller-manager")
-		cmd = exec.Command("make", "deploy", fmt.Sprintf("IMG=%s", projectImage))
-		out, err = utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager: %s", out)
-
-		By("ensuring webhook endpoint is ready")
-		waitForWebhookEndpointReady()
+		ensureE2EInfra()
 
 		By("creating the API key secret")
 		apiKey := os.Getenv("UPTIME_ROBOT_API_KEY")
 		Expect(apiKey).NotTo(BeEmpty(), "UPTIME_ROBOT_API_KEY must be set for Account/Contact tests")
 		// Delete existing secret from a previous run so create succeeds
-		cmd = exec.Command("kubectl", "delete", "secret", "uptime-robot-e2e", "-n", namespace, "--ignore-not-found=true")
+		cmd := exec.Command("kubectl", "delete", "secret", "uptime-robot-e2e", "-n", namespace, "--ignore-not-found=true")
 		_, _ = utils.Run(cmd)
 		// Use kubectl apply with stdin to avoid exposing API key in command line logs
 		secretYAML := fmt.Sprintf(`
@@ -83,7 +57,7 @@ stringData:
 `, namespace, apiKey)
 		cmd = exec.Command("kubectl", "apply", "-f", "-")
 		cmd.Stdin = strings.NewReader(secretYAML)
-		out, err = utils.Run(cmd)
+		out, err := utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to create API key secret: %s", out)
 	})
 
@@ -113,7 +87,7 @@ kind: Account
 metadata:
   name: e2e-account-%s
 spec:
-  isDefault: true
+  isDefault: false
   apiKeySecretRef:
     name: uptime-robot-e2e
     key: apiKey
@@ -173,9 +147,9 @@ spec:
 		})
 
 		It("should reject creating a second default Account", func() {
-			By("creating a baseline default Account")
 			var cmd *exec.Cmd
-			accountYAML := fmt.Sprintf(`
+			By("attempting to create a default Account")
+			firstDefaultYAML := fmt.Sprintf(`
 apiVersion: uptimerobot.com/v1alpha1
 kind: Account
 metadata:
@@ -186,10 +160,17 @@ spec:
     name: uptime-robot-e2e
     key: apiKey
 `, testRunID)
-			out, err := applyYAMLWithWebhookRetry("Account", accountYAML)
-			Expect(err).NotTo(HaveOccurred(), "Failed to create Account: %s", out)
+			out, err := applyYAMLWithWebhookRetry("Account", firstDefaultYAML)
+			if err != nil {
+				Expect(out).To(ContainSubstring("spec.isDefault: Forbidden"))
+				Expect(out).To(SatisfyAny(
+					ContainSubstring("exactly one Account can have spec.isDefault=true"),
+					ContainSubstring("at most one Account can have spec.isDefault=true"),
+				))
+				return
+			}
 
-			By("attempting to create a second default Account")
+			By("attempting to create another default Account")
 			secondDefaultYAML := fmt.Sprintf(`
 apiVersion: uptimerobot.com/v1alpha1
 kind: Account
@@ -216,7 +197,9 @@ spec:
 
 	Context("Contact Setup", func() {
 		It("should create default Contact", func() {
-			By("creating a baseline default Account")
+			contactName := fmt.Sprintf("e2e-contact-setup-%s", testRunID)
+
+			By("creating a baseline Account")
 			var cmd *exec.Cmd
 			accountYAML := fmt.Sprintf(`
 apiVersion: uptimerobot.com/v1alpha1
@@ -224,7 +207,7 @@ kind: Account
 metadata:
   name: e2e-account-%s
 spec:
-  isDefault: true
+  isDefault: false
   apiKeySecretRef:
     name: uptime-robot-e2e
     key: apiKey
@@ -247,17 +230,19 @@ spec:
 				contactID = output
 			}, 2*time.Minute, 5*time.Second).Should(Succeed())
 
-			By("creating a default Contact resource")
+			By("creating a Contact resource")
 			contactYAML := fmt.Sprintf(`
 apiVersion: uptimerobot.com/v1alpha1
 kind: Contact
 metadata:
-  name: e2e-default-contact-%s
+  name: %s
 spec:
-  isDefault: true
+  isDefault: false
+  account:
+    name: e2e-account-%s
   contact:
     id: "%s"
-`, testRunID, contactID)
+`, contactName, testRunID, contactID)
 
 			cmd = exec.Command("kubectl", "apply", "-f", "-")
 			cmd.Stdin = strings.NewReader(contactYAML)
@@ -267,7 +252,7 @@ spec:
 			By("waiting for Contact to become ready")
 			Eventually(func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "contact",
-					fmt.Sprintf("e2e-default-contact-%s", testRunID),
+					contactName,
 					"-o", "jsonpath={.status.ready}")
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
@@ -277,7 +262,7 @@ spec:
 			By("verifying Contact status conditions and observedGeneration")
 			Eventually(func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "contact",
-					fmt.Sprintf("e2e-default-contact-%s", testRunID),
+					contactName,
 					"-o", "jsonpath={.status.observedGeneration}")
 				observedGeneration, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
@@ -286,7 +271,7 @@ spec:
 
 			Eventually(func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "contact",
-					fmt.Sprintf("e2e-default-contact-%s", testRunID),
+					contactName,
 					"-o", "jsonpath={.status.conditions[?(@.type==\"Ready\")].status}")
 				readyStatus, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
@@ -295,7 +280,7 @@ spec:
 
 			Eventually(func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "contact",
-					fmt.Sprintf("e2e-default-contact-%s", testRunID),
+					contactName,
 					"-o", "jsonpath={.status.conditions[?(@.type==\"Synced\")].status}")
 				syncedStatus, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
@@ -304,7 +289,7 @@ spec:
 
 			Eventually(func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "contact",
-					fmt.Sprintf("e2e-default-contact-%s", testRunID),
+					contactName,
 					"-o", "jsonpath={.status.conditions[?(@.type==\"Synced\")].reason}")
 				syncedReason, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
@@ -313,7 +298,7 @@ spec:
 
 			Eventually(func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "contact",
-					fmt.Sprintf("e2e-default-contact-%s", testRunID),
+					contactName,
 					"-o", "jsonpath={.status.conditions[?(@.type==\"Error\")].status}")
 				errorStatus, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
@@ -322,7 +307,7 @@ spec:
 		})
 
 		It("should reject creating a second default Contact", func() {
-			By("creating a baseline default Account")
+			By("creating a baseline Account")
 			var cmd *exec.Cmd
 			accountYAML := fmt.Sprintf(`
 apiVersion: uptimerobot.com/v1alpha1
@@ -330,7 +315,7 @@ kind: Account
 metadata:
   name: e2e-account-%s
 spec:
-  isDefault: true
+  isDefault: false
   apiKeySecretRef:
     name: uptime-robot-e2e
     key: apiKey
@@ -349,21 +334,30 @@ spec:
 			Expect(err).NotTo(HaveOccurred())
 			Expect(contactID).NotTo(BeEmpty(), "Account should have at least one alert contact")
 
-			By("creating a baseline default Contact")
-			contactYAML := fmt.Sprintf(`
+			By("attempting to create a default Contact")
+			firstDefaultContactYAML := fmt.Sprintf(`
 apiVersion: uptimerobot.com/v1alpha1
 kind: Contact
 metadata:
-  name: e2e-default-contact-%s
+  name: e2e-contact-default-%s
 spec:
   isDefault: true
+  account:
+    name: e2e-account-%s
   contact:
     id: "%s"
-`, testRunID, contactID)
+`, testRunID, testRunID, contactID)
 			cmd = exec.Command("kubectl", "apply", "-f", "-")
-			cmd.Stdin = strings.NewReader(contactYAML)
-			_, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
+			cmd.Stdin = strings.NewReader(firstDefaultContactYAML)
+			out, err = utils.Run(cmd)
+			if err != nil {
+				Expect(out).To(ContainSubstring("spec.isDefault: Forbidden"))
+				Expect(out).To(SatisfyAny(
+					ContainSubstring("exactly one Contact can have spec.isDefault=true"),
+					ContainSubstring("at most one Contact can have spec.isDefault=true"),
+				))
+				return
+			}
 
 			By("attempting to create a second default Contact")
 			secondDefaultContactYAML := fmt.Sprintf(`
@@ -373,9 +367,11 @@ metadata:
   name: e2e-contact-second-default-%s
 spec:
   isDefault: true
+  account:
+    name: e2e-account-%s
   contact:
     id: "%s"
-`, testRunID, contactID)
+`, testRunID, testRunID, contactID)
 
 			cmd = exec.Command("kubectl", "apply", "-f", "-")
 			cmd.Stdin = strings.NewReader(secondDefaultContactYAML)

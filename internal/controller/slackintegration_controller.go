@@ -20,7 +20,9 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"time"
 
+	"github.com/joelp172/uptime-robot-operator/internal/metrics"
 	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -52,6 +54,12 @@ type SlackIntegrationReconciler struct {
 
 // Reconcile reconciles SlackIntegration resources to UptimeRobot integrations.
 func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	startTime := time.Now()
+	defer func() {
+		duration := time.Since(startTime).Seconds()
+		metrics.ReconciliationDuration.WithLabelValues("slackintegration").Observe(duration)
+	}()
+
 	resource := &uptimerobotv1.SlackIntegration{}
 	if err := r.Get(ctx, req.NamespacedName, resource); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -62,6 +70,7 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	account := &uptimerobotv1.Account{}
 	if err := GetAccount(ctx, r.Client, account, resource.Spec.Account.Name); err != nil {
+		metrics.ReconciliationErrorsTotal.WithLabelValues("slackintegration", "account_not_found").Inc()
 		if resource.Status.ID == "" {
 			resource.Status.Ready = false
 		}
@@ -79,6 +88,7 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	apiKey, err := GetApiKey(ctx, r.Client, account)
 	if err != nil {
+		metrics.ReconciliationErrorsTotal.WithLabelValues("slackintegration", "secret_not_found").Inc()
 		if resource.Status.ID == "" {
 			resource.Status.Ready = false
 		}
@@ -160,6 +170,7 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	webhookURL, err := r.resolveWebhookURL(ctx, resource)
 	if err != nil {
+		metrics.ReconciliationErrorsTotal.WithLabelValues("slackintegration", "webhook_resolution_error").Inc()
 		resource.Status.Ready = false
 		msg := fmt.Sprintf("Failed to resolve webhook URL: %v", err)
 		SetReadyCondition(&resource.Status.Conditions, false, ReasonReconcileError, msg, resource.Generation)
@@ -184,6 +195,7 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	if !resource.Status.Ready || resource.Status.ID == "" {
 		if err := r.recreateSlackIntegration(ctx, urclient, resource, createData, 0); err != nil {
+			metrics.ReconciliationErrorsTotal.WithLabelValues("slackintegration", "api_error").Inc()
 			resource.Status.Ready = false
 			msg := fmt.Sprintf("Failed to create integration: %v", err)
 			SetReadyCondition(&resource.Status.Conditions, false, ReasonAPIError, msg, resource.Generation)
@@ -201,6 +213,7 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		// Ensure the integration exists and matches desired state; recreate on drift or missing.
 		id, convErr := strconv.Atoi(resource.Status.ID)
 		if convErr != nil {
+			metrics.ReconciliationErrorsTotal.WithLabelValues("slackintegration", "invalid_status_id").Inc()
 			resource.Status.Ready = false
 			msg := fmt.Sprintf("Invalid status.id %q: %v", resource.Status.ID, convErr)
 			SetReadyCondition(&resource.Status.Conditions, false, ReasonReconcileError, msg, resource.Generation)
@@ -216,6 +229,7 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 		integrations, err := urclient.ListIntegrations(ctx)
 		if err != nil {
+			metrics.ReconciliationErrorsTotal.WithLabelValues("slackintegration", "api_error").Inc()
 			msg := fmt.Sprintf("Failed to list integrations: %v", err)
 			SetReadyCondition(&resource.Status.Conditions, false, ReasonAPIError, msg, resource.Generation)
 			SetSyncedCondition(&resource.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to sync with UptimeRobot: %v", err), resource.Generation)
@@ -239,6 +253,7 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 		if existing == nil || !slackIntegrationMatchesDesired(existing, createData) {
 			if err := r.recreateSlackIntegration(ctx, urclient, resource, createData, id); err != nil {
+				metrics.ReconciliationErrorsTotal.WithLabelValues("slackintegration", "api_error").Inc()
 				resource.Status.Ready = false
 				msg := fmt.Sprintf("Failed to recreate integration: %v", err)
 				SetReadyCondition(&resource.Status.Conditions, false, ReasonAPIError, msg, resource.Generation)

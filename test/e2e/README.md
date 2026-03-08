@@ -70,20 +70,20 @@ Run only specific test suites using Ginkgo label filters:
 ```bash
 # Run only MonitorGroup tests
 export UPTIME_ROBOT_API_KEY=your-test-key
-go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="monitorgroup" -timeout 20m
+go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="monitorgroup"
 
 # Run only Monitor tests
-go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="monitor" -timeout 20m
+go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="monitor"
 
 # Run specific monitor tests
-go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="monitor" -ginkgo.focus="Regional Monitoring|specified region" -timeout 20m
-UPTIME_ROBOT_API_KEY=your_key KIND_CLUSTER=kind go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="monitor" -ginkgo.focus="Regional Monitoring|specified region" -timeout 20m
+go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="monitor" -ginkgo.focus="Regional Monitoring|specified region"
+UPTIME_ROBOT_API_KEY=your_key KIND_CLUSTER=kind go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="monitor" -ginkgo.focus="Regional Monitoring|specified region"
 
 # Run only MaintenanceWindow tests
-go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="maintenancewindow" -timeout 20m
+go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="maintenancewindow"
 
 # Run only Account and Contact tests
-go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="account || contact" -timeout 20m
+go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="account || contact"
 ```
 
 **Note:** Ensure the operator is deployed before running specific suites (`make dev-cluster`).

@@ -97,6 +97,9 @@ var _ = BeforeSuite(func() {
 	serverState = uptimerobottest.NewServerState()
 	srv = uptimerobottest.NewServerWithState(serverState)
 	Expect(os.Setenv("UPTIME_ROBOT_API", srv.URL)).To(Succeed())
+	// Speed up retries in tests so error-path tests complete quickly.
+	Expect(os.Setenv("UPTIME_ROBOT_MAX_RETRIES", "1")).To(Succeed())
+	Expect(os.Setenv("UPTIME_ROBOT_BASE_DELAY", "1ms")).To(Succeed())
 
 	Expect(k8sClient.Create(context.Background(), &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{Name: ClusterResourceNamespace},

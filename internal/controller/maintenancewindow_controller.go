@@ -21,7 +21,9 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"time"
 
+	"github.com/joelp172/uptime-robot-operator/internal/metrics"
 	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -46,8 +48,9 @@ const (
 // MaintenanceWindowReconciler reconciles a MaintenanceWindow object
 type MaintenanceWindowReconciler struct {
 	client.Client
-	Scheme   *runtime.Scheme
-	Recorder record.EventRecorder
+	APIReader client.Reader
+	Scheme    *runtime.Scheme
+	Recorder  record.EventRecorder
 }
 
 //+kubebuilder:rbac:groups=uptimerobot.com,resources=maintenancewindows,verbs=get;list;watch;create;update;patch;delete
@@ -59,10 +62,20 @@ type MaintenanceWindowReconciler struct {
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	startTime := time.Now()
+	defer func() {
+		duration := time.Since(startTime).Seconds()
+		metrics.ReconciliationDuration.WithLabelValues("maintenancewindow").Observe(duration)
+	}()
+
 	logger := log.FromContext(ctx)
 
 	mw := &uptimerobotv1.MaintenanceWindow{}
-	if err := r.Get(ctx, req.NamespacedName, mw); err != nil {
+	var getter client.Reader = r.Client
+	if r.APIReader != nil {
+		getter = r.APIReader
+	}
+	if err := getter.Get(ctx, req.NamespacedName, mw); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
@@ -71,6 +84,7 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 
 	account := &uptimerobotv1.Account{}
 	if err := GetAccount(ctx, r.Client, account, mw.Spec.Account.Name); err != nil {
+		metrics.ReconciliationErrorsTotal.WithLabelValues("maintenancewindow", "account_not_found").Inc()
 		if mw.Status.ID == "" {
 			mw.Status.Ready = false
 		}
@@ -88,6 +102,7 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 
 	apiKey, err := GetApiKey(ctx, r.Client, account)
 	if err != nil {
+		metrics.ReconciliationErrorsTotal.WithLabelValues("maintenancewindow", "secret_not_found").Inc()
 		if mw.Status.ID == "" {
 			mw.Status.Ready = false
 		}
@@ -233,6 +248,7 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 
 		result, err := urclient.CreateMaintenanceWindow(ctx, createReq)
 		if err != nil {
+			metrics.ReconciliationErrorsTotal.WithLabelValues("maintenancewindow", "api_error").Inc()
 			mw.Status.Ready = false
 			msg := fmt.Sprintf("Failed to create maintenance window: %v", err)
 			SetReadyCondition(&mw.Status.Conditions, false, ReasonAPIError, msg, mw.Generation)
@@ -315,6 +331,7 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 
 				result, err := urclient.CreateMaintenanceWindow(ctx, createReq)
 				if err != nil {
+					metrics.ReconciliationErrorsTotal.WithLabelValues("maintenancewindow", "api_error").Inc()
 					mw.Status.Ready = false
 					msg := fmt.Sprintf("Failed to recreate maintenance window: %v", err)
 					SetReadyCondition(&mw.Status.Conditions, false, ReasonAPIError, msg, mw.Generation)
@@ -342,6 +359,7 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 				}
 				return ctrl.Result{RequeueAfter: mw.Spec.SyncInterval.Duration}, nil
 			}
+			metrics.ReconciliationErrorsTotal.WithLabelValues("maintenancewindow", "api_error").Inc()
 			msg := fmt.Sprintf("Failed to update maintenance window: %v", err)
 			SetReadyCondition(&mw.Status.Conditions, false, ReasonAPIError, msg, mw.Generation)
 			SetSyncedCondition(&mw.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to sync with UptimeRobot: %v", err), mw.Generation)

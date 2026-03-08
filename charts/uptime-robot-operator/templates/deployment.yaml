@@ -38,8 +38,17 @@ spec:
         {{- end }}
         - --enable-webhooks={{ .Values.webhooks.enabled }}
         - --health-probe-bind-address={{ .Values.healthProbeBindAddress }}
+        {{- if .Values.metrics.enabled }}
+        - --metrics-bind-address=:{{ .Values.metrics.port }}
+        {{- end }}
         securityContext:
           {{- toYaml .Values.securityContext | nindent 10 }}
+        {{- if .Values.metrics.enabled }}
+        ports:
+        - name: metrics
+          containerPort: {{ .Values.metrics.port }}
+          protocol: TCP
+        {{- end }}
         volumeMounts:
         - name: tmp
           mountPath: /tmp

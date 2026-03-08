@@ -121,6 +121,62 @@ resources:
 | `metrics.port`                    | Metrics service port                             | `8443`           |
 | `metrics.type`                    | Metrics service type                             | `ClusterIP`      |
 
+### ServiceMonitor Parameters
+
+| Name                                   | Description                                           | Value      |
+|----------------------------------------|-------------------------------------------------------|------------|
+| `serviceMonitor.enabled`               | Enable ServiceMonitor for Prometheus Operator         | `false`    |
+| `serviceMonitor.interval`              | Scrape interval                                       | `30s`      |
+| `serviceMonitor.additionalLabels`      | Additional labels for ServiceMonitor                  | `{}`       |
+| `serviceMonitor.namespaceOverride`     | Override namespace for ServiceMonitor                 | `""`       |
+
+The ServiceMonitor resource enables auto-discovery of metrics by Prometheus Operator. It is disabled by default as it requires the Prometheus Operator to be installed in the cluster.
+
+To enable the ServiceMonitor:
+
+```bash
+helm install uptime-robot-operator ./charts/uptime-robot-operator \
+  --set serviceMonitor.enabled=true
+```
+
+You can customize the scrape interval and add labels for Prometheus discovery:
+
+```yaml
+serviceMonitor:
+  enabled: true
+  interval: 15s
+  additionalLabels:
+    prometheus: kube-prometheus
+```
+
+### PodDisruptionBudget Parameters
+
+| Name                                   | Description                                           | Value      |
+|----------------------------------------|-------------------------------------------------------|------------|
+| `podDisruptionBudget.enabled`          | Enable PodDisruptionBudget for disruption protection  | `false`    |
+| `podDisruptionBudget.minAvailable`     | Minimum number of available pods                      | `1`        |
+| `podDisruptionBudget.maxUnavailable`   | Maximum number of unavailable pods                    | `nil`      |
+
+The PodDisruptionBudget protects the operator from being evicted during cluster maintenance operations like node drains. It is disabled by default.
+
+**Note:** You must specify either `minAvailable` or `maxUnavailable`, but not both.
+
+To enable the PodDisruptionBudget:
+
+```bash
+helm install uptime-robot-operator ./charts/uptime-robot-operator \
+  --set podDisruptionBudget.enabled=true
+```
+
+For high-availability deployments with multiple replicas, you might want to allow one pod to be unavailable:
+
+```yaml
+replicaCount: 3
+podDisruptionBudget:
+  enabled: true
+  maxUnavailable: 1
+```
+
 ### CRDs
 
 CRDs are managed using Helm's `crds/` directory mechanism. This means:

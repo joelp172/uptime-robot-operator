@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -212,6 +213,138 @@ var _ = Describe("Contact Controller", func() {
 
 			// Verify that a Warning event was recorded for the dependency failure
 			Eventually(recorder.Events).Should(Receive(ContainSubstring("DependencyNotReady")))
+		})
+
+		It("should successfully reconcile when contact id is specified directly", func() {
+			name := fmt.Sprintf("test-direct-id-%d", time.Now().UnixNano())
+			contactWithID := &uptimerobotv1.Contact{
+				ObjectMeta: metav1.ObjectMeta{Name: name},
+				Spec: uptimerobotv1.ContactSpec{
+					Account: corev1.LocalObjectReference{Name: account.Name},
+					Contact: uptimerobotv1.ContactValues{
+						ID: "12345",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, contactWithID)).To(Succeed())
+			defer CleanupContact(ctx, contactWithID)
+
+			controllerReconciler := &ContactReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: name},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name}, contactWithID)).To(Succeed())
+			Expect(contactWithID.Status.Ready).To(BeTrue())
+			Expect(contactWithID.Status.ID).To(Equal("12345"))
+
+			synced := findCondition(contactWithID.Status.Conditions, TypeSynced)
+			Expect(synced).NotTo(BeNil())
+			Expect(synced.Status).To(Equal(metav1.ConditionUnknown))
+			Expect(synced.Reason).To(Equal(ReasonSyncSkipped))
+
+			errCond := findCondition(contactWithID.Status.Conditions, TypeError)
+			Expect(errCond).NotTo(BeNil())
+			Expect(errCond.Status).To(Equal(metav1.ConditionFalse))
+		})
+
+		It("should set failure conditions when contact name is not found in UptimeRobot", func() {
+			name := fmt.Sprintf("test-not-found-%d", time.Now().UnixNano())
+			contactNotFound := &uptimerobotv1.Contact{
+				ObjectMeta: metav1.ObjectMeta{Name: name},
+				Spec: uptimerobotv1.ContactSpec{
+					Account: corev1.LocalObjectReference{Name: account.Name},
+					Contact: uptimerobotv1.ContactValues{
+						Name: "Unknown Person Not In System",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, contactNotFound)).To(Succeed())
+			defer CleanupContact(ctx, contactNotFound)
+
+			recorder := record.NewFakeRecorder(10)
+			controllerReconciler := &ContactReconciler{
+				Client:   k8sClient,
+				Scheme:   k8sClient.Scheme(),
+				Recorder: recorder,
+			}
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: name},
+			})
+			Expect(err).To(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name}, contactNotFound)).To(Succeed())
+			Expect(contactNotFound.Status.Ready).To(BeFalse())
+
+			ready := findCondition(contactNotFound.Status.Conditions, TypeReady)
+			Expect(ready).NotTo(BeNil())
+			Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+			Expect(ready.Reason).To(Equal(ReasonAPIError))
+
+			synced := findCondition(contactNotFound.Status.Conditions, TypeSynced)
+			Expect(synced).NotTo(BeNil())
+			Expect(synced.Status).To(Equal(metav1.ConditionFalse))
+			Expect(synced.Reason).To(Equal(ReasonSyncError))
+
+			errCond := findCondition(contactNotFound.Status.Conditions, TypeError)
+			Expect(errCond).NotTo(BeNil())
+			Expect(errCond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(errCond.Reason).To(Equal(ReasonAPIError))
+
+			Eventually(recorder.Events).Should(Receive(ContainSubstring("SyncFailed")))
+		})
+
+		It("should set failure conditions when API error occurs during contact name resolution", func() {
+			serverState.SetAlertContactsHTTPStatus(http.StatusInternalServerError)
+
+			name := fmt.Sprintf("test-api-error-%d", time.Now().UnixNano())
+			contactAPIError := &uptimerobotv1.Contact{
+				ObjectMeta: metav1.ObjectMeta{Name: name},
+				Spec: uptimerobotv1.ContactSpec{
+					Account: corev1.LocalObjectReference{Name: account.Name},
+					Contact: uptimerobotv1.ContactValues{
+						Name: "John Doe",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, contactAPIError)).To(Succeed())
+			defer CleanupContact(ctx, contactAPIError)
+
+			recorder := record.NewFakeRecorder(10)
+			controllerReconciler := &ContactReconciler{
+				Client:   k8sClient,
+				Scheme:   k8sClient.Scheme(),
+				Recorder: recorder,
+			}
+
+			// With maxRetries=1, the 500 exhausts retries quickly.
+			// ErrMaxRetriesExceeded is transient -> HandleReconcileError returns (RequeueAfter, nil).
+			result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: name},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(BeNumerically(">", 0))
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name}, contactAPIError)).To(Succeed())
+			Expect(contactAPIError.Status.Ready).To(BeFalse())
+
+			ready := findCondition(contactAPIError.Status.Conditions, TypeReady)
+			Expect(ready).NotTo(BeNil())
+			Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+			Expect(ready.Reason).To(Equal(ReasonAPIError))
+
+			errCond := findCondition(contactAPIError.Status.Conditions, TypeError)
+			Expect(errCond).NotTo(BeNil())
+			Expect(errCond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(errCond.Reason).To(Equal(ReasonAPIError))
+
+			Eventually(recorder.Events).Should(Receive(ContainSubstring("SyncFailed")))
 		})
 	})
 })

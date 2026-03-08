@@ -218,10 +218,13 @@ var _ = Describe("Monitor Controller", func() {
 				Expect(os.Setenv("UPTIME_ROBOT_API", originalAPI)).To(Succeed())
 			})
 
-			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
+			result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: namespacedName,
 			})
-			Expect(err).To(HaveOccurred())
+			// With exponential backoff, transient errors (like connection refused) return RequeueAfter instead of error
+			// Verify that reconcile either failed OR requested a requeue (both are acceptable)
+			Expect(err != nil || result.RequeueAfter > 0).To(BeTrue(),
+				"reconcile should either return error or request requeue on API failure")
 
 			Expect(k8sClient.Get(ctx, namespacedName, monitor)).To(Succeed())
 			Expect(monitor.Status.Ready).To(BeTrue())
@@ -271,10 +274,13 @@ var _ = Describe("Monitor Controller", func() {
 			})
 
 			By("Reconciling and expecting delete failure")
-			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
+			result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: namespacedName,
 			})
-			Expect(err).To(HaveOccurred())
+			// With exponential backoff, transient errors (like connection refused) return RequeueAfter instead of error
+			// Verify that reconcile either failed OR requested a requeue (both are acceptable)
+			Expect(err != nil || result.RequeueAfter > 0).To(BeTrue(),
+				"reconcile should either return error or request requeue on API failure")
 
 			Expect(k8sClient.Get(ctx, namespacedName, monitor)).To(Succeed())
 			Expect(monitor.Status.Ready).To(BeTrue())

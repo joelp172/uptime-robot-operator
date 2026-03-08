@@ -34,6 +34,9 @@ type ServerState struct {
 	deletedMonitors map[string]bool // Track deleted monitor IDs
 	integrations    map[int]map[string]any
 	nextIntegration int
+	// Force specific HTTP status codes for certain endpoints (0 = normal behavior).
+	forceUserMeHTTPStatus        int
+	forceAlertContactsHTTPStatus int
 }
 
 func defaultIntegrations() (map[int]map[string]any, int) {
@@ -93,6 +96,24 @@ func (s *ServerState) Reset() {
 	s.deletedMonitors = make(map[string]bool)
 	s.integrations = integrations
 	s.nextIntegration = next
+	s.forceUserMeHTTPStatus = 0
+	s.forceAlertContactsHTTPStatus = 0
+}
+
+// SetUserMeHTTPStatus forces the /user/me endpoint to return the given HTTP status code.
+// Set to 0 to restore normal behavior.
+func (s *ServerState) SetUserMeHTTPStatus(code int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.forceUserMeHTTPStatus = code
+}
+
+// SetAlertContactsHTTPStatus forces the /user/alert-contacts endpoint to return the given HTTP status code.
+// Set to 0 to restore normal behavior.
+func (s *ServerState) SetAlertContactsHTTPStatus(code int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.forceAlertContactsHTTPStatus = code
 }
 
 func (s *ServerState) createIntegration(body map[string]any) map[string]any {
@@ -183,10 +204,14 @@ func NewServerWithState(state *ServerState) *httptest.Server {
 	})
 
 	// GET /user/me - Get user info
-	mux.HandleFunc("GET /user/me", handleGetUser)
+	mux.HandleFunc("GET /user/me", func(w http.ResponseWriter, r *http.Request) {
+		handleGetUser(w, state)
+	})
 
 	// GET /user/alert-contacts - Get alert contacts
-	mux.HandleFunc("GET /user/alert-contacts", handleGetAlertContacts)
+	mux.HandleFunc("GET /user/alert-contacts", func(w http.ResponseWriter, r *http.Request) {
+		handleGetAlertContacts(w, state)
+	})
 
 	// GET /maintenance-windows - List maintenance windows
 	mux.HandleFunc("GET /maintenance-windows", handleGetMaintenanceWindows)
@@ -295,11 +320,27 @@ func handleStartMonitor(w http.ResponseWriter, r *http.Request, state *ServerSta
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func handleGetUser(w http.ResponseWriter, r *http.Request) {
+func handleGetUser(w http.ResponseWriter, state *ServerState) {
+	state.mu.RLock()
+	code := state.forceUserMeHTTPStatus
+	state.mu.RUnlock()
+	if code != 0 {
+		w.WriteHeader(code)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "forced error for testing"})
+		return
+	}
 	serveJSONFile(w, "user_me.json")
 }
 
-func handleGetAlertContacts(w http.ResponseWriter, r *http.Request) {
+func handleGetAlertContacts(w http.ResponseWriter, state *ServerState) {
+	state.mu.RLock()
+	code := state.forceAlertContactsHTTPStatus
+	state.mu.RUnlock()
+	if code != 0 {
+		w.WriteHeader(code)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "forced error for testing"})
+		return
+	}
 	serveJSONFile(w, "alert_contacts.json")
 }
 

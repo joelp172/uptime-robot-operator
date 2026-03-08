@@ -21,7 +21,9 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/joelp172/uptime-robot-operator/internal/metrics"
 	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/fields"
@@ -64,6 +66,12 @@ var (
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.20.2/pkg/reconcile
 func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	startTime := time.Now()
+	defer func() {
+		duration := time.Since(startTime).Seconds()
+		metrics.ReconciliationDuration.WithLabelValues("account").Observe(duration)
+	}()
+
 	_ = log.FromContext(ctx)
 
 	account := &uptimerobotv1.Account{}
@@ -74,6 +82,7 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	apiKey, err := GetApiKey(ctx, r.Client, account)
 	if err != nil {
+		metrics.ReconciliationErrorsTotal.WithLabelValues("account", "secret_not_found").Inc()
 		account.Status.Ready = false
 		msg := fmt.Sprintf("Failed to get API key: %v", err)
 		// Don't set Synced here since we haven't attempted sync with UptimeRobot yet
@@ -91,6 +100,7 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	urclient := uptimerobot.NewClient(apiKey)
 	email, err := urclient.GetAccountDetails(ctx)
 	if err != nil {
+		metrics.ReconciliationErrorsTotal.WithLabelValues("account", "api_error").Inc()
 		account.Status.Ready = false
 		msg := fmt.Sprintf("Failed to get account details: %v", err)
 		SetReadyCondition(&account.Status.Conditions, false, ReasonAPIError, msg, account.Generation)
@@ -99,10 +109,25 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		if r.Recorder != nil {
 			r.Recorder.Event(account, "Warning", "SyncFailed", msg)
 		}
+
+		// Track retry count and apply exponential backoff for transient errors
+		retryCount := GetRetryCount(account.Annotations)
+		if IsTransientError(err) {
+			account.Annotations = IncrementRetryCount(account.Annotations)
+			// Save status before r.Update, which replaces the in-memory object with the
+			// server's version (where status changes haven't been persisted yet via
+			// Status().Update()). Without this, the status conditions set above would be lost.
+			savedStatus := account.Status
+			if updateErr := r.Update(ctx, account); updateErr != nil {
+				return ctrl.Result{}, updateErr
+			}
+			account.Status = savedStatus
+		}
+
 		if updateErr := r.Status().Update(ctx, account); updateErr != nil {
 			return ctrl.Result{}, updateErr
 		}
-		return ctrl.Result{}, err
+		return HandleReconcileError(err, retryCount)
 	}
 
 	// Fetch alert contacts
