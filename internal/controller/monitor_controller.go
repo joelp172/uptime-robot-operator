@@ -554,7 +554,8 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 
 		// Update other monitor fields
-		result, err := urclient.EditMonitor(ctx, monitor.Status.ID, monitor.Spec.Monitor, contacts)
+		oldID := monitor.Status.ID
+		result, err := urclient.EditMonitor(ctx, oldID, monitor.Spec.Monitor, contacts)
 		if err != nil {
 			recordMonitorError("api_update_error")
 			msg := fmt.Sprintf("Failed to edit monitor: %v", err)
@@ -600,7 +601,14 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			monitor.Status.HeartbeatURL = buildHeartbeatURL(configuredHeartbeatBaseURL(), monitor.Status.ID, result.URL)
 		}
 		if r.Recorder != nil {
-			r.Recorder.Event(monitor, "Normal", "Updated", "Monitor updated successfully")
+			if monitorMissing {
+				r.Recorder.Event(monitor, "Normal", "Recreated", fmt.Sprintf("Monitor recreated with ID %s (previous ID %s)", result.ID, oldID))
+			} else {
+				r.Recorder.Event(monitor, "Normal", "Updated", "Monitor updated successfully")
+			}
+		}
+		if monitorMissing {
+			log.FromContext(ctx).Info("Recreated monitor after out-of-band deletion", "oldID", oldID, "newID", result.ID)
 		}
 		if err := r.updateMonitorStatus(ctx, monitor); err != nil {
 			return ctrl.Result{}, err
