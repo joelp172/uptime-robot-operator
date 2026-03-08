@@ -81,6 +81,9 @@ nodeSelector: {}
 # Tolerations for pod assignment
 tolerations: []
 
+# Topology spread constraints for pod distribution across zones/nodes
+topologySpreadConstraints: []
+
 # Affinity for pod assignment
 affinity: {}
 
