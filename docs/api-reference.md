@@ -2,6 +2,9 @@
 
 Complete field reference for all Custom Resource Definitions.
 
+For API stability, version lifecycle, and upgrade expectations, see
+[API Versioning](api-versioning.md).
+
 ## Account
 
 Connects the operator to your UptimeRobot account.
