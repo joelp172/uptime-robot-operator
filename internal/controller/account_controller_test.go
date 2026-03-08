@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -178,6 +179,149 @@ var _ = Describe("Account Controller", func() {
 				g.Expect(ready.Status).To(Equal(metav1.ConditionTrue))
 				g.Expect(ready.Reason).To(Equal(ReasonReconcileSuccess))
 			}, 20*time.Second, 500*time.Millisecond).Should(Succeed())
+		})
+
+		It("should set failure conditions when api key secret has wrong key name", func() {
+			recorder := record.NewFakeRecorder(10)
+			controllerReconciler := &AccountReconciler{
+				Client:   k8sClient,
+				Scheme:   k8sClient.Scheme(),
+				Recorder: recorder,
+			}
+
+			By("updating the secret to have a different key name")
+			secret.Data = map[string][]byte{"wrongKey": []byte("1234")}
+			Expect(k8sClient.Update(ctx, secret)).To(Succeed())
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).To(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, namespacedName, account)).To(Succeed())
+			Expect(account.Status.Ready).To(BeFalse())
+			Expect(account.Status.ObservedGeneration).To(Equal(account.Generation))
+
+			ready := findCondition(account.Status.Conditions, TypeReady)
+			Expect(ready).NotTo(BeNil())
+			Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+			Expect(ready.Reason).To(Equal(ReasonSecretNotFound))
+
+			errCond := findCondition(account.Status.Conditions, TypeError)
+			Expect(errCond).NotTo(BeNil())
+			Expect(errCond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(errCond.Reason).To(Equal(ReasonSecretNotFound))
+
+			Expect(findCondition(account.Status.Conditions, TypeSynced)).To(BeNil())
+
+			Eventually(recorder.Events).Should(Receive(ContainSubstring("SecretNotFound")))
+		})
+
+		It("should set failure conditions when GetAccountDetails returns auth failure", func() {
+			serverState.SetUserMeHTTPStatus(http.StatusUnauthorized)
+
+			recorder := record.NewFakeRecorder(10)
+			controllerReconciler := &AccountReconciler{
+				Client:   k8sClient,
+				Scheme:   k8sClient.Scheme(),
+				Recorder: recorder,
+			}
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).To(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, namespacedName, account)).To(Succeed())
+			Expect(account.Status.Ready).To(BeFalse())
+
+			ready := findCondition(account.Status.Conditions, TypeReady)
+			Expect(ready).NotTo(BeNil())
+			Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+			Expect(ready.Reason).To(Equal(ReasonAPIError))
+
+			synced := findCondition(account.Status.Conditions, TypeSynced)
+			Expect(synced).NotTo(BeNil())
+			Expect(synced.Status).To(Equal(metav1.ConditionFalse))
+			Expect(synced.Reason).To(Equal(ReasonSyncError))
+
+			errCond := findCondition(account.Status.Conditions, TypeError)
+			Expect(errCond).NotTo(BeNil())
+			Expect(errCond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(errCond.Reason).To(Equal(ReasonAPIError))
+
+			Eventually(recorder.Events).Should(Receive(ContainSubstring("SyncFailed")))
+		})
+
+		It("should set failure conditions and requeue when GetAccountDetails returns transient error", func() {
+			serverState.SetUserMeHTTPStatus(http.StatusInternalServerError)
+
+			controllerReconciler := &AccountReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			// Transient errors cause RequeueAfter, not a returned error
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(BeNumerically(">", 0))
+
+			Expect(k8sClient.Get(ctx, namespacedName, account)).To(Succeed())
+			Expect(account.Status.Ready).To(BeFalse())
+
+			ready := findCondition(account.Status.Conditions, TypeReady)
+			Expect(ready).NotTo(BeNil())
+			Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+			Expect(ready.Reason).To(Equal(ReasonAPIError))
+
+			synced := findCondition(account.Status.Conditions, TypeSynced)
+			Expect(synced).NotTo(BeNil())
+			Expect(synced.Status).To(Equal(metav1.ConditionFalse))
+			Expect(synced.Reason).To(Equal(ReasonSyncError))
+		})
+
+		It("should still reconcile successfully when alert contacts fetch fails", func() {
+			serverState.SetAlertContactsHTTPStatus(http.StatusInternalServerError)
+
+			controllerReconciler := &AccountReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, namespacedName, account)).To(Succeed())
+			Expect(account.Status.Ready).To(BeTrue())
+			Expect(account.Status.AlertContacts).To(BeEmpty())
+
+			ready := findCondition(account.Status.Conditions, TypeReady)
+			Expect(ready).NotTo(BeNil())
+			Expect(ready.Status).To(Equal(metav1.ConditionTrue))
+			Expect(ready.Reason).To(Equal(ReasonReconcileSuccess))
+		})
+
+		It("should populate status fields correctly from API response", func() {
+			By("Reconciling the created resource")
+			ReconcileAccount(ctx, account)
+
+			Expect(account.Status.Email).To(Equal("test@example.com"))
+			Expect(account.Status.AlertContacts).To(HaveLen(3))
+
+			var johnDoe *uptimerobotv1.AlertContactInfo
+			for i := range account.Status.AlertContacts {
+				if account.Status.AlertContacts[i].FriendlyName == "John Doe" {
+					johnDoe = &account.Status.AlertContacts[i]
+					break
+				}
+			}
+			Expect(johnDoe).NotTo(BeNil())
+			Expect(johnDoe.ID).To(Equal("993765"))
+			Expect(johnDoe.Type).To(Equal("Email"))
 		})
 	})
 })

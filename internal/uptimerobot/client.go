@@ -37,17 +37,34 @@ import (
 const apiMonitorType = "API"
 
 // NewClient creates a new UptimeRobot API v3 client.
+// The following environment variables can override retry defaults (useful for testing):
+//   - UPTIME_ROBOT_MAX_RETRIES: maximum number of retry attempts (positive integer)
+//   - UPTIME_ROBOT_BASE_DELAY: base delay between retries (Go duration string, e.g. "1ms")
 func NewClient(apiKey string) Client {
 	api := "https://api.uptimerobot.com/v3"
 	if env := os.Getenv("UPTIME_ROBOT_API"); env != "" {
 		api = strings.TrimSuffix(env, "/")
 	}
 
+	maxRetries := DefaultMaxRetries
+	if env := os.Getenv("UPTIME_ROBOT_MAX_RETRIES"); env != "" {
+		if n, err := strconv.Atoi(env); err == nil && n > 0 {
+			maxRetries = n
+		}
+	}
+
+	baseDelay := DefaultBaseDelay
+	if env := os.Getenv("UPTIME_ROBOT_BASE_DELAY"); env != "" {
+		if d, err := time.ParseDuration(env); err == nil && d > 0 {
+			baseDelay = d
+		}
+	}
+
 	return Client{
 		url:            api,
 		apiKey:         apiKey,
-		maxRetries:     DefaultMaxRetries,
-		baseDelay:      DefaultBaseDelay,
+		maxRetries:     maxRetries,
+		baseDelay:      baseDelay,
 		maxDelay:       DefaultMaxDelay,
 		jitterFraction: DefaultJitterFraction,
 	}

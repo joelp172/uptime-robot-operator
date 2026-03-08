@@ -129,9 +129,14 @@ func (r *ContactReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				retryCount := GetRetryCount(contact.Annotations)
 				if IsTransientError(err) {
 					contact.Annotations = IncrementRetryCount(contact.Annotations)
+					// Save status before r.Update, which replaces the in-memory object with the
+					// server's version (where status changes haven't been persisted yet via
+					// Status().Update()). Without this, the status conditions set above would be lost.
+					savedStatus := contact.Status
 					if updateErr := r.Update(ctx, contact); updateErr != nil {
 						return ctrl.Result{}, updateErr
 					}
+					contact.Status = savedStatus
 				}
 
 				if updateErr := r.Status().Update(ctx, contact); updateErr != nil {
