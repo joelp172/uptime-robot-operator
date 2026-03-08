@@ -22,26 +22,13 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
-
-func newSIScheme(t *testing.T) *runtime.Scheme {
-	t.Helper()
-	scheme := runtime.NewScheme()
-	if err := AddToScheme(scheme); err != nil {
-		t.Fatalf("failed to build scheme: %v", err)
-	}
-	if err := corev1.AddToScheme(scheme); err != nil {
-		t.Fatalf("failed to add core scheme: %v", err)
-	}
-	return scheme
-}
 
 func TestSIValidatorAllowsValidWebhookURL(t *testing.T) {
 	t.Parallel()
 
-	scheme := newSIScheme(t)
+	scheme := newWebhookCommonScheme(t)
 	account := defaultAccount()
 
 	validator := &SlackIntegrationCustomValidator{
@@ -66,7 +53,7 @@ func TestSIValidatorAllowsValidWebhookURL(t *testing.T) {
 func TestSIValidatorRejectsInvalidWebhookURL(t *testing.T) {
 	t.Parallel()
 
-	scheme := newSIScheme(t)
+	scheme := newWebhookCommonScheme(t)
 	account := defaultAccount()
 
 	validator := &SlackIntegrationCustomValidator{
@@ -91,7 +78,7 @@ func TestSIValidatorRejectsInvalidWebhookURL(t *testing.T) {
 func TestSIValidatorRejectsHTTPWebhookURL(t *testing.T) {
 	t.Parallel()
 
-	scheme := newSIScheme(t)
+	scheme := newWebhookCommonScheme(t)
 	account := defaultAccount()
 
 	validator := &SlackIntegrationCustomValidator{
@@ -116,7 +103,7 @@ func TestSIValidatorRejectsHTTPWebhookURL(t *testing.T) {
 func TestSIValidatorRejectsUnknownAccount(t *testing.T) {
 	t.Parallel()
 
-	scheme := newSIScheme(t)
+	scheme := newWebhookCommonScheme(t)
 
 	validator := &SlackIntegrationCustomValidator{
 		Client: fake.NewClientBuilder().WithScheme(scheme).Build(),
@@ -140,7 +127,7 @@ func TestSIValidatorRejectsUnknownAccount(t *testing.T) {
 func TestSIValidatorRejectsMissingSecret(t *testing.T) {
 	t.Parallel()
 
-	scheme := newSIScheme(t)
+	scheme := newWebhookCommonScheme(t)
 	account := defaultAccount()
 
 	validator := &SlackIntegrationCustomValidator{
@@ -164,7 +151,7 @@ func TestSIValidatorRejectsMissingSecret(t *testing.T) {
 func TestSIValidatorAllowsExistingSecret(t *testing.T) {
 	t.Parallel()
 
-	scheme := newSIScheme(t)
+	scheme := newWebhookCommonScheme(t)
 	account := defaultAccount()
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: "slack-secret", Namespace: "default"},
@@ -194,7 +181,7 @@ func TestSIValidatorAllowsExistingSecret(t *testing.T) {
 func TestSIValidatorAllowsDeleteWithoutValidation(t *testing.T) {
 	t.Parallel()
 
-	scheme := newSIScheme(t)
+	scheme := newWebhookCommonScheme(t)
 
 	validator := &SlackIntegrationCustomValidator{
 		Client: fake.NewClientBuilder().WithScheme(scheme).Build(),
