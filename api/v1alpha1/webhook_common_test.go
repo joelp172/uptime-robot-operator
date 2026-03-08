@@ -88,6 +88,7 @@ func TestValidateAccountRefRejectsMissingDefaultWhenNameEmpty(t *testing.T) {
 	)
 	if err == nil {
 		t.Fatal("expected error when no default account exists")
+		return
 	}
 	if err.Type != field.ErrorTypeRequired {
 		t.Fatalf("expected Required error type, got: %s", err.Type)
@@ -109,6 +110,7 @@ func TestValidateAccountRefRejectsMultipleDefaultsWhenNameEmpty(t *testing.T) {
 	)
 	if err == nil {
 		t.Fatal("expected error when multiple default accounts exist")
+		return
 	}
 	if err.Type != field.ErrorTypeInvalid {
 		t.Fatalf("expected Invalid error type, got: %s", err.Type)
@@ -142,6 +144,7 @@ func TestValidateAccountRefRejectsUnknownNamedAccount(t *testing.T) {
 	)
 	if err == nil {
 		t.Fatal("expected error for unknown named account")
+		return
 	}
 	if err.Type != field.ErrorTypeInvalid {
 		t.Fatalf("expected Invalid error type, got: %s", err.Type)

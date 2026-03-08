@@ -58,6 +58,7 @@ func TestBuildAPIAssertionsConfig(t *testing.T) {
 
 		if result == nil {
 			t.Fatal("expected non-nil result")
+			return
 		}
 		if result.Logic != "AND" {
 			t.Errorf("expected logic to be AND, got %s", result.Logic)
@@ -101,6 +102,7 @@ func TestBuildAPIAssertionsConfig(t *testing.T) {
 
 		if result == nil {
 			t.Fatal("expected non-nil result")
+			return
 		}
 		if result.Logic != "OR" {
 			t.Errorf("expected logic to be OR, got %s", result.Logic)
@@ -167,6 +169,7 @@ func TestBuildAPIAssertionsConfig(t *testing.T) {
 
 			if result == nil {
 				t.Fatalf("expected non-nil result for operator %v", tc.op)
+				return
 			}
 			if result.Checks[0].Comparison != tc.expected {
 				t.Errorf("expected comparison %s, got %s", tc.expected, result.Checks[0].Comparison)
@@ -188,6 +191,7 @@ func TestBuildAPIAssertionsConfig(t *testing.T) {
 		result := buildAPIAssertionsConfig(assertions)
 		if result == nil {
 			t.Fatal("expected non-nil result")
+			return
 		}
 		if target, ok := result.Checks[0].Target.(string); !ok || target != "true" {
 			t.Fatalf("expected string target \"true\", got %#v", result.Checks[0].Target)
