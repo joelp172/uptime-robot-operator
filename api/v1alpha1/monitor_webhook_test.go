@@ -305,6 +305,58 @@ func TestMonitorValidatorRejectsInvalidURL(t *testing.T) {
 	}
 }
 
+func TestMonitorValidatorRejectsNonHTTPSURLForHTTPSType(t *testing.T) {
+	t.Parallel()
+
+	scheme := newMonitorScheme(t)
+	account := defaultAccount()
+
+	validator := &MonitorCustomValidator{
+		Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(account).Build(),
+	}
+
+	monitor := &Monitor{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-monitor", Namespace: "default"},
+		Spec: MonitorSpec{
+			Monitor: MonitorValues{
+				Name: "Test",
+				Type: urtypes.TypeHTTPS,
+				URL:  "http://example.com",
+			},
+		},
+	}
+
+	if _, err := validator.ValidateCreate(context.Background(), monitor); err == nil {
+		t.Fatal("expected validation error for non-HTTPS URL with HTTPS monitor type")
+	}
+}
+
+func TestMonitorValidatorRejectsNonHTTPSURLForKeywordType(t *testing.T) {
+	t.Parallel()
+
+	scheme := newMonitorScheme(t)
+	account := defaultAccount()
+
+	validator := &MonitorCustomValidator{
+		Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(account).Build(),
+	}
+
+	monitor := &Monitor{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-monitor", Namespace: "default"},
+		Spec: MonitorSpec{
+			Monitor: MonitorValues{
+				Name: "Test",
+				Type: urtypes.TypeKeyword,
+				URL:  "http://example.com",
+			},
+		},
+	}
+
+	if _, err := validator.ValidateCreate(context.Background(), monitor); err == nil {
+		t.Fatal("expected validation error for non-HTTPS URL with Keyword monitor type")
+	}
+}
+
 func TestMonitorValidatorAllowsDeleteWithoutValidation(t *testing.T) {
 	t.Parallel()
 

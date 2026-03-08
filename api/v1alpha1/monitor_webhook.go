@@ -122,11 +122,24 @@ func (v *MonitorCustomValidator) validate(ctx context.Context, monitor *Monitor,
 	if monitor.Spec.Monitor.URL != "" {
 		monType := monitor.Spec.Monitor.Type
 		if monType == urtypes.TypeHTTPS || monType == urtypes.TypeKeyword {
-			if _, parseErr := url.ParseRequestURI(monitor.Spec.Monitor.URL); parseErr != nil {
+			parsed, parseErr := url.ParseRequestURI(monitor.Spec.Monitor.URL)
+			if parseErr != nil {
 				errs = append(errs, field.Invalid(
 					field.NewPath("spec", "monitor", "url"),
 					monitor.Spec.Monitor.URL,
 					fmt.Sprintf("invalid URL: %v", parseErr),
+				))
+			} else if parsed.Scheme != "https" {
+				errs = append(errs, field.Invalid(
+					field.NewPath("spec", "monitor", "url"),
+					monitor.Spec.Monitor.URL,
+					"URL must use HTTPS for HTTPS/Keyword monitor types",
+				))
+			} else if parsed.Host == "" {
+				errs = append(errs, field.Invalid(
+					field.NewPath("spec", "monitor", "url"),
+					monitor.Spec.Monitor.URL,
+					"URL must include a host for HTTPS/Keyword monitor types",
 				))
 			}
 		}
