@@ -1,6 +1,9 @@
 ---
 name: Gitleaks
 
+permissions:
+  contents: read
+
 on:
   push:
     branches:
