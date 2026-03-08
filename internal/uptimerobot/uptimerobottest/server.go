@@ -32,6 +32,7 @@ import (
 type ServerState struct {
 	mu              sync.RWMutex
 	deletedMonitors map[string]bool // Track deleted monitor IDs
+	createMonitorID int
 	integrations    map[int]map[string]any
 	nextIntegration int
 	// Force specific HTTP status codes for certain endpoints (0 = normal behavior).
@@ -62,6 +63,7 @@ func NewServerState() *ServerState {
 	integrations, next := defaultIntegrations()
 	return &ServerState{
 		deletedMonitors: make(map[string]bool),
+		createMonitorID: 777810874,
 		integrations:    integrations,
 		nextIntegration: next,
 	}
@@ -94,10 +96,24 @@ func (s *ServerState) Reset() {
 	defer s.mu.Unlock()
 	integrations, next := defaultIntegrations()
 	s.deletedMonitors = make(map[string]bool)
+	s.createMonitorID = 777810874
 	s.integrations = integrations
 	s.nextIntegration = next
 	s.forceUserMeHTTPStatus = 0
 	s.forceAlertContactsHTTPStatus = 0
+}
+
+// SetCreateMonitorID overrides the ID returned by POST /monitors.
+func (s *ServerState) SetCreateMonitorID(id int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.createMonitorID = id
+}
+
+func (s *ServerState) getCreateMonitorID() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.createMonitorID
 }
 
 // SetUserMeHTTPStatus forces the /user/me endpoint to return the given HTTP status code.
@@ -181,7 +197,9 @@ func NewServerWithState(state *ServerState) *httptest.Server {
 	})
 
 	// POST /monitors - Create monitor
-	mux.HandleFunc("POST /monitors", handleCreateMonitor)
+	mux.HandleFunc("POST /monitors", func(w http.ResponseWriter, r *http.Request) {
+		handleCreateMonitor(w, state)
+	})
 
 	// PATCH /monitors/{id} - Update monitor
 	mux.HandleFunc("PATCH /monitors/", func(w http.ResponseWriter, r *http.Request) {
@@ -272,14 +290,26 @@ func handleGetMonitors(w http.ResponseWriter, r *http.Request, state *ServerStat
 	serveJSONFile(w, "monitors.json")
 }
 
-func handleCreateMonitor(w http.ResponseWriter, r *http.Request) {
+func handleCreateMonitor(w http.ResponseWriter, state *ServerState) {
 	w.WriteHeader(http.StatusCreated)
-	serveJSONFile(w, "monitor_create.json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"id":           state.getCreateMonitorID(),
+		"friendlyName": "New Monitor",
+		"url":          "https://example.com",
+		"type":         "HTTP",
+		"status":       "UP",
+		"interval":     60,
+	})
 }
 
 func handleUpdateMonitor(w http.ResponseWriter, r *http.Request, state *ServerState) {
 	monitorID := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/monitors/"), "/")
 	if monitorID != "" && monitorID != r.URL.Path {
+		if state.IsMonitorDeleted(monitorID) {
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "monitor not found"})
+			return
+		}
 		// Simulate monitor becoming active again after update/recreate path.
 		state.MarkMonitorActive(monitorID)
 	}
