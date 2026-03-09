@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot/urtypes"
@@ -28,6 +29,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -303,9 +305,11 @@ var _ = Describe("Monitor Controller", func() {
 		})
 
 		It("should recreate missing monitor and then apply paused state", func() {
+			recorder := record.NewFakeRecorder(20)
 			controllerReconciler := &MonitorReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
+				Client:   k8sClient,
+				Scheme:   k8sClient.Scheme(),
+				Recorder: recorder,
 			}
 
 			By("Reconciling initially to create the monitor")
@@ -314,10 +318,12 @@ var _ = Describe("Monitor Controller", func() {
 			})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(k8sClient.Get(ctx, namespacedName, monitor)).To(Succeed())
-			Expect(monitor.Status.ID).NotTo(BeEmpty())
+			oldID := monitor.Status.ID
+			Expect(oldID).NotTo(BeEmpty())
 
 			By("Simulating monitor deletion in the API")
-			serverState.MarkMonitorDeleted(monitor.Status.ID)
+			serverState.MarkMonitorDeleted(oldID)
+			serverState.SetCreateMonitorID(777810999)
 
 			By("Setting desired status to paused")
 			Expect(k8sClient.Patch(ctx, monitor, client.RawPatch(types.MergePatchType, []byte(`{"spec":{"monitor":{"status":0}}}`)))).To(Succeed())
@@ -332,8 +338,26 @@ var _ = Describe("Monitor Controller", func() {
 
 			Expect(k8sClient.Get(ctx, namespacedName, monitor)).To(Succeed())
 			Expect(monitor.Status.Ready).To(BeTrue())
+			Expect(monitor.Status.ID).To(Equal("777810999"))
+			Expect(monitor.Status.ID).NotTo(Equal(oldID))
 			Expect(monitor.Status.Status).To(Equal(uint8(urtypes.MonitorPaused)))
 			Expect(monitor.Status.State).To(Equal("paused"))
+
+			By("Expecting a Recreated event with old and new IDs")
+			var recreatedEvent string
+			Eventually(func() bool {
+				select {
+				case ev := <-recorder.Events:
+					if strings.Contains(ev, "Recreated") && strings.Contains(ev, "Monitor recreated with ID 777810999") {
+						recreatedEvent = ev
+						return true
+					}
+					return false
+				default:
+					return false
+				}
+			}, 5*time.Second, 100*time.Millisecond).Should(BeTrue())
+			Expect(recreatedEvent).To(ContainSubstring(oldID))
 		})
 
 		It("should persist status when api key lookup fails before first sync", func() {
