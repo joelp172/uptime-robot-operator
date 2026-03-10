@@ -15,15 +15,6 @@ rules:
 - apiGroups:
   - ""
   resources:
-  - services
-  - endpoints
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - ""
-  resources:
   - configmaps
   - secrets
   verbs:
@@ -33,14 +24,6 @@ rules:
   - list
   - patch
   - update
-  - watch
-- apiGroups:
-  - apps
-  resources:
-  - deployments
-  verbs:
-  - get
-  - list
   - watch
 - apiGroups:
   - networking.k8s.io

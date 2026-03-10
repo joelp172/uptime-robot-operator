@@ -163,3 +163,9 @@ networkPolicy:
 # Note: CRDs are managed by Helm's crds/ directory mechanism.
 # They are automatically installed on first install and preserved on uninstall.
 # This behavior is fixed by Helm and cannot be configured.
+
+# Helm test configuration
+testConnection:
+  # Override the kubectl image used in the Helm test hook.
+  # Defaults to a version aligned with the operator's tested Kubernetes version.
+  kubectlImage: 'alpine/kubectl:v1.32.3'
