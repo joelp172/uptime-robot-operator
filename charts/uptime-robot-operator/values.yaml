@@ -12,6 +12,8 @@ image:
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
   tag: ''
+  # If set, overrides tag and pins the image by digest (for example, sha256:abc123...).
+  digest: ''
 
 # Image pull secrets for private registries
 imagePullSecrets: []
@@ -35,6 +37,9 @@ serviceAccount:
 # Pod annotations
 podAnnotations:
   kubectl.kubernetes.io/default-container: manager
+
+# Priority class name for the operator pod
+priorityClassName: ''
 
 # Pod security context
 podSecurityContext:
@@ -75,6 +80,9 @@ nodeSelector: {}
 
 # Tolerations for pod assignment
 tolerations: []
+
+# Topology spread constraints for pod distribution across zones/nodes
+topologySpreadConstraints: []
 
 # Affinity for pod assignment
 affinity: {}

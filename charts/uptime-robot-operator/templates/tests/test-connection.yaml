@@ -1,0 +1,36 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "uptime-robot-operator.fullname" . }}-test-connection"
+  namespace: {{ include "uptime-robot-operator.namespace" . }}
+  labels:
+    {{- include "uptime-robot-operator.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  serviceAccountName: {{ include "uptime-robot-operator.serviceAccountName" . }}
+  containers:
+    - name: kubectl
+      image: alpine/kubectl:1.35.2
+      command: ["/bin/sh", "-ec"]
+      args:
+        - |
+          kubectl wait --for=condition=available --timeout=180s deployment/{{ include "uptime-robot-operator.fullname" . }}-controller-manager -n {{ include "uptime-robot-operator.namespace" . }}
+
+          {{- if .Values.metrics.enabled }}
+          kubectl get service {{ include "uptime-robot-operator.fullname" . }}-metrics-service -n {{ include "uptime-robot-operator.namespace" . }}
+          endpoints="$(kubectl get endpoints {{ include "uptime-robot-operator.fullname" . }}-metrics-service -n {{ include "uptime-robot-operator.namespace" . }} -o jsonpath='{.subsets[*].addresses[*].ip}')"
+          test -n "$endpoints"
+          {{- end }}
+
+          for resource in \
+            accounts.uptimerobot.com \
+            contacts.uptimerobot.com \
+            maintenancewindows.uptimerobot.com \
+            monitorgroups.uptimerobot.com \
+            monitors.uptimerobot.com \
+            slackintegrations.uptimerobot.com; do
+            kubectl get "$resource" -n {{ include "uptime-robot-operator.namespace" . }} --ignore-not-found >/dev/null
+          done
+  restartPolicy: Never
