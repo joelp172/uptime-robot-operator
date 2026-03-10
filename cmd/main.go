@@ -104,7 +104,7 @@ func main() {
 		"Ingress annotation prefix",
 	)
 	opts := zap.Options{
-		Development: true,
+		Development: false,
 	}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()

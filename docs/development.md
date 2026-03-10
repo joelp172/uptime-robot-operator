@@ -148,6 +148,12 @@ make install  # Install CRDs
 make run      # Run operator locally
 ```
 
+By default, the operator uses structured JSON logging suitable for production. To enable human-readable (development-mode) logs locally, pass the `--zap-devel` flag:
+
+```bash
+go run ./cmd/main.go --zap-devel
+```
+
 ### Run in Cluster
 
 ```bash
