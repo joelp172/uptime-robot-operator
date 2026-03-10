@@ -59,8 +59,13 @@ representative at an online or offline event.
 ## Enforcement
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
-reported to the community leaders responsible for enforcement at the project's
+reported to the community leaders responsible for enforcement.
+
+For non-sensitive concerns, you may open an issue at the project's
 [GitHub Issues](https://github.com/joelp172/uptime-robot-operator/issues).
+For incidents involving sensitive information or where you require
+confidentiality, please use a private reporting channel as described in
+[SECURITY.md](SECURITY.md) instead of filing a public issue.
 All complaints will be reviewed and investigated promptly and fairly.
 
 All community leaders are obligated to respect the privacy and security of the
