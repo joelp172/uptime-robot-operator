@@ -1,0 +1,49 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "uptime-robot-operator.fullname" . }}-test-role
+  namespace: {{ include "uptime-robot-operator.namespace" . }}
+  labels:
+    {{- include "uptime-robot-operator.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "-2"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded,hook-failed
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - services
+  - endpoints
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "uptime-robot-operator.fullname" . }}-test-rolebinding
+  namespace: {{ include "uptime-robot-operator.namespace" . }}
+  labels:
+    {{- include "uptime-robot-operator.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "-1"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded,hook-failed
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "uptime-robot-operator.fullname" . }}-test-role
+subjects:
+- kind: ServiceAccount
+  name: {{ include "uptime-robot-operator.serviceAccountName" . }}
+  namespace: {{ include "uptime-robot-operator.namespace" . }}

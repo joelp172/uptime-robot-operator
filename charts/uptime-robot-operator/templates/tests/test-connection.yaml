@@ -7,12 +7,13 @@ metadata:
     {{- include "uptime-robot-operator.labels" . | nindent 4 }}
   annotations:
     "helm.sh/hook": test
-    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded,hook-failed
 spec:
   serviceAccountName: {{ include "uptime-robot-operator.serviceAccountName" . }}
   containers:
     - name: kubectl
-      image: alpine/kubectl:1.35.2
+      image: "{{ .Values.testConnection.kubectlImage }}"
       command: ["/bin/sh", "-ec"]
       args:
         - |
@@ -26,7 +27,11 @@ spec:
 
           for resource in \
             accounts.uptimerobot.com \
-            contacts.uptimerobot.com \
+            contacts.uptimerobot.com; do
+            kubectl get "$resource" --ignore-not-found >/dev/null
+          done
+
+          for resource in \
             maintenancewindows.uptimerobot.com \
             monitorgroups.uptimerobot.com \
             monitors.uptimerobot.com \
