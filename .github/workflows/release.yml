@@ -35,7 +35,7 @@ jobs:
 
       - name: Semantic Release (dry run)
         id: semantic_dry
-        uses: cycjimmy/semantic-release-action@v4
+        uses: cycjimmy/semantic-release-action@v6
         with:
           dry_run: true
           extra_plugins: |
@@ -218,7 +218,7 @@ jobs:
           mv "${ARTIFACT_DIR}/sbom-cyclonedx.json" ./sbom-cyclonedx.json
       - name: Semantic Release (publish)
         id: semantic_publish
-        uses: cycjimmy/semantic-release-action@v4
+        uses: cycjimmy/semantic-release-action@v6
         with:
           extra_plugins: |
             @semantic-release/exec
