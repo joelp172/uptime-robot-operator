@@ -45,6 +45,10 @@ type circuitEntry struct {
 	state            CircuitState
 	consecutiveFails int
 	openedAt         time.Time
+	// probeInFlight is set to true when a single probe call is allowed through
+	// in HalfOpen state. It prevents multiple concurrent callers from all
+	// slipping through and spiking traffic during recovery.
+	probeInFlight bool
 }
 
 // CircuitBreaker implements per-account API protection.
@@ -73,7 +77,7 @@ func NewCircuitBreaker(failureThreshold int, cooldownPeriod time.Duration) *Circ
 var DefaultCircuitBreaker = NewCircuitBreaker(DefaultFailureThreshold, DefaultCooldownPeriod)
 
 // entry returns the circuitEntry for key, creating it (Closed) if absent.
-// Must be called with at least a read lock; upgrades are handled by the caller.
+// Must be called while holding the write lock (cb.mu.Lock).
 func (cb *CircuitBreaker) entry(key string) *circuitEntry {
 	if e, ok := cb.entries[key]; ok {
 		return e
@@ -84,6 +88,7 @@ func (cb *CircuitBreaker) entry(key string) *circuitEntry {
 }
 
 // State returns the current CircuitState for accountKey.
+// NOTE: this may transition Open → HalfOpen after the cooldown elapses.
 func (cb *CircuitBreaker) State(accountKey string) CircuitState {
 	cb.mu.RLock()
 	e, ok := cb.entries[accountKey]
@@ -101,6 +106,7 @@ func (cb *CircuitBreaker) State(accountKey string) CircuitState {
 		// Re-check inside write lock.
 		if e.state == CircuitOpen && time.Since(e.openedAt) >= cb.cooldownPeriod {
 			e.state = CircuitHalfOpen
+			e.probeInFlight = false // reset probe slot for the new HalfOpen window
 			metrics.CircuitBreakerState.WithLabelValues(accountKey).Set(float64(CircuitHalfOpen))
 		}
 		state = e.state
@@ -112,10 +118,34 @@ func (cb *CircuitBreaker) State(accountKey string) CircuitState {
 
 // Allow returns true when a reconciliation should proceed with an API call.
 // Returns false when the circuit is Open (blocking calls to protect the API).
-// HalfOpen allows exactly one probe call through.
+// In HalfOpen exactly one probe call is allowed through; all subsequent callers
+// are blocked until RecordSuccess or RecordFailure is called.
 func (cb *CircuitBreaker) Allow(accountKey string) bool {
-	state := cb.State(accountKey)
-	return state == CircuitClosed || state == CircuitHalfOpen
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+
+	e := cb.entry(accountKey)
+
+	// Promote Open → HalfOpen once the cooldown has elapsed.
+	if e.state == CircuitOpen && time.Since(e.openedAt) >= cb.cooldownPeriod {
+		e.state = CircuitHalfOpen
+		e.probeInFlight = false
+		metrics.CircuitBreakerState.WithLabelValues(accountKey).Set(float64(CircuitHalfOpen))
+	}
+
+	switch e.state {
+	case CircuitClosed:
+		return true
+	case CircuitHalfOpen:
+		// Claim the probe slot atomically: only one caller gets through.
+		if !e.probeInFlight {
+			e.probeInFlight = true
+			return true
+		}
+		return false
+	default: // CircuitOpen
+		return false
+	}
 }
 
 // RecordSuccess closes the circuit and resets the failure counter.
@@ -126,6 +156,7 @@ func (cb *CircuitBreaker) RecordSuccess(accountKey string) {
 	e := cb.entry(accountKey)
 	e.consecutiveFails = 0
 	e.state = CircuitClosed
+	e.probeInFlight = false
 	metrics.CircuitBreakerState.WithLabelValues(accountKey).Set(float64(CircuitClosed))
 }
 
@@ -141,6 +172,7 @@ func (cb *CircuitBreaker) RecordFailure(accountKey string) bool {
 	if e.consecutiveFails >= cb.failureThreshold && e.state != CircuitOpen {
 		e.state = CircuitOpen
 		e.openedAt = time.Now()
+		e.probeInFlight = false
 		metrics.CircuitBreakerState.WithLabelValues(accountKey).Set(float64(CircuitOpen))
 		return true
 	}

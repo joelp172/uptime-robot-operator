@@ -268,6 +268,12 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			if r.Recorder != nil {
 				r.Recorder.Event(mw, "Warning", "SyncFailed", msg)
 			}
+			if IsTransientError(err) {
+				if justOpened := DefaultCircuitBreaker.RecordFailure(accountKey); justOpened && r.Recorder != nil {
+					r.Recorder.Event(mw, "Warning", "CircuitBreakerOpened",
+						"UptimeRobot API circuit breaker opened after repeated failures")
+				}
+			}
 			if updateErr := r.Status().Update(ctx, mw); updateErr != nil {
 				return ctrl.Result{}, updateErr
 			}
@@ -351,6 +357,12 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 					if r.Recorder != nil {
 						r.Recorder.Event(mw, "Warning", "SyncFailed", msg)
 					}
+					if IsTransientError(err) {
+						if justOpened := DefaultCircuitBreaker.RecordFailure(accountKey); justOpened && r.Recorder != nil {
+							r.Recorder.Event(mw, "Warning", "CircuitBreakerOpened",
+								"UptimeRobot API circuit breaker opened after repeated failures")
+						}
+					}
 					if updateErr := r.Status().Update(ctx, mw); updateErr != nil {
 						return ctrl.Result{}, updateErr
 					}
@@ -378,6 +390,12 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			SetErrorCondition(&mw.Status.Conditions, true, ReasonAPIError, msg, mw.Generation)
 			if r.Recorder != nil {
 				r.Recorder.Event(mw, "Warning", "SyncFailed", msg)
+			}
+			if IsTransientError(err) {
+				if justOpened := DefaultCircuitBreaker.RecordFailure(accountKey); justOpened && r.Recorder != nil {
+					r.Recorder.Event(mw, "Warning", "CircuitBreakerOpened",
+						"UptimeRobot API circuit breaker opened after repeated failures")
+				}
 			}
 			if updateErr := r.Status().Update(ctx, mw); updateErr != nil {
 				return ctrl.Result{}, updateErr

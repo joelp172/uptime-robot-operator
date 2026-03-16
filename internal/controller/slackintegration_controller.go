@@ -216,6 +216,12 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 			if r.Recorder != nil {
 				r.Recorder.Event(resource, "Warning", "SyncFailed", msg)
 			}
+			if IsTransientError(err) {
+				if justOpened := DefaultCircuitBreaker.RecordFailure(accountKey); justOpened && r.Recorder != nil {
+					r.Recorder.Event(resource, "Warning", "CircuitBreakerOpened",
+						"UptimeRobot API circuit breaker opened after repeated failures")
+				}
+			}
 			if updateErr := r.updateSlackIntegrationStatus(ctx, resource); updateErr != nil {
 				return ctrl.Result{}, updateErr
 			}
@@ -249,6 +255,12 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 			if r.Recorder != nil {
 				r.Recorder.Event(resource, "Warning", "SyncFailed", msg)
 			}
+			if IsTransientError(err) {
+				if justOpened := DefaultCircuitBreaker.RecordFailure(accountKey); justOpened && r.Recorder != nil {
+					r.Recorder.Event(resource, "Warning", "CircuitBreakerOpened",
+						"UptimeRobot API circuit breaker opened after repeated failures")
+				}
+			}
 			if updateErr := r.updateSlackIntegrationStatus(ctx, resource); updateErr != nil {
 				return ctrl.Result{}, updateErr
 			}
@@ -273,6 +285,12 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 				SetErrorCondition(&resource.Status.Conditions, true, ReasonAPIError, msg, resource.Generation)
 				if r.Recorder != nil {
 					r.Recorder.Event(resource, "Warning", "SyncFailed", msg)
+				}
+				if IsTransientError(err) {
+					if justOpened := DefaultCircuitBreaker.RecordFailure(accountKey); justOpened && r.Recorder != nil {
+						r.Recorder.Event(resource, "Warning", "CircuitBreakerOpened",
+							"UptimeRobot API circuit breaker opened after repeated failures")
+					}
 				}
 				if updateErr := r.updateSlackIntegrationStatus(ctx, resource); updateErr != nil {
 					return ctrl.Result{}, updateErr

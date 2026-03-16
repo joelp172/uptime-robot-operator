@@ -243,6 +243,12 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			if r.Recorder != nil {
 				r.Recorder.Event(groupResource, "Warning", "SyncFailed", msg)
 			}
+			if IsTransientError(creationErr) {
+				if justOpened := DefaultCircuitBreaker.RecordFailure(accountKey); justOpened && r.Recorder != nil {
+					r.Recorder.Event(groupResource, "Warning", "CircuitBreakerOpened",
+						"UptimeRobot API circuit breaker opened after repeated failures")
+				}
+			}
 			if updateErr := r.Status().Update(ctx, groupResource); updateErr != nil {
 				return ctrl.Result{}, updateErr
 			}
@@ -296,6 +302,12 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 					if r.Recorder != nil {
 						r.Recorder.Event(groupResource, "Warning", "SyncFailed", msg)
 					}
+					if IsTransientError(recreationErr) {
+						if justOpened := DefaultCircuitBreaker.RecordFailure(accountKey); justOpened && r.Recorder != nil {
+							r.Recorder.Event(groupResource, "Warning", "CircuitBreakerOpened",
+								"UptimeRobot API circuit breaker opened after repeated failures")
+						}
+					}
 					if updateErr := r.Status().Update(ctx, groupResource); updateErr != nil {
 						return ctrl.Result{}, updateErr
 					}
@@ -328,6 +340,12 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			SetErrorCondition(&groupResource.Status.Conditions, true, ReasonAPIError, msg, groupResource.Generation)
 			if r.Recorder != nil {
 				r.Recorder.Event(groupResource, "Warning", "SyncFailed", msg)
+			}
+			if IsTransientError(updateErr) {
+				if justOpened := DefaultCircuitBreaker.RecordFailure(accountKey); justOpened && r.Recorder != nil {
+					r.Recorder.Event(groupResource, "Warning", "CircuitBreakerOpened",
+						"UptimeRobot API circuit breaker opened after repeated failures")
+				}
 			}
 			if statusUpdateErr := r.Status().Update(ctx, groupResource); statusUpdateErr != nil {
 				return ctrl.Result{}, statusUpdateErr

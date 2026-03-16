@@ -88,18 +88,60 @@ func TestCircuitBreakerClosesAfterSuccess(t *testing.T) {
 	cb.entries[testAccountKey].state = CircuitOpen
 	cb.mu.Unlock()
 
-	// After cooldown, State() should return HalfOpen, Allow() should be true.
+	// After cooldown, State() should return HalfOpen.
 	if got := cb.State(testAccountKey); got != CircuitHalfOpen {
 		t.Errorf("After cooldown, State() = %v, want CircuitHalfOpen", got)
 	}
+	// First Allow() claims the probe slot.
 	if !cb.Allow(testAccountKey) {
-		t.Error("Allow() should return true in HalfOpen state (probe call)")
+		t.Error("First Allow() in HalfOpen should return true (probe call)")
+	}
+	// Second Allow() should be blocked — probe already in flight.
+	if cb.Allow(testAccountKey) {
+		t.Error("Second Allow() in HalfOpen should return false (probe already in flight)")
 	}
 
-	// On success, circuit should close.
+	// On success, circuit should close and Allow() works again.
 	cb.RecordSuccess(testAccountKey)
 	if got := cb.State(testAccountKey); got != CircuitClosed {
 		t.Errorf("After RecordSuccess, State() = %v, want CircuitClosed", got)
+	}
+	if !cb.Allow(testAccountKey) {
+		t.Error("Allow() should return true after circuit closes")
+	}
+}
+
+func TestCircuitBreakerHalfOpenSingleProbe(t *testing.T) {
+	const threshold = 2
+	cb := newTestCircuitBreaker(threshold, time.Minute)
+
+	// Open the circuit.
+	for i := 0; i < threshold; i++ {
+		cb.RecordFailure(testAccountKey)
+	}
+
+	// Expire the cooldown so Allow() can promote to HalfOpen.
+	cb.mu.Lock()
+	cb.entries[testAccountKey].openedAt = time.Now().Add(-2 * time.Minute)
+	cb.entries[testAccountKey].state = CircuitOpen
+	cb.mu.Unlock()
+
+	// First Allow() promotes to HalfOpen and claims the probe slot.
+	if !cb.Allow(testAccountKey) {
+		t.Fatal("First Allow() should return true (probe call)")
+	}
+	// Remaining concurrent callers must be blocked.
+	for i := 0; i < 5; i++ {
+		if cb.Allow(testAccountKey) {
+			t.Errorf("Allow() call %d should return false while probe is in flight", i+2)
+		}
+	}
+	// After RecordSuccess, circuit closes and all callers may proceed.
+	cb.RecordSuccess(testAccountKey)
+	for i := 0; i < 3; i++ {
+		if !cb.Allow(testAccountKey) {
+			t.Errorf("Allow() call %d after close should return true", i+1)
+		}
 	}
 }
 
@@ -112,20 +154,23 @@ func TestCircuitBreakerReopenOnProbeFailure(t *testing.T) {
 		cb.RecordFailure(testAccountKey)
 	}
 
-	// Expire the cooldown → HalfOpen.
+	// Expire the cooldown → Allow() promotes to HalfOpen and claims probe.
 	cb.mu.Lock()
 	cb.entries[testAccountKey].openedAt = time.Now().Add(-2 * time.Minute)
 	cb.entries[testAccountKey].state = CircuitOpen
 	cb.mu.Unlock()
 
-	if cb.State(testAccountKey) != CircuitHalfOpen {
-		t.Fatal("Expected HalfOpen after cooldown")
+	if !cb.Allow(testAccountKey) {
+		t.Fatal("Expected Allow() to return true (probe) after cooldown")
 	}
 
-	// A failure while HalfOpen increments count and reopens.
+	// A failure on the probe increments count and reopens the circuit.
 	cb.RecordFailure(testAccountKey)
 	if got := cb.State(testAccountKey); got != CircuitOpen {
 		t.Errorf("After probe failure, State() = %v, want CircuitOpen", got)
+	}
+	if cb.Allow(testAccountKey) {
+		t.Error("Allow() should return false after circuit reopens")
 	}
 }
 
