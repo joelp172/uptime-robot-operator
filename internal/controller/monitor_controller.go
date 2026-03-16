@@ -1040,13 +1040,13 @@ func (r *MonitorReconciler) handleAPIError(ctx context.Context, monitor *uptimer
 	// Update annotations after status to avoid overwriting status changes
 	retryCount := GetRetryCount(monitor.Annotations)
 	if IsTransientError(err) {
-		DefaultCircuitBreaker.RecordFailure(accountKey)
+		justOpened := DefaultCircuitBreaker.RecordFailure(accountKey)
 		monitor.Annotations = IncrementRetryCount(monitor.Annotations)
 		if updateErr := r.Update(ctx, monitor); updateErr != nil {
 			return ctrl.Result{}, updateErr
 		}
 		// Emit an event when the circuit opens so operators are notified.
-		if DefaultCircuitBreaker.State(accountKey) == CircuitOpen && r.Recorder != nil {
+		if justOpened && r.Recorder != nil {
 			r.Recorder.Event(monitor, "Warning", "CircuitBreakerOpened",
 				"UptimeRobot API circuit breaker opened after repeated failures")
 		}

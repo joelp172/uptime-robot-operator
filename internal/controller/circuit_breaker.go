@@ -131,7 +131,8 @@ func (cb *CircuitBreaker) RecordSuccess(accountKey string) {
 
 // RecordFailure increments the consecutive failure counter.
 // If the counter reaches failureThreshold the circuit opens.
-func (cb *CircuitBreaker) RecordFailure(accountKey string) {
+// Returns true if the circuit transitioned to Open on this call.
+func (cb *CircuitBreaker) RecordFailure(accountKey string) bool {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
 
@@ -141,7 +142,9 @@ func (cb *CircuitBreaker) RecordFailure(accountKey string) {
 		e.state = CircuitOpen
 		e.openedAt = time.Now()
 		metrics.CircuitBreakerState.WithLabelValues(accountKey).Set(float64(CircuitOpen))
+		return true
 	}
+	return false
 }
 
 // CooldownPeriod returns the configured cooldown duration.

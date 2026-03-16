@@ -53,12 +53,20 @@ func TestCircuitBreakerOpensAfterThreshold(t *testing.T) {
 	}
 
 	// One more failure should open the circuit.
-	cb.RecordFailure(testAccountKey)
+	opened := cb.RecordFailure(testAccountKey)
+	if !opened {
+		t.Error("RecordFailure() should return true when circuit transitions to Open")
+	}
 	if got := cb.State(testAccountKey); got != CircuitOpen {
 		t.Errorf("After %d failures, State() = %v, want CircuitOpen", threshold, got)
 	}
 	if cb.Allow(testAccountKey) {
 		t.Error("Allow() should return false when circuit is open")
+	}
+	// Subsequent RecordFailure should not re-trigger the opened event.
+	secondOpened := cb.RecordFailure(testAccountKey)
+	if secondOpened {
+		t.Error("RecordFailure() should return false when circuit is already Open")
 	}
 }
 
