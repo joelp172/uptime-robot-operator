@@ -171,6 +171,17 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, tokenErr
 	}
 	backendClient := uptimerobot.NewClient(apiToken)
+	accountKey := credentialVault.Namespace + "/" + credentialVault.Name
+
+	// Circuit breaker: skip API calls when the account's circuit is open.
+	if !DefaultCircuitBreaker.Allow(accountKey) {
+		log.FromContext(ctx).Info("Circuit breaker open, skipping API call", "account", accountKey)
+		if r.Recorder != nil {
+			r.Recorder.Event(groupResource, "Warning", "CircuitBreakerOpen",
+				"UptimeRobot API circuit breaker is open; skipping reconciliation until cooldown elapses")
+		}
+		return ctrl.Result{RequeueAfter: DefaultCircuitBreaker.CooldownPeriod()}, nil
+	}
 
 	// Step 5: Attach finalizer for cleanup tracking
 	if !controllerutil.ContainsFinalizer(groupResource, cleanupMarker) {
@@ -307,7 +318,8 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 					return ctrl.Result{}, statusErr
 				}
 
-				return ctrl.Result{RequeueAfter: groupResource.Spec.SyncInterval.Duration}, nil
+				DefaultCircuitBreaker.RecordSuccess(accountKey)
+				return ctrl.Result{RequeueAfter: AddSyncJitter(groupResource.Spec.SyncInterval.Duration)}, nil
 			}
 			metrics.ReconciliationErrorsTotal.WithLabelValues("monitorgroup", "api_error").Inc()
 			msg := fmt.Sprintf("Group update failed: %v", updateErr)
@@ -339,7 +351,8 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 	}
 
-	return ctrl.Result{RequeueAfter: groupResource.Spec.SyncInterval.Duration}, nil
+	DefaultCircuitBreaker.RecordSuccess(accountKey)
+	return ctrl.Result{RequeueAfter: AddSyncJitter(groupResource.Spec.SyncInterval.Duration)}, nil
 }
 
 // SetupWithManager configures the controller with manager

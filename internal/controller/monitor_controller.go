@@ -131,8 +131,19 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 	urclient := uptimerobot.NewClient(apiKey)
+	accountKey := account.Namespace + "/" + account.Name
 	recordMonitorError := func(errorType string) {
 		metrics.ReconciliationErrorsTotal.WithLabelValues("monitor", errorType).Inc()
+	}
+
+	// Circuit breaker: skip API calls when the account's circuit is open.
+	if !DefaultCircuitBreaker.Allow(accountKey) {
+		log.FromContext(ctx).Info("Circuit breaker open, skipping API call", "account", accountKey)
+		if r.Recorder != nil {
+			r.Recorder.Event(monitor, "Warning", "CircuitBreakerOpen",
+				"UptimeRobot API circuit breaker is open; skipping reconciliation until cooldown elapses")
+		}
+		return ctrl.Result{RequeueAfter: DefaultCircuitBreaker.CooldownPeriod()}, nil
 	}
 
 	const myFinalizerName = "uptimerobot.com/finalizer"
@@ -255,7 +266,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		// Type change requires recreate
 		if err := urclient.DeleteMonitor(ctx, monitor.Status.ID); err != nil {
 			msg := fmt.Sprintf("Failed to delete monitor for type change: %v", err)
-			return r.handleAPIError(ctx, monitor, err, "api_delete_error", msg)
+			return r.handleAPIError(ctx, monitor, accountKey, err, "api_delete_error", msg)
 		}
 		monitor.Status.Ready = false
 		monitor.Status.ID = ""
@@ -339,7 +350,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				}
 				recordMonitorError("adoption_api_error")
 				msg := fmt.Sprintf("failed to get monitor for adoption: %v", err)
-				return r.handleAPIError(ctx, monitor, err, "adoption_api_error", msg)
+				return r.handleAPIError(ctx, monitor, accountKey, err, "adoption_api_error", msg)
 			}
 
 			// Verify monitor type matches spec
@@ -378,7 +389,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			result, err := urclient.EditMonitor(ctx, adoptID, monitor.Spec.Monitor, contacts)
 			if err != nil {
 				msg := fmt.Sprintf("Failed to edit adopted monitor: %v", err)
-				return r.handleAPIError(ctx, monitor, err, "api_update_error", msg)
+				return r.handleAPIError(ctx, monitor, accountKey, err, "api_update_error", msg)
 			}
 
 			// If adopted monitor should be paused, apply pause immediately.
@@ -389,7 +400,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					monitor.Status.Status = urtypes.MonitorRunning // Monitor is running since pause failed
 					monitor.Status.State = monitorStateLabel(urtypes.MonitorRunning)
 					msg := fmt.Sprintf("Failed to pause adopted monitor: %v", err)
-					return r.handleAPIError(ctx, monitor, err, "api_update_error", msg)
+					return r.handleAPIError(ctx, monitor, accountKey, err, "api_update_error", msg)
 				}
 				log.FromContext(ctx).Info("Paused adopted monitor", "monitorID", result.ID)
 				verifyPausedSoon = true
@@ -412,7 +423,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			result, err := urclient.CreateMonitor(ctx, monitor.Spec.Monitor, contacts)
 			if err != nil {
 				msg := fmt.Sprintf("Failed to create monitor: %v", err)
-				return r.handleAPIError(ctx, monitor, err, "api_create_error", msg)
+				return r.handleAPIError(ctx, monitor, accountKey, err, "api_create_error", msg)
 			}
 
 			monitor.Status.Ready = true
@@ -465,7 +476,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		currentMonitor, err := urclient.GetMonitor(ctx, monitor.Status.ID)
 		if err != nil && !errors.Is(err, uptimerobot.ErrMonitorNotFound) {
 			msg := fmt.Sprintf("Failed to get current monitor state: %v", err)
-			return r.handleAPIError(ctx, monitor, err, "api_get_error", msg)
+			return r.handleAPIError(ctx, monitor, accountKey, err, "api_get_error", msg)
 		}
 
 		// Determine desired and current status
@@ -514,7 +525,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					monitor.Status.Status = urtypes.MonitorRunning
 					monitor.Status.State = monitorStateLabel(urtypes.MonitorRunning)
 					msg := fmt.Sprintf("Failed to pause monitor: %v", err)
-					return r.handleAPIError(ctx, monitor, err, "api_update_error", msg)
+					return r.handleAPIError(ctx, monitor, accountKey, err, "api_update_error", msg)
 				}
 				log.FromContext(ctx).Info("Paused monitor", "monitorID", monitor.Status.ID)
 				verifyPausedSoon = true
@@ -643,12 +654,14 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
+	DefaultCircuitBreaker.RecordSuccess(accountKey)
+
 	if verifyPausedSoon {
 		// UptimeRobot may transiently report STARTED/UP right after pause requests.
 		// Requeue quickly to verify and enforce paused state without requiring re-apply.
 		return ctrl.Result{RequeueAfter: pausedVerifyRequeue}, nil
 	}
-	return ctrl.Result{RequeueAfter: monitor.Spec.SyncInterval.Duration}, nil
+	return ctrl.Result{RequeueAfter: AddSyncJitter(monitor.Spec.SyncInterval.Duration)}, nil
 }
 
 func configuredHeartbeatBaseURL() string {
@@ -1004,7 +1017,7 @@ func (r *MonitorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 // handleAPIError processes API errors, updates status, and applies exponential backoff for transient errors.
 // Returns ctrl.Result and error suitable for returning from Reconcile().
-func (r *MonitorReconciler) handleAPIError(ctx context.Context, monitor *uptimerobotv1.Monitor, err error, errorType string, logMessage string) (ctrl.Result, error) {
+func (r *MonitorReconciler) handleAPIError(ctx context.Context, monitor *uptimerobotv1.Monitor, accountKey string, err error, errorType string, logMessage string) (ctrl.Result, error) {
 	metrics.ReconciliationErrorsTotal.WithLabelValues("monitor", errorType).Inc()
 	// Only set Ready=false if monitor doesn't exist yet (during creation)
 	// For existing monitors, preserve Ready status since the monitor still exists in UptimeRobot
@@ -1027,9 +1040,15 @@ func (r *MonitorReconciler) handleAPIError(ctx context.Context, monitor *uptimer
 	// Update annotations after status to avoid overwriting status changes
 	retryCount := GetRetryCount(monitor.Annotations)
 	if IsTransientError(err) {
+		DefaultCircuitBreaker.RecordFailure(accountKey)
 		monitor.Annotations = IncrementRetryCount(monitor.Annotations)
 		if updateErr := r.Update(ctx, monitor); updateErr != nil {
 			return ctrl.Result{}, updateErr
+		}
+		// Emit an event when the circuit opens so operators are notified.
+		if DefaultCircuitBreaker.State(accountKey) == CircuitOpen && r.Recorder != nil {
+			r.Recorder.Event(monitor, "Warning", "CircuitBreakerOpened",
+				"UptimeRobot API circuit breaker opened after repeated failures")
 		}
 	}
 

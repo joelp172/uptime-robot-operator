@@ -118,6 +118,17 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, err
 	}
 	urclient := uptimerobot.NewClient(apiKey)
+	accountKey := account.Namespace + "/" + account.Name
+
+	// Circuit breaker: skip API calls when the account's circuit is open.
+	if !DefaultCircuitBreaker.Allow(accountKey) {
+		log.FromContext(ctx).Info("Circuit breaker open, skipping API call", "account", accountKey)
+		if r.Recorder != nil {
+			r.Recorder.Event(mw, "Warning", "CircuitBreakerOpen",
+				"UptimeRobot API circuit breaker is open; skipping reconciliation until cooldown elapses")
+		}
+		return ctrl.Result{RequeueAfter: DefaultCircuitBreaker.CooldownPeriod()}, nil
+	}
 
 	const myFinalizerName = "uptimerobot.com/finalizer"
 	if !mw.DeletionTimestamp.IsZero() {
@@ -357,7 +368,8 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 				if err := r.Status().Update(ctx, mw); err != nil {
 					return ctrl.Result{}, err
 				}
-				return ctrl.Result{RequeueAfter: mw.Spec.SyncInterval.Duration}, nil
+				DefaultCircuitBreaker.RecordSuccess(accountKey)
+				return ctrl.Result{RequeueAfter: AddSyncJitter(mw.Spec.SyncInterval.Duration)}, nil
 			}
 			metrics.ReconciliationErrorsTotal.WithLabelValues("maintenancewindow", "api_error").Inc()
 			msg := fmt.Sprintf("Failed to update maintenance window: %v", err)
@@ -385,7 +397,8 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		}
 	}
 
-	return ctrl.Result{RequeueAfter: mw.Spec.SyncInterval.Duration}, nil
+	DefaultCircuitBreaker.RecordSuccess(accountKey)
+	return ctrl.Result{RequeueAfter: AddSyncJitter(mw.Spec.SyncInterval.Duration)}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

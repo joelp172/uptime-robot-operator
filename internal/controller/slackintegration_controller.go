@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	uptimerobotv1 "github.com/joelp172/uptime-robot-operator/api/v1alpha1"
@@ -105,6 +106,17 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	}
 
 	urclient := uptimerobot.NewClient(apiKey)
+	accountKey := account.Namespace + "/" + account.Name
+
+	// Circuit breaker: skip API calls when the account's circuit is open.
+	if !DefaultCircuitBreaker.Allow(accountKey) {
+		log.FromContext(ctx).Info("Circuit breaker open, skipping API call", "account", accountKey)
+		if r.Recorder != nil {
+			r.Recorder.Event(resource, "Warning", "CircuitBreakerOpen",
+				"UptimeRobot API circuit breaker is open; skipping reconciliation until cooldown elapses")
+		}
+		return ctrl.Result{RequeueAfter: DefaultCircuitBreaker.CooldownPeriod()}, nil
+	}
 
 	if !resource.DeletionTimestamp.IsZero() {
 		if controllerutil.ContainsFinalizer(resource, slackIntegrationFinalizerName) {
@@ -277,7 +289,8 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return ctrl.Result{}, err
 	}
 
-	return ctrl.Result{RequeueAfter: resource.Spec.SyncInterval.Duration}, nil
+	DefaultCircuitBreaker.RecordSuccess(accountKey)
+	return ctrl.Result{RequeueAfter: AddSyncJitter(resource.Spec.SyncInterval.Duration)}, nil
 }
 
 func (r *SlackIntegrationReconciler) resolveWebhookURL(ctx context.Context, resource *uptimerobotv1.SlackIntegration) (string, error) {

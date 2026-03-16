@@ -104,6 +104,16 @@ var (
 			Help: "Remaining API quota",
 		},
 	)
+
+	// CircuitBreakerState tracks the current state of the circuit breaker per account.
+	// Values: 0 = closed (normal), 1 = open (failing), 2 = half-open (probing).
+	CircuitBreakerState = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "uptimerobot_circuit_breaker_state",
+			Help: "Current state of the circuit breaker per account (0=closed, 1=open, 2=half-open)",
+		},
+		[]string{"account"},
+	)
 )
 
 // RegisterMetrics registers all custom metrics with the controller-runtime metrics registry
@@ -118,5 +128,6 @@ func RegisterMetrics() {
 		MaintenanceWindowsTotal,
 		MonitorGroupsTotal,
 		RateLimitRemaining,
+		CircuitBreakerState,
 	)
 }
