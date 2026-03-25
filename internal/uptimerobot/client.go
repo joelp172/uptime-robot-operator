@@ -30,16 +30,22 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/time/rate"
+
 	uptimerobotv1 "github.com/joelp172/uptime-robot-operator/api/v1alpha1"
 	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot/urtypes"
 )
 
 const apiMonitorType = "API"
 
+// DefaultRateLimit is the default maximum number of API requests per second.
+const DefaultRateLimit = 10
+
 // NewClient creates a new UptimeRobot API v3 client.
-// The following environment variables can override retry defaults (useful for testing):
+// The following environment variables can override defaults (useful for testing):
 //   - UPTIME_ROBOT_MAX_RETRIES: maximum number of retry attempts (positive integer)
 //   - UPTIME_ROBOT_BASE_DELAY: base delay between retries (Go duration string, e.g. "1ms")
+//   - UPTIME_ROBOT_RATE_LIMIT: maximum API requests per second (positive integer, default 10)
 func NewClient(apiKey string) Client {
 	api := "https://api.uptimerobot.com/v3"
 	if env := os.Getenv("UPTIME_ROBOT_API"); env != "" {
@@ -60,6 +66,13 @@ func NewClient(apiKey string) Client {
 		}
 	}
 
+	rateLimit := DefaultRateLimit
+	if env := os.Getenv("UPTIME_ROBOT_RATE_LIMIT"); env != "" {
+		if n, err := strconv.Atoi(env); err == nil && n > 0 {
+			rateLimit = n
+		}
+	}
+
 	return Client{
 		url:            api,
 		apiKey:         apiKey,
@@ -67,6 +80,9 @@ func NewClient(apiKey string) Client {
 		baseDelay:      baseDelay,
 		maxDelay:       DefaultMaxDelay,
 		jitterFraction: DefaultJitterFraction,
+		// Burst equals the rate so up to rateLimit tokens are available immediately
+		// on a cold start; subsequent requests are smoothed to one per (1/rateLimit)s.
+		limiter: rate.NewLimiter(rate.Limit(rateLimit), rateLimit),
 	}
 }
 
@@ -74,6 +90,9 @@ func NewClient(apiKey string) Client {
 type Client struct {
 	url    string
 	apiKey string
+
+	// limiter throttles outbound API requests to prevent quota exhaustion.
+	limiter *rate.Limiter
 
 	// Optional retry overrides for testing. Zero values use package defaults.
 	maxRetries     int
