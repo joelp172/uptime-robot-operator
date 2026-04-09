@@ -253,11 +253,18 @@ graph LR
 
 ### Rate Limiting
 
-UptimeRobot API has rate limits:
-- Controllers do not implement custom client-side throttling logic in this repo
-- `syncInterval` controls reconciliation frequency
-- Failed reconciliations are retried with controller-runtime rate-limited backoff
-- Check controller logs for rate limit errors
+UptimeRobot API has rate limits. The operator uses a two-layer strategy:
+
+**Client-side proactive throttling** (`internal/uptimerobot/client.go`):
+- A `golang.org/x/time/rate` token-bucket limiter is embedded in every `Client`.
+- Default: **10 requests per second** with a burst of 10. The burst size always matches the configured rate.
+- Configurable via the `UPTIME_ROBOT_RATE_LIMIT` environment variable (positive integer). Invalid values log a warning and fall back to the default.
+- `doWithRetry` waits for a token before each API call, preventing burst exhaustion.
+
+**Reactive retry on 429** (`internal/uptimerobot/retry.go`):
+- If the API still returns HTTP 429 (e.g., due to shared quota across operator instances), the retry logic backs off using the `Retry-After` header or exponential backoff.
+- `syncInterval` controls reconciliation frequency as a further backstop.
+- Check controller logs for rate limit errors.
 
 ## Component Interactions
 
