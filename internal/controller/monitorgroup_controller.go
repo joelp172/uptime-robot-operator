@@ -176,10 +176,6 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// Circuit breaker: skip API calls when the account's circuit is open.
 	if !DefaultCircuitBreaker.Allow(accountKey) {
 		log.FromContext(ctx).Info("Circuit breaker open, skipping API call", "account", accountKey)
-		if r.Recorder != nil {
-			r.Recorder.Event(groupResource, "Warning", "CircuitBreakerOpen",
-				"UptimeRobot API circuit breaker is open; skipping reconciliation until cooldown elapses")
-		}
 		return ctrl.Result{RequeueAfter: DefaultCircuitBreaker.CooldownPeriod()}, nil
 	}
 
@@ -243,12 +239,7 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			if r.Recorder != nil {
 				r.Recorder.Event(groupResource, "Warning", "SyncFailed", msg)
 			}
-			if IsTransientError(creationErr) {
-				if justOpened := DefaultCircuitBreaker.RecordFailure(accountKey); justOpened && r.Recorder != nil {
-					r.Recorder.Event(groupResource, "Warning", "CircuitBreakerOpened",
-						"UptimeRobot API circuit breaker opened after repeated failures")
-				}
-			}
+			onTransientAPIFailure(accountKey, creationErr, r.Recorder, groupResource)
 			if updateErr := r.Status().Update(ctx, groupResource); updateErr != nil {
 				return ctrl.Result{}, updateErr
 			}
@@ -302,12 +293,7 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 					if r.Recorder != nil {
 						r.Recorder.Event(groupResource, "Warning", "SyncFailed", msg)
 					}
-					if IsTransientError(recreationErr) {
-						if justOpened := DefaultCircuitBreaker.RecordFailure(accountKey); justOpened && r.Recorder != nil {
-							r.Recorder.Event(groupResource, "Warning", "CircuitBreakerOpened",
-								"UptimeRobot API circuit breaker opened after repeated failures")
-						}
-					}
+					onTransientAPIFailure(accountKey, recreationErr, r.Recorder, groupResource)
 					if updateErr := r.Status().Update(ctx, groupResource); updateErr != nil {
 						return ctrl.Result{}, updateErr
 					}
@@ -341,12 +327,7 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			if r.Recorder != nil {
 				r.Recorder.Event(groupResource, "Warning", "SyncFailed", msg)
 			}
-			if IsTransientError(updateErr) {
-				if justOpened := DefaultCircuitBreaker.RecordFailure(accountKey); justOpened && r.Recorder != nil {
-					r.Recorder.Event(groupResource, "Warning", "CircuitBreakerOpened",
-						"UptimeRobot API circuit breaker opened after repeated failures")
-				}
-			}
+			onTransientAPIFailure(accountKey, updateErr, r.Recorder, groupResource)
 			if statusUpdateErr := r.Status().Update(ctx, groupResource); statusUpdateErr != nil {
 				return ctrl.Result{}, statusUpdateErr
 			}

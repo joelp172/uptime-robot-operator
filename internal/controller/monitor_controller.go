@@ -139,10 +139,6 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// Circuit breaker: skip API calls when the account's circuit is open.
 	if !DefaultCircuitBreaker.Allow(accountKey) {
 		log.FromContext(ctx).Info("Circuit breaker open, skipping API call", "account", accountKey)
-		if r.Recorder != nil {
-			r.Recorder.Event(monitor, "Warning", "CircuitBreakerOpen",
-				"UptimeRobot API circuit breaker is open; skipping reconciliation until cooldown elapses")
-		}
 		return ctrl.Result{RequeueAfter: DefaultCircuitBreaker.CooldownPeriod()}, nil
 	}
 
@@ -1040,15 +1036,10 @@ func (r *MonitorReconciler) handleAPIError(ctx context.Context, monitor *uptimer
 	// Update annotations after status to avoid overwriting status changes
 	retryCount := GetRetryCount(monitor.Annotations)
 	if IsTransientError(err) {
-		justOpened := DefaultCircuitBreaker.RecordFailure(accountKey)
+		onTransientAPIFailure(accountKey, err, r.Recorder, monitor)
 		monitor.Annotations = IncrementRetryCount(monitor.Annotations)
 		if updateErr := r.Update(ctx, monitor); updateErr != nil {
 			return ctrl.Result{}, updateErr
-		}
-		// Emit an event when the circuit opens so operators are notified.
-		if justOpened && r.Recorder != nil {
-			r.Recorder.Event(monitor, "Warning", "CircuitBreakerOpened",
-				"UptimeRobot API circuit breaker opened after repeated failures")
 		}
 	}
 

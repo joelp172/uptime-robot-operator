@@ -123,10 +123,6 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	// Circuit breaker: skip API calls when the account's circuit is open.
 	if !DefaultCircuitBreaker.Allow(accountKey) {
 		log.FromContext(ctx).Info("Circuit breaker open, skipping API call", "account", accountKey)
-		if r.Recorder != nil {
-			r.Recorder.Event(mw, "Warning", "CircuitBreakerOpen",
-				"UptimeRobot API circuit breaker is open; skipping reconciliation until cooldown elapses")
-		}
 		return ctrl.Result{RequeueAfter: DefaultCircuitBreaker.CooldownPeriod()}, nil
 	}
 
@@ -268,12 +264,7 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			if r.Recorder != nil {
 				r.Recorder.Event(mw, "Warning", "SyncFailed", msg)
 			}
-			if IsTransientError(err) {
-				if justOpened := DefaultCircuitBreaker.RecordFailure(accountKey); justOpened && r.Recorder != nil {
-					r.Recorder.Event(mw, "Warning", "CircuitBreakerOpened",
-						"UptimeRobot API circuit breaker opened after repeated failures")
-				}
-			}
+			onTransientAPIFailure(accountKey, err, r.Recorder, mw)
 			if updateErr := r.Status().Update(ctx, mw); updateErr != nil {
 				return ctrl.Result{}, updateErr
 			}
@@ -357,12 +348,7 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 					if r.Recorder != nil {
 						r.Recorder.Event(mw, "Warning", "SyncFailed", msg)
 					}
-					if IsTransientError(err) {
-						if justOpened := DefaultCircuitBreaker.RecordFailure(accountKey); justOpened && r.Recorder != nil {
-							r.Recorder.Event(mw, "Warning", "CircuitBreakerOpened",
-								"UptimeRobot API circuit breaker opened after repeated failures")
-						}
-					}
+					onTransientAPIFailure(accountKey, err, r.Recorder, mw)
 					if updateErr := r.Status().Update(ctx, mw); updateErr != nil {
 						return ctrl.Result{}, updateErr
 					}
@@ -391,12 +377,7 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			if r.Recorder != nil {
 				r.Recorder.Event(mw, "Warning", "SyncFailed", msg)
 			}
-			if IsTransientError(err) {
-				if justOpened := DefaultCircuitBreaker.RecordFailure(accountKey); justOpened && r.Recorder != nil {
-					r.Recorder.Event(mw, "Warning", "CircuitBreakerOpened",
-						"UptimeRobot API circuit breaker opened after repeated failures")
-				}
-			}
+			onTransientAPIFailure(accountKey, err, r.Recorder, mw)
 			if updateErr := r.Status().Update(ctx, mw); updateErr != nil {
 				return ctrl.Result{}, updateErr
 			}

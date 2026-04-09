@@ -21,6 +21,8 @@ import (
 	"time"
 
 	"github.com/joelp172/uptime-robot-operator/internal/metrics"
+	"k8s.io/client-go/tools/record"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // CircuitState represents the operational state of a circuit breaker.
@@ -193,4 +195,19 @@ func (cb *CircuitBreaker) ConsecutiveFailures(accountKey string) int {
 		return 0
 	}
 	return e.consecutiveFails
+}
+
+// onTransientAPIFailure records a transient API failure for the account's circuit breaker
+// using DefaultCircuitBreaker, and emits a CircuitBreakerOpened Kubernetes event if the
+// circuit just transitioned to Open. It is a no-op when err is not a transient error.
+// All four controllers share this helper to avoid duplicating the
+// IsTransientError → RecordFailure → event-emission pattern.
+func onTransientAPIFailure(accountKey string, err error, recorder record.EventRecorder, obj client.Object) {
+	if !IsTransientError(err) {
+		return
+	}
+	if justOpened := DefaultCircuitBreaker.RecordFailure(accountKey); justOpened && recorder != nil {
+		recorder.Event(obj, "Warning", "CircuitBreakerOpened",
+			"UptimeRobot API circuit breaker opened after repeated failures")
+	}
 }
