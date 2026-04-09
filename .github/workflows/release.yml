@@ -29,13 +29,13 @@ jobs:
           fetch-depth: 0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22
 
       - name: Semantic Release (dry run)
         id: semantic_dry
-        uses: cycjimmy/semantic-release-action@v4
+        uses: cycjimmy/semantic-release-action@v6
         with:
           dry_run: true
           extra_plugins: |
@@ -69,7 +69,7 @@ jobs:
             type=raw,value=v${{ needs.release.outputs.new_release_version }}
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
@@ -146,7 +146,7 @@ jobs:
           output: 'sbom-cyclonedx.json'
       
       - name: Upload SBOM artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sbom-v${{ needs.release.outputs.new_release_version }}
           path: |
@@ -191,7 +191,7 @@ jobs:
           fetch-depth: 0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22
 
@@ -206,7 +206,7 @@ jobs:
           version: v3.14.0
 
       - name: Download SBOM artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: sbom-v${{ needs.release.outputs.new_release_version }}
           path: sbom-v${{ needs.release.outputs.new_release_version }}
@@ -218,7 +218,7 @@ jobs:
           mv "${ARTIFACT_DIR}/sbom-cyclonedx.json" ./sbom-cyclonedx.json
       - name: Semantic Release (publish)
         id: semantic_publish
-        uses: cycjimmy/semantic-release-action@v4
+        uses: cycjimmy/semantic-release-action@v6
         with:
           extra_plugins: |
             @semantic-release/exec

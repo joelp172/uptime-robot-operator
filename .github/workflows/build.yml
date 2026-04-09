@@ -98,7 +98,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
       - name: Build Image (no push)
@@ -156,7 +156,7 @@ jobs:
           output: 'sbom-cyclonedx.json'
 
       - name: Upload SBOM artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sbom-pr-${{ github.event.pull_request.number }}
           path: |
@@ -186,7 +186,7 @@ jobs:
             type=raw,value=beta,enable=${{ github.ref_name == 'main' }}
             type=ref,event=tag
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
       - name: Login to GitHub Container Registry
@@ -261,7 +261,7 @@ jobs:
           output: 'sbom-cyclonedx.json'
 
       - name: Upload SBOM artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sbom-${{ github.sha }}
           path: |
