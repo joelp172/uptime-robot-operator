@@ -131,9 +131,12 @@ func TestDoWithRetry_RateLimiterThrottles(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to create request: %v", err)
 		}
-		_, err = client.doWithRetry(context.Background(), req)
+		resp, err := client.doWithRetry(context.Background(), req)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
 		}
 	}
 
@@ -177,11 +180,14 @@ func TestDoWithRetry_RateLimiterAppliesToRetries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create request: %v", err)
 	}
-	_, err = client.doWithRetry(context.Background(), req)
+	resp, err := client.doWithRetry(context.Background(), req)
 	elapsed := time.Since(start)
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
 	}
 	// The first attempt consumes the burst token; the retry must wait ~1s for a new token.
 	const minElapsed = 700 * time.Millisecond
@@ -210,9 +216,12 @@ func TestDoWithRetry_RateLimiterContextCancellation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create request: %v", err)
 	}
-	_, err = client.doWithRetry(context.Background(), req)
+	resp, err := client.doWithRetry(context.Background(), req)
 	if err != nil {
 		t.Fatalf("unexpected error on first request: %v", err)
+	}
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
 	}
 
 	// The second request must wait 10 seconds — cancel it quickly.
@@ -253,8 +262,11 @@ func TestDoWithRetry_NilLimiter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create request: %v", err)
 	}
-	_, err = client.doWithRetry(context.Background(), req)
+	resp, err := client.doWithRetry(context.Background(), req)
 	if err != nil {
 		t.Fatalf("unexpected error with nil limiter: %v", err)
+	}
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
 	}
 }
