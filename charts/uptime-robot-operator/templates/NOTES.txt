@@ -58,6 +58,11 @@ To get started:
        interval: 5m
    EOF
 
+⚠️  Security note: the operator ClusterRole grants read/write access to ALL Secrets
+    and ConfigMaps cluster-wide (required for API key lookup and heartbeat URL
+    publishing). See the Security Considerations section of the installation docs:
+    https://github.com/joelp172/uptime-robot-operator/blob/main/docs/installation.md#security-considerations
+
 For more information, visit:
   - Documentation: https://github.com/joelp172/uptime-robot-operator/tree/main/docs
   - GitHub: https://github.com/joelp172/uptime-robot-operator

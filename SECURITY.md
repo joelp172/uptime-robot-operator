@@ -123,6 +123,15 @@ We respond within 48 hours and work with you to address the issue promptly.
 
 When you deploy the operator, follow these practices:
 
+### Understand the RBAC permissions
+
+The operator requires broad access to Secrets and ConfigMaps across the entire cluster:
+
+- **Secrets**: reading API keys referenced by `Account` resources and writing heartbeat URLs
+- **ConfigMaps**: writing heartbeat URLs for heartbeat monitors
+
+This is a wide permission surface. Review the [Security Considerations](https://github.com/joelp172/uptime-robot-operator/blob/main/docs/installation.md#security-considerations) section of the installation docs for an explanation and available mitigations such as OPA/Kyverno policies and audit logging.
+
 ### Use specific image tags
 
 Use specific version tags instead of `latest` or `beta`:
