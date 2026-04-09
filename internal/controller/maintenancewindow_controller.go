@@ -120,12 +120,6 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	urclient := uptimerobot.NewClient(apiKey)
 	accountKey := account.Namespace + "/" + account.Name
 
-	// Circuit breaker: skip API calls when the account's circuit is open.
-	if !DefaultCircuitBreaker.Allow(accountKey) {
-		log.FromContext(ctx).Info("Circuit breaker open, skipping API call", "account", accountKey)
-		return ctrl.Result{RequeueAfter: DefaultCircuitBreaker.CooldownPeriod()}, nil
-	}
-
 	const myFinalizerName = "uptimerobot.com/finalizer"
 	if !mw.DeletionTimestamp.IsZero() {
 		// Object is being deleted
@@ -168,6 +162,11 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 				return ctrl.Result{RequeueAfter: result.RequeueAfter}, nil
 			}
 
+			// Successful cleanup API call confirms the API is healthy.
+			if result.Success {
+				DefaultCircuitBreaker.RecordSuccess(accountKey)
+			}
+
 			// Remove finalizer (either success or force-remove)
 			controllerutil.RemoveFinalizer(mw, myFinalizerName)
 			if err := r.Update(ctx, mw); err != nil {
@@ -176,6 +175,12 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		}
 
 		return ctrl.Result{}, nil
+	}
+
+	// Circuit breaker: skip API calls when the circuit is not allowing traffic.
+	if !DefaultCircuitBreaker.Allow(accountKey) {
+		log.FromContext(ctx).Info("Circuit breaker blocking API call", "account", accountKey, "state", DefaultCircuitBreaker.State(accountKey))
+		return ctrl.Result{RequeueAfter: DefaultCircuitBreaker.CooldownPeriod()}, nil
 	}
 
 	// Add finalizer before creating external resource to prevent orphaning

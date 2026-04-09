@@ -30,12 +30,30 @@ type CircuitState int
 
 const (
 	// CircuitClosed is the normal operating state — API calls proceed as usual.
-	CircuitClosed CircuitState = iota
+	// Explicit values are load-bearing: they map directly to the
+	// uptimerobot_circuit_breaker_state Prometheus gauge.
+	CircuitClosed CircuitState = 0
 	// CircuitOpen means too many consecutive failures occurred; API calls are skipped.
-	CircuitOpen
+	CircuitOpen CircuitState = 1
 	// CircuitHalfOpen is the probe state — one call is allowed to test recovery.
-	CircuitHalfOpen
+	CircuitHalfOpen CircuitState = 2
+)
 
+// String returns a human-readable label for the circuit state.
+func (s CircuitState) String() string {
+	switch s {
+	case CircuitClosed:
+		return "closed"
+	case CircuitOpen:
+		return "open"
+	case CircuitHalfOpen:
+		return "half-open"
+	default:
+		return "unknown"
+	}
+}
+
+const (
 	// DefaultFailureThreshold is the number of consecutive API failures that open the circuit.
 	DefaultFailureThreshold = 5
 	// DefaultCooldownPeriod is the time to wait after the circuit opens before probing.
@@ -67,7 +85,15 @@ type CircuitBreaker struct {
 }
 
 // NewCircuitBreaker returns a CircuitBreaker with the given thresholds.
+// Invalid inputs are clamped to defaults: failureThreshold must be >= 1,
+// cooldownPeriod must be > 0.
 func NewCircuitBreaker(failureThreshold int, cooldownPeriod time.Duration) *CircuitBreaker {
+	if failureThreshold < 1 {
+		failureThreshold = DefaultFailureThreshold
+	}
+	if cooldownPeriod <= 0 {
+		cooldownPeriod = DefaultCooldownPeriod
+	}
 	return &CircuitBreaker{
 		entries:          make(map[string]*circuitEntry),
 		failureThreshold: failureThreshold,
@@ -89,37 +115,31 @@ func (cb *CircuitBreaker) entry(key string) *circuitEntry {
 	return e
 }
 
+// promoteIfCooldownElapsed transitions Open → HalfOpen if the cooldown has
+// elapsed. Must be called while holding cb.mu (write lock).
+func (cb *CircuitBreaker) promoteIfCooldownElapsed(e *circuitEntry, accountKey string) {
+	if e.state == CircuitOpen && time.Since(e.openedAt) >= cb.cooldownPeriod {
+		e.state = CircuitHalfOpen
+		e.probeInFlight = false
+		metrics.CircuitBreakerState.WithLabelValues(accountKey).Set(float64(CircuitHalfOpen))
+	}
+}
+
 // State returns the current CircuitState for accountKey.
 // NOTE: this may transition Open → HalfOpen after the cooldown elapses.
+// Allow() performs the same promotion.
 func (cb *CircuitBreaker) State(accountKey string) CircuitState {
-	cb.mu.RLock()
-	e, ok := cb.entries[accountKey]
-	if !ok {
-		cb.mu.RUnlock()
-		return CircuitClosed
-	}
-	state := e.state
-	openedAt := e.openedAt
-	cb.mu.RUnlock()
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
 
-	// Promote Open → HalfOpen once the cooldown has elapsed.
-	if state == CircuitOpen && time.Since(openedAt) >= cb.cooldownPeriod {
-		cb.mu.Lock()
-		// Re-check inside write lock.
-		if e.state == CircuitOpen && time.Since(e.openedAt) >= cb.cooldownPeriod {
-			e.state = CircuitHalfOpen
-			e.probeInFlight = false // reset probe slot for the new HalfOpen window
-			metrics.CircuitBreakerState.WithLabelValues(accountKey).Set(float64(CircuitHalfOpen))
-		}
-		state = e.state
-		cb.mu.Unlock()
-	}
-
-	return state
+	e := cb.entry(accountKey)
+	cb.promoteIfCooldownElapsed(e, accountKey)
+	return e.state
 }
 
 // Allow returns true when a reconciliation should proceed with an API call.
-// Returns false when the circuit is Open (blocking calls to protect the API).
+// Returns false when the circuit is not allowing traffic (Open, or HalfOpen
+// with a probe already in flight).
 // In HalfOpen exactly one probe call is allowed through; all subsequent callers
 // are blocked until RecordSuccess or RecordFailure is called.
 func (cb *CircuitBreaker) Allow(accountKey string) bool {
@@ -127,13 +147,7 @@ func (cb *CircuitBreaker) Allow(accountKey string) bool {
 	defer cb.mu.Unlock()
 
 	e := cb.entry(accountKey)
-
-	// Promote Open → HalfOpen once the cooldown has elapsed.
-	if e.state == CircuitOpen && time.Since(e.openedAt) >= cb.cooldownPeriod {
-		e.state = CircuitHalfOpen
-		e.probeInFlight = false
-		metrics.CircuitBreakerState.WithLabelValues(accountKey).Set(float64(CircuitHalfOpen))
-	}
+	cb.promoteIfCooldownElapsed(e, accountKey)
 
 	switch e.state {
 	case CircuitClosed:
@@ -163,7 +177,8 @@ func (cb *CircuitBreaker) RecordSuccess(accountKey string) {
 }
 
 // RecordFailure increments the consecutive failure counter.
-// If the counter reaches failureThreshold the circuit opens.
+// If the circuit is HalfOpen (probe failed), it immediately reopens.
+// If the counter reaches failureThreshold from Closed, the circuit opens.
 // Returns true if the circuit transitioned to Open on this call.
 func (cb *CircuitBreaker) RecordFailure(accountKey string) bool {
 	cb.mu.Lock()
@@ -171,6 +186,18 @@ func (cb *CircuitBreaker) RecordFailure(accountKey string) bool {
 
 	e := cb.entry(accountKey)
 	e.consecutiveFails++
+
+	// A probe failure in HalfOpen always reopens the circuit immediately,
+	// regardless of the failure count. This ensures the cooldown timer
+	// resets and we don't re-probe right away.
+	if e.state == CircuitHalfOpen {
+		e.state = CircuitOpen
+		e.openedAt = time.Now()
+		e.probeInFlight = false
+		metrics.CircuitBreakerState.WithLabelValues(accountKey).Set(float64(CircuitOpen))
+		return true
+	}
+
 	if e.consecutiveFails >= cb.failureThreshold && e.state != CircuitOpen {
 		e.state = CircuitOpen
 		e.openedAt = time.Now()
@@ -181,7 +208,17 @@ func (cb *CircuitBreaker) RecordFailure(accountKey string) bool {
 	return false
 }
 
+// Remove deletes the circuit entry for accountKey, freeing memory for
+// accounts that no longer exist.
+func (cb *CircuitBreaker) Remove(accountKey string) {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+	delete(cb.entries, accountKey)
+	metrics.CircuitBreakerState.DeleteLabelValues(accountKey)
+}
+
 // CooldownPeriod returns the configured cooldown duration.
+// cooldownPeriod is immutable after construction so no lock is needed.
 func (cb *CircuitBreaker) CooldownPeriod() time.Duration {
 	return cb.cooldownPeriod
 }
@@ -200,7 +237,7 @@ func (cb *CircuitBreaker) ConsecutiveFailures(accountKey string) int {
 // onTransientAPIFailure records a transient API failure for the account's circuit breaker
 // using DefaultCircuitBreaker, and emits a CircuitBreakerOpened Kubernetes event if the
 // circuit just transitioned to Open. It is a no-op when err is not a transient error.
-// All four controllers share this helper to avoid duplicating the
+// Controllers that make UptimeRobot API calls share this helper to avoid duplicating the
 // IsTransientError → RecordFailure → event-emission pattern.
 func onTransientAPIFailure(accountKey string, err error, recorder record.EventRecorder, obj client.Object) {
 	if !IsTransientError(err) {

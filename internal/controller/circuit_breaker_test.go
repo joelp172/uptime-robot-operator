@@ -17,21 +17,21 @@ limitations under the License.
 package controller
 
 import (
+	"fmt"
 	"testing"
 	"time"
+
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/record"
 )
 
 const testAccountKey = "test-ns/test-account"
 
-// newTestCircuitBreaker returns a CircuitBreaker with a short cooldown suitable for tests.
-func newTestCircuitBreaker(threshold int, cooldown time.Duration) *CircuitBreaker {
-	return NewCircuitBreaker(threshold, cooldown)
-}
-
 // ---- State transitions ----
 
 func TestCircuitBreakerInitialState(t *testing.T) {
-	cb := newTestCircuitBreaker(3, time.Minute)
+	cb := NewCircuitBreaker(3, time.Minute)
 	if got := cb.State(testAccountKey); got != CircuitClosed {
 		t.Errorf("State() = %v, want CircuitClosed", got)
 	}
@@ -42,7 +42,7 @@ func TestCircuitBreakerInitialState(t *testing.T) {
 
 func TestCircuitBreakerOpensAfterThreshold(t *testing.T) {
 	const threshold = 3
-	cb := newTestCircuitBreaker(threshold, time.Minute)
+	cb := NewCircuitBreaker(threshold, time.Minute)
 
 	// Record (threshold-1) failures — circuit must remain closed.
 	for i := 0; i < threshold-1; i++ {
@@ -72,7 +72,7 @@ func TestCircuitBreakerOpensAfterThreshold(t *testing.T) {
 
 func TestCircuitBreakerClosesAfterSuccess(t *testing.T) {
 	const threshold = 3
-	cb := newTestCircuitBreaker(threshold, time.Minute)
+	cb := NewCircuitBreaker(threshold, time.Minute)
 
 	// Open the circuit.
 	for i := 0; i < threshold; i++ {
@@ -113,7 +113,7 @@ func TestCircuitBreakerClosesAfterSuccess(t *testing.T) {
 
 func TestCircuitBreakerHalfOpenSingleProbe(t *testing.T) {
 	const threshold = 2
-	cb := newTestCircuitBreaker(threshold, time.Minute)
+	cb := NewCircuitBreaker(threshold, time.Minute)
 
 	// Open the circuit.
 	for i := 0; i < threshold; i++ {
@@ -147,7 +147,7 @@ func TestCircuitBreakerHalfOpenSingleProbe(t *testing.T) {
 
 func TestCircuitBreakerReopenOnProbeFailure(t *testing.T) {
 	const threshold = 3
-	cb := newTestCircuitBreaker(threshold, time.Minute)
+	cb := NewCircuitBreaker(threshold, time.Minute)
 
 	// Open the circuit.
 	for i := 0; i < threshold; i++ {
@@ -176,7 +176,7 @@ func TestCircuitBreakerReopenOnProbeFailure(t *testing.T) {
 
 func TestCircuitBreakerSuccessResetsCounter(t *testing.T) {
 	const threshold = 5
-	cb := newTestCircuitBreaker(threshold, time.Minute)
+	cb := NewCircuitBreaker(threshold, time.Minute)
 
 	for i := 0; i < threshold-1; i++ {
 		cb.RecordFailure(testAccountKey)
@@ -193,7 +193,7 @@ func TestCircuitBreakerSuccessResetsCounter(t *testing.T) {
 
 func TestCircuitBreakerPerAccountIsolation(t *testing.T) {
 	const threshold = 2
-	cb := newTestCircuitBreaker(threshold, time.Minute)
+	cb := NewCircuitBreaker(threshold, time.Minute)
 	key1 := "ns/account-a"
 	key2 := "ns/account-b"
 
@@ -215,7 +215,7 @@ func TestCircuitBreakerPerAccountIsolation(t *testing.T) {
 
 func TestCircuitBreakerConcurrentAccess(t *testing.T) {
 	const threshold = 100
-	cb := newTestCircuitBreaker(threshold, time.Minute)
+	cb := NewCircuitBreaker(threshold, time.Minute)
 	done := make(chan struct{})
 
 	// Concurrent writers.
@@ -277,5 +277,267 @@ func TestAddSyncJitterZeroDuration(t *testing.T) {
 func TestAddSyncJitterNegativeDuration(t *testing.T) {
 	if got := AddSyncJitter(-time.Hour); got != -time.Hour {
 		t.Errorf("AddSyncJitter(-1h) = %v, want -1h (passthrough)", got)
+	}
+}
+
+// ---- openedAt refresh on probe failure ----
+
+func TestCircuitBreakerProbeFailureRefreshesOpenedAt(t *testing.T) {
+	const threshold = 2
+	cb := NewCircuitBreaker(threshold, time.Minute)
+
+	// Open the circuit.
+	for i := 0; i < threshold; i++ {
+		cb.RecordFailure(testAccountKey)
+	}
+
+	// Expire the cooldown so Allow() promotes to HalfOpen.
+	cb.mu.Lock()
+	cb.entries[testAccountKey].openedAt = time.Now().Add(-2 * time.Minute)
+	cb.mu.Unlock()
+
+	// Claim probe slot.
+	if !cb.Allow(testAccountKey) {
+		t.Fatal("Expected Allow() to return true (probe) after cooldown")
+	}
+
+	before := time.Now()
+	cb.RecordFailure(testAccountKey) // probe fails → reopen
+	after := time.Now()
+
+	// Verify circuit is open again.
+	cb.mu.RLock()
+	e := cb.entries[testAccountKey]
+	openedAt := e.openedAt
+	state := e.state
+	cb.mu.RUnlock()
+
+	if state != CircuitOpen {
+		t.Errorf("State after probe failure = %v, want CircuitOpen", state)
+	}
+	if openedAt.Before(before) || openedAt.After(after) {
+		t.Errorf("openedAt = %v, want between %v and %v (should be refreshed)", openedAt, before, after)
+	}
+
+	// Because openedAt was refreshed, State() should still return Open (not HalfOpen).
+	if got := cb.State(testAccountKey); got != CircuitOpen {
+		t.Errorf("State() immediately after probe failure = %v, want CircuitOpen (cooldown not elapsed)", got)
+	}
+}
+
+// ---- HalfOpen probe failure after counter reset ----
+
+func TestCircuitBreakerHalfOpenProbeFailureAfterCounterReset(t *testing.T) {
+	const threshold = 3
+	cb := NewCircuitBreaker(threshold, time.Minute)
+
+	// Open the circuit.
+	for i := 0; i < threshold; i++ {
+		cb.RecordFailure(testAccountKey)
+	}
+
+	// Expire cooldown, promote to HalfOpen via Allow, probe succeeds → circuit closes.
+	cb.mu.Lock()
+	cb.entries[testAccountKey].openedAt = time.Now().Add(-2 * time.Minute)
+	cb.mu.Unlock()
+	cb.Allow(testAccountKey)
+	cb.RecordSuccess(testAccountKey)
+
+	// Now counter is 0. Open circuit again.
+	for i := 0; i < threshold; i++ {
+		cb.RecordFailure(testAccountKey)
+	}
+
+	// Expire cooldown and claim probe.
+	cb.mu.Lock()
+	cb.entries[testAccountKey].openedAt = time.Now().Add(-2 * time.Minute)
+	cb.mu.Unlock()
+	if !cb.Allow(testAccountKey) {
+		t.Fatal("Expected Allow() to return true (probe)")
+	}
+
+	// Reset the counter to simulate a scenario where RecordSuccess was called
+	// by another reconciliation between open and probe.
+	cb.mu.Lock()
+	cb.entries[testAccountKey].consecutiveFails = 0
+	cb.mu.Unlock()
+
+	// Probe failure should still immediately reopen the circuit (HalfOpen → Open).
+	opened := cb.RecordFailure(testAccountKey)
+	if !opened {
+		t.Error("RecordFailure() in HalfOpen should return true (circuit reopened) even with low counter")
+	}
+	if got := cb.State(testAccountKey); got != CircuitOpen {
+		t.Errorf("After HalfOpen probe failure with reset counter, State() = %v, want CircuitOpen", got)
+	}
+}
+
+// ---- CircuitState String() ----
+
+func TestCircuitStateString(t *testing.T) {
+	tests := []struct {
+		state CircuitState
+		want  string
+	}{
+		{CircuitClosed, "closed"},
+		{CircuitOpen, "open"},
+		{CircuitHalfOpen, "half-open"},
+		{CircuitState(99), "unknown"},
+	}
+	for _, tt := range tests {
+		if got := tt.state.String(); got != tt.want {
+			t.Errorf("CircuitState(%d).String() = %q, want %q", tt.state, got, tt.want)
+		}
+	}
+}
+
+// ---- Constructor validation ----
+
+func TestNewCircuitBreakerValidation(t *testing.T) {
+	// Zero threshold should be clamped to default.
+	cb := NewCircuitBreaker(0, time.Minute)
+	if cb.failureThreshold != DefaultFailureThreshold {
+		t.Errorf("failureThreshold = %d, want %d (default)", cb.failureThreshold, DefaultFailureThreshold)
+	}
+
+	// Negative threshold should be clamped to default.
+	cb = NewCircuitBreaker(-1, time.Minute)
+	if cb.failureThreshold != DefaultFailureThreshold {
+		t.Errorf("failureThreshold = %d, want %d (default)", cb.failureThreshold, DefaultFailureThreshold)
+	}
+
+	// Zero cooldown should be clamped to default.
+	cb = NewCircuitBreaker(5, 0)
+	if cb.cooldownPeriod != DefaultCooldownPeriod {
+		t.Errorf("cooldownPeriod = %v, want %v (default)", cb.cooldownPeriod, DefaultCooldownPeriod)
+	}
+
+	// Negative cooldown should be clamped to default.
+	cb = NewCircuitBreaker(5, -time.Second)
+	if cb.cooldownPeriod != DefaultCooldownPeriod {
+		t.Errorf("cooldownPeriod = %v, want %v (default)", cb.cooldownPeriod, DefaultCooldownPeriod)
+	}
+
+	// Valid inputs should be preserved.
+	cb = NewCircuitBreaker(10, 2*time.Minute)
+	if cb.failureThreshold != 10 || cb.cooldownPeriod != 2*time.Minute {
+		t.Errorf("Valid inputs not preserved: threshold=%d, cooldown=%v", cb.failureThreshold, cb.cooldownPeriod)
+	}
+}
+
+// ---- Remove ----
+
+func TestCircuitBreakerRemove(t *testing.T) {
+	cb := NewCircuitBreaker(3, time.Minute)
+	cb.RecordFailure(testAccountKey)
+
+	if cb.ConsecutiveFailures(testAccountKey) != 1 {
+		t.Fatal("Expected 1 failure after RecordFailure")
+	}
+
+	cb.Remove(testAccountKey)
+
+	if cb.ConsecutiveFailures(testAccountKey) != 0 {
+		t.Error("After Remove, ConsecutiveFailures should return 0")
+	}
+	if cb.State(testAccountKey) != CircuitClosed {
+		t.Error("After Remove, State should return CircuitClosed")
+	}
+}
+
+// ---- onTransientAPIFailure ----
+
+func testObj() *corev1.ConfigMap {
+	return &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test",
+			Namespace: "default",
+		},
+	}
+}
+
+func TestOnTransientAPIFailure_NonTransientError(t *testing.T) {
+	// Save and restore the package-level DefaultCircuitBreaker.
+	orig := DefaultCircuitBreaker
+	defer func() { DefaultCircuitBreaker = orig }()
+	DefaultCircuitBreaker = NewCircuitBreaker(3, time.Minute)
+
+	recorder := record.NewFakeRecorder(10)
+	// A non-transient error (400 Bad Request) should be a no-op.
+	onTransientAPIFailure(testAccountKey, fmt.Errorf("bad request"), recorder, testObj())
+
+	if DefaultCircuitBreaker.ConsecutiveFailures(testAccountKey) != 0 {
+		t.Error("Non-transient error should not increment failure counter")
+	}
+	select {
+	case <-recorder.Events:
+		t.Error("Non-transient error should not emit an event")
+	default:
+		// expected
+	}
+}
+
+func TestOnTransientAPIFailure_TransientBelowThreshold(t *testing.T) {
+	orig := DefaultCircuitBreaker
+	defer func() { DefaultCircuitBreaker = orig }()
+	DefaultCircuitBreaker = NewCircuitBreaker(5, time.Minute)
+
+	recorder := record.NewFakeRecorder(10)
+	// A transient error (503) that doesn't trip the threshold should record failure but no event.
+	onTransientAPIFailure(testAccountKey, fmt.Errorf("status code: 503"), recorder, testObj())
+
+	if DefaultCircuitBreaker.ConsecutiveFailures(testAccountKey) != 1 {
+		t.Errorf("ConsecutiveFailures = %d, want 1", DefaultCircuitBreaker.ConsecutiveFailures(testAccountKey))
+	}
+	select {
+	case <-recorder.Events:
+		t.Error("Below-threshold transient error should not emit a CircuitBreakerOpened event")
+	default:
+		// expected
+	}
+}
+
+func TestOnTransientAPIFailure_TransientTripsThreshold(t *testing.T) {
+	orig := DefaultCircuitBreaker
+	defer func() { DefaultCircuitBreaker = orig }()
+	DefaultCircuitBreaker = NewCircuitBreaker(2, time.Minute)
+
+	recorder := record.NewFakeRecorder(10)
+	obj := testObj()
+
+	// First transient failure: below threshold.
+	onTransientAPIFailure(testAccountKey, fmt.Errorf("status code: 503"), recorder, obj)
+	select {
+	case <-recorder.Events:
+		t.Error("First failure should not emit event")
+	default:
+	}
+
+	// Second transient failure: trips threshold → circuit opens → event emitted.
+	onTransientAPIFailure(testAccountKey, fmt.Errorf("status code: 503"), recorder, obj)
+	select {
+	case evt := <-recorder.Events:
+		if evt == "" {
+			t.Error("Expected CircuitBreakerOpened event")
+		}
+	default:
+		t.Error("Expected CircuitBreakerOpened event when circuit opens")
+	}
+
+	if DefaultCircuitBreaker.State(testAccountKey) != CircuitOpen {
+		t.Error("Circuit should be open after threshold failures")
+	}
+}
+
+func TestOnTransientAPIFailure_NilRecorder(t *testing.T) {
+	orig := DefaultCircuitBreaker
+	defer func() { DefaultCircuitBreaker = orig }()
+	DefaultCircuitBreaker = NewCircuitBreaker(1, time.Minute)
+
+	// Should not panic with nil recorder.
+	onTransientAPIFailure(testAccountKey, fmt.Errorf("status code: 503"), nil, testObj())
+
+	if DefaultCircuitBreaker.State(testAccountKey) != CircuitOpen {
+		t.Error("Circuit should be open even with nil recorder")
 	}
 }

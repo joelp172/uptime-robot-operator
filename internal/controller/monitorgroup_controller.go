@@ -123,6 +123,14 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				return ctrl.Result{RequeueAfter: result.RequeueAfter}, nil
 			}
 
+			// Successful cleanup API call confirms the API is healthy.
+			if result.Success {
+				cleanupAccount := &uptimerobotv1.Account{}
+				if err := GetAccount(ctx, r.Client, cleanupAccount, groupResource.Spec.Account.Name); err == nil {
+					DefaultCircuitBreaker.RecordSuccess(cleanupAccount.Namespace + "/" + cleanupAccount.Name)
+				}
+			}
+
 			// Remove finalizer (either success or force-remove)
 			controllerutil.RemoveFinalizer(groupResource, cleanupMarker)
 			if updateErr := r.Update(ctx, groupResource); updateErr != nil {
@@ -173,9 +181,9 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	backendClient := uptimerobot.NewClient(apiToken)
 	accountKey := credentialVault.Namespace + "/" + credentialVault.Name
 
-	// Circuit breaker: skip API calls when the account's circuit is open.
+	// Circuit breaker: skip API calls when the circuit is not allowing traffic.
 	if !DefaultCircuitBreaker.Allow(accountKey) {
-		log.FromContext(ctx).Info("Circuit breaker open, skipping API call", "account", accountKey)
+		log.FromContext(ctx).Info("Circuit breaker blocking API call", "account", accountKey, "state", DefaultCircuitBreaker.State(accountKey))
 		return ctrl.Result{RequeueAfter: DefaultCircuitBreaker.CooldownPeriod()}, nil
 	}
 

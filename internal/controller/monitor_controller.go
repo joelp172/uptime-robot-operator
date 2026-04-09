@@ -136,12 +136,6 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		metrics.ReconciliationErrorsTotal.WithLabelValues("monitor", errorType).Inc()
 	}
 
-	// Circuit breaker: skip API calls when the account's circuit is open.
-	if !DefaultCircuitBreaker.Allow(accountKey) {
-		log.FromContext(ctx).Info("Circuit breaker open, skipping API call", "account", accountKey)
-		return ctrl.Result{RequeueAfter: DefaultCircuitBreaker.CooldownPeriod()}, nil
-	}
-
 	const myFinalizerName = "uptimerobot.com/finalizer"
 	if !monitor.DeletionTimestamp.IsZero() {
 		// Object is being deleted
@@ -239,6 +233,11 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				return ctrl.Result{RequeueAfter: result.RequeueAfter}, nil
 			}
 
+			// Successful cleanup API call confirms the API is healthy.
+			if result.Success {
+				DefaultCircuitBreaker.RecordSuccess(accountKey)
+			}
+
 			// Remove finalizer (either success or force-remove)
 			controllerutil.RemoveFinalizer(monitor, myFinalizerName)
 			if err := r.Update(ctx, monitor); err != nil {
@@ -248,6 +247,12 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 
 		return ctrl.Result{}, nil
+	}
+
+	// Circuit breaker: skip API calls when the circuit is not allowing traffic.
+	if !DefaultCircuitBreaker.Allow(accountKey) {
+		log.FromContext(ctx).Info("Circuit breaker blocking API call", "account", accountKey, "state", DefaultCircuitBreaker.State(accountKey))
+		return ctrl.Result{RequeueAfter: DefaultCircuitBreaker.CooldownPeriod()}, nil
 	}
 
 	if !controllerutil.ContainsFinalizer(monitor, myFinalizerName) {
@@ -447,6 +452,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					if r.Recorder != nil {
 						r.Recorder.Event(monitor, "Warning", "SyncFailed", msg)
 					}
+					onTransientAPIFailure(accountKey, err, r.Recorder, monitor)
 					if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
 						return ctrl.Result{}, updateErr
 					}
@@ -545,6 +551,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					if r.Recorder != nil {
 						r.Recorder.Event(monitor, "Warning", "SyncFailed", msg)
 					}
+					onTransientAPIFailure(accountKey, err, r.Recorder, monitor)
 					if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
 						return ctrl.Result{}, updateErr
 					}
@@ -572,6 +579,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			if r.Recorder != nil {
 				r.Recorder.Event(monitor, "Warning", "SyncFailed", msg)
 			}
+			onTransientAPIFailure(accountKey, err, r.Recorder, monitor)
 			if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
 				return ctrl.Result{}, updateErr
 			}
@@ -591,6 +599,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				if r.Recorder != nil {
 					r.Recorder.Event(monitor, "Warning", "SyncFailed", msg)
 				}
+				onTransientAPIFailure(accountKey, err, r.Recorder, monitor)
 				if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
 					return ctrl.Result{}, updateErr
 				}
@@ -622,6 +631,10 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 	}
 
+	// Record success before local follow-up operations (heartbeat publish) so
+	// the circuit breaker sees the API as healthy even if a local step fails.
+	DefaultCircuitBreaker.RecordSuccess(accountKey)
+
 	if err := r.reconcileHeartbeatURLPublishTarget(ctx, monitor); err != nil {
 		recordMonitorError("heartbeat_publish_error")
 		msg := fmt.Sprintf("Failed to reconcile heartbeat URL publish target: %v", err)
@@ -649,8 +662,6 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if err := r.updateMonitorStatus(ctx, monitor); err != nil {
 		return ctrl.Result{}, err
 	}
-
-	DefaultCircuitBreaker.RecordSuccess(accountKey)
 
 	if verifyPausedSoon {
 		// UptimeRobot may transiently report STARTED/UP right after pause requests.

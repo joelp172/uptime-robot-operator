@@ -108,12 +108,6 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	urclient := uptimerobot.NewClient(apiKey)
 	accountKey := account.Namespace + "/" + account.Name
 
-	// Circuit breaker: skip API calls when the account's circuit is open.
-	if !DefaultCircuitBreaker.Allow(accountKey) {
-		log.FromContext(ctx).Info("Circuit breaker open, skipping API call", "account", accountKey)
-		return ctrl.Result{RequeueAfter: DefaultCircuitBreaker.CooldownPeriod()}, nil
-	}
-
 	if !resource.DeletionTimestamp.IsZero() {
 		if controllerutil.ContainsFinalizer(resource, slackIntegrationFinalizerName) {
 			// Initialize cleanup tracking on first deletion attempt
@@ -159,6 +153,11 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 				return ctrl.Result{RequeueAfter: result.RequeueAfter}, nil
 			}
 
+			// Successful cleanup API call confirms the API is healthy.
+			if result.Success {
+				DefaultCircuitBreaker.RecordSuccess(accountKey)
+			}
+
 			// Remove finalizer (either success or force-remove)
 			controllerutil.RemoveFinalizer(resource, slackIntegrationFinalizerName)
 			if err := r.Update(ctx, resource); err != nil {
@@ -166,6 +165,12 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 			}
 		}
 		return ctrl.Result{}, nil
+	}
+
+	// Circuit breaker: skip API calls when the circuit is not allowing traffic.
+	if !DefaultCircuitBreaker.Allow(accountKey) {
+		log.FromContext(ctx).Info("Circuit breaker blocking API call", "account", accountKey, "state", DefaultCircuitBreaker.State(accountKey))
+		return ctrl.Result{RequeueAfter: DefaultCircuitBreaker.CooldownPeriod()}, nil
 	}
 
 	// Persist finalizer before any remote create/recreate calls to prevent orphaned integrations.
