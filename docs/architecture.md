@@ -257,8 +257,8 @@ UptimeRobot API has rate limits. The operator uses a two-layer strategy:
 
 **Client-side proactive throttling** (`internal/uptimerobot/client.go`):
 - A `golang.org/x/time/rate` token-bucket limiter is embedded in every `Client`.
-- Default: **10 requests per second** with a burst of 10.
-- Configurable via the `UPTIME_ROBOT_RATE_LIMIT` environment variable (positive integer).
+- Default: **10 requests per second** with a burst of 10. The burst size always matches the configured rate.
+- Configurable via the `UPTIME_ROBOT_RATE_LIMIT` environment variable (positive integer). Invalid values log a warning and fall back to the default.
 - `doWithRetry` waits for a token before each API call, preventing burst exhaustion.
 
 **Reactive retry on 429** (`internal/uptimerobot/retry.go`):

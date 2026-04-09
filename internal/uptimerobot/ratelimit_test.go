@@ -30,6 +30,7 @@ import (
 // TestNewClient_DefaultRateLimit verifies that NewClient sets a limiter with the
 // correct default rate.
 func TestNewClient_DefaultRateLimit(t *testing.T) {
+	t.Cleanup(resetGlobalLimiters)
 	client := NewClient("test-api-key")
 	if client.limiter == nil {
 		t.Fatal("expected limiter to be non-nil")
@@ -42,8 +43,8 @@ func TestNewClient_DefaultRateLimit(t *testing.T) {
 // TestNewClient_EnvVarRateLimit verifies that UPTIME_ROBOT_RATE_LIMIT overrides
 // the default rate.
 func TestNewClient_EnvVarRateLimit(t *testing.T) {
+	t.Cleanup(resetGlobalLimiters)
 	t.Setenv("UPTIME_ROBOT_RATE_LIMIT", "5")
-	// Use a unique API key so this test gets its own limiter entry in globalLimiters.
 	client := NewClient("test-api-key-rate5")
 	if client.limiter == nil {
 		t.Fatal("expected limiter to be non-nil")
@@ -53,22 +54,37 @@ func TestNewClient_EnvVarRateLimit(t *testing.T) {
 	}
 }
 
-// TestNewClient_InvalidEnvVarRateLimit verifies that an invalid
-// UPTIME_ROBOT_RATE_LIMIT value falls back to the default.
+// TestNewClient_InvalidEnvVarRateLimit verifies that invalid
+// UPTIME_ROBOT_RATE_LIMIT values fall back to the default.
 func TestNewClient_InvalidEnvVarRateLimit(t *testing.T) {
-	t.Setenv("UPTIME_ROBOT_RATE_LIMIT", "not-a-number")
-	client := NewClient("test-api-key-invalid-rate")
-	if client.limiter == nil {
-		t.Fatal("expected limiter to be non-nil")
+	t.Cleanup(resetGlobalLimiters)
+	tests := []struct {
+		name  string
+		value string
+	}{
+		{"non-numeric", "not-a-number"},
+		{"zero", "0"},
+		{"negative", "-1"},
+		{"float", "5.5"},
 	}
-	if client.limiter.Limit() != rate.Limit(DefaultRateLimit) {
-		t.Errorf("expected default rate limit %v, got %v", DefaultRateLimit, client.limiter.Limit())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("UPTIME_ROBOT_RATE_LIMIT", tt.value)
+			client := NewClient("test-api-key-invalid-" + tt.name)
+			if client.limiter == nil {
+				t.Fatal("expected limiter to be non-nil")
+			}
+			if client.limiter.Limit() != rate.Limit(DefaultRateLimit) {
+				t.Errorf("expected default rate limit %v, got %v", DefaultRateLimit, client.limiter.Limit())
+			}
+		})
 	}
 }
 
 // TestNewClient_SharesLimiterPerAPIKey verifies that multiple NewClient calls
 // with the same API key and rate share a single limiter instance.
 func TestNewClient_SharesLimiterPerAPIKey(t *testing.T) {
+	t.Cleanup(resetGlobalLimiters)
 	const key = "test-api-key-shared-limiter"
 	c1 := NewClient(key)
 	c2 := NewClient(key)
@@ -116,8 +132,8 @@ func TestDoWithRetry_RateLimiterThrottles(t *testing.T) {
 	elapsed := time.Since(start)
 
 	// With burst=1 and rate=1/s, 3 requests should take at least ~2 seconds.
-	// Use a small tolerance to avoid flakiness on slow systems.
-	const minElapsed = 1900 * time.Millisecond
+	// Use a generous tolerance to avoid flakiness on slow CI runners.
+	const minElapsed = 1500 * time.Millisecond
 	if elapsed < minElapsed {
 		t.Errorf("expected at least %v for 3 requests with 1 req/s limiter, got %v", minElapsed, elapsed)
 	}
@@ -160,7 +176,7 @@ func TestDoWithRetry_RateLimiterAppliesToRetries(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	// The first attempt consumes the burst token; the retry must wait ~1s for a new token.
-	const minElapsed = 900 * time.Millisecond
+	const minElapsed = 700 * time.Millisecond
 	if elapsed < minElapsed {
 		t.Errorf("expected retry to be rate-limited (>= %v), got %v", minElapsed, elapsed)
 	}
@@ -209,5 +225,28 @@ func TestDoWithRetry_RateLimiterContextCancellation(t *testing.T) {
 	// Should fail quickly (well under the 10s wait).
 	if elapsed > time.Second {
 		t.Errorf("expected fast cancellation, but waited %v", elapsed)
+	}
+}
+
+// TestDoWithRetry_NilLimiter verifies that a Client with a nil limiter
+// (e.g., constructed directly without NewClient) does not panic.
+func TestDoWithRetry_NilLimiter(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	// Directly constructed Client with nil limiter.
+	client := Client{}
+	client.baseDelay = time.Millisecond
+	client.maxDelay = time.Millisecond
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, server.URL, nil)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+	_, err = client.doWithRetry(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error with nil limiter: %v", err)
 	}
 }

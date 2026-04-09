@@ -183,7 +183,7 @@ func (c Client) doWithRetry(ctx context.Context, req *http.Request) (*http.Respo
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		// Apply rate limiting for every attempt (initial + retries) to prevent
-		// bursting against the API during a wave of retries.
+		// bursting against the API, whether from concurrent reconcilers or retry waves.
 		if c.limiter != nil {
 			if err := c.limiter.Wait(ctx); err != nil {
 				return nil, err

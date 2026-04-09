@@ -19,6 +19,7 @@ package uptimerobot
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -42,29 +43,35 @@ const apiMonitorType = "API"
 // DefaultRateLimit is the default maximum number of API requests per second.
 const DefaultRateLimit = 10
 
-// globalLimiters is a process-wide registry of rate limiters, keyed by
-// "<apiKey>:<rateLimit>". This ensures all Client instances created for the
-// same API key and rate share a single limiter, so concurrent reconcilers
-// cannot each claim a fresh burst allowance.
+// globalLimiters is a process-wide registry of rate limiters keyed by a hash
+// of the API key and the configured rate. This ensures all Client instances
+// created for the same API key and rate share a single limiter, so concurrent
+// reconcilers cannot each claim a fresh burst allowance.
 var globalLimiters sync.Map
 
 // limiterKey returns the registry key for a (apiKey, rateLimit) pair.
+// The API key is hashed to avoid holding secrets as plaintext map keys.
 func limiterKey(apiKey string, rateLimit int) string {
-	return apiKey + ":" + strconv.Itoa(rateLimit)
+	h := sha256.Sum256([]byte(apiKey))
+	return fmt.Sprintf("%x:%d", h[:8], rateLimit)
 }
 
 // getSharedLimiter returns the existing limiter for (apiKey, rateLimit),
 // creating and storing one if it does not yet exist.
 func getSharedLimiter(apiKey string, rateLimit int) *rate.Limiter {
 	key := limiterKey(apiKey, rateLimit)
-	if v, ok := globalLimiters.Load(key); ok {
-		return v.(*rate.Limiter)
-	}
 	l := rate.NewLimiter(rate.Limit(rateLimit), rateLimit)
-	if actual, loaded := globalLimiters.LoadOrStore(key, l); loaded {
-		return actual.(*rate.Limiter)
-	}
-	return l
+	actual, _ := globalLimiters.LoadOrStore(key, l)
+	return actual.(*rate.Limiter)
+}
+
+// resetGlobalLimiters clears the process-wide limiter registry.
+// Exposed for use in tests to prevent cross-test contamination.
+func resetGlobalLimiters() {
+	globalLimiters.Range(func(key, _ any) bool {
+		globalLimiters.Delete(key)
+		return true
+	})
 }
 
 // NewClient creates a new UptimeRobot API v3 client.
@@ -85,6 +92,8 @@ func NewClient(apiKey string) Client {
 	if env := os.Getenv("UPTIME_ROBOT_MAX_RETRIES"); env != "" {
 		if n, err := strconv.Atoi(env); err == nil && n > 0 {
 			maxRetries = n
+		} else {
+			fmt.Fprintf(os.Stderr, "WARNING: invalid UPTIME_ROBOT_MAX_RETRIES=%q (must be a positive integer), using default %d\n", env, DefaultMaxRetries)
 		}
 	}
 
@@ -92,6 +101,8 @@ func NewClient(apiKey string) Client {
 	if env := os.Getenv("UPTIME_ROBOT_BASE_DELAY"); env != "" {
 		if d, err := time.ParseDuration(env); err == nil && d > 0 {
 			baseDelay = d
+		} else {
+			fmt.Fprintf(os.Stderr, "WARNING: invalid UPTIME_ROBOT_BASE_DELAY=%q (must be a positive Go duration string, e.g. \"1s\"), using default %v\n", env, DefaultBaseDelay)
 		}
 	}
 
@@ -99,6 +110,8 @@ func NewClient(apiKey string) Client {
 	if env := os.Getenv("UPTIME_ROBOT_RATE_LIMIT"); env != "" {
 		if n, err := strconv.Atoi(env); err == nil && n > 0 {
 			rateLimit = n
+		} else {
+			fmt.Fprintf(os.Stderr, "WARNING: invalid UPTIME_ROBOT_RATE_LIMIT=%q (must be a positive integer), using default %d\n", env, DefaultRateLimit)
 		}
 	}
 
@@ -109,8 +122,8 @@ func NewClient(apiKey string) Client {
 		baseDelay:      baseDelay,
 		maxDelay:       DefaultMaxDelay,
 		jitterFraction: DefaultJitterFraction,
-		// Burst equals the rate so up to rateLimit tokens are available immediately
-		// on a cold start; subsequent requests are smoothed to one per (1/rateLimit)s.
+		// Burst equals the rate, so up to rateLimit requests can fire immediately;
+		// after that, requests are admitted at a steady rate of rateLimit per second.
 		// The limiter is shared across all clients for the same API key so that
 		// concurrent reconcilers cannot each claim a fresh burst allowance.
 		limiter: getSharedLimiter(apiKey, rateLimit),
@@ -123,6 +136,7 @@ type Client struct {
 	apiKey string
 
 	// limiter throttles outbound API requests to prevent quota exhaustion.
+	// Shared across all Client instances for the same API key.
 	limiter *rate.Limiter
 
 	// Optional retry overrides for testing. Zero values use package defaults.
