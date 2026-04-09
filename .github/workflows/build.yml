@@ -156,7 +156,7 @@ jobs:
           output: 'sbom-cyclonedx.json'
 
       - name: Upload SBOM artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sbom-pr-${{ github.event.pull_request.number }}
           path: |
@@ -261,7 +261,7 @@ jobs:
           output: 'sbom-cyclonedx.json'
 
       - name: Upload SBOM artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sbom-${{ github.sha }}
           path: |
