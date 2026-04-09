@@ -76,6 +76,9 @@ var _ = Describe("Manager", Ordered, func() {
 		By("removing manager namespace")
 		cmd = exec.Command("kubectl", "delete", "ns", namespace)
 		_, _ = utils.Run(cmd)
+
+		// Reset so subsequent test suites (e.g., webhook tests) re-create infrastructure.
+		e2eInfraReady = false
 	})
 
 	// After each test, check for failures and collect logs, events,
