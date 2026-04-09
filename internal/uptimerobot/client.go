@@ -47,6 +47,10 @@ const DefaultRateLimit = 10
 // of the API key and the configured rate. This ensures all Client instances
 // created for the same API key and rate share a single limiter, so concurrent
 // reconcilers cannot each claim a fresh burst allowance.
+//
+// Entries are never evicted. This is acceptable because cardinality is bounded
+// by the number of distinct (API key, rate limit) pairs, which is typically one
+// per operator process (one Account with one configured rate).
 var globalLimiters sync.Map
 
 // limiterKey returns the registry key for a (apiKey, rateLimit) pair.
@@ -67,15 +71,6 @@ func getSharedLimiter(apiKey string, rateLimit int) *rate.Limiter {
 	l := rate.NewLimiter(rate.Limit(rateLimit), rateLimit)
 	actual, _ := globalLimiters.LoadOrStore(key, l)
 	return actual.(*rate.Limiter)
-}
-
-// resetGlobalLimiters clears the process-wide limiter registry.
-// Exposed for use in tests to prevent cross-test contamination.
-func resetGlobalLimiters() {
-	globalLimiters.Range(func(key, _ any) bool {
-		globalLimiters.Delete(key)
-		return true
-	})
 }
 
 // clientConfig holds parsed numeric/duration environment variable overrides.
@@ -123,13 +118,6 @@ func getClientConfig() clientConfig {
 		}
 	})
 	return parsedConfig
-}
-
-// resetClientConfig resets the parsed config so it will be re-read from env vars.
-// Exposed for use in tests.
-func resetClientConfig() {
-	parseConfigOnce = sync.Once{}
-	parsedConfig = clientConfig{}
 }
 
 // NewClient creates a new UptimeRobot API v3 client.
