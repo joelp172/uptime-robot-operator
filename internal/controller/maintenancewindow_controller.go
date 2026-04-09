@@ -118,7 +118,7 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, err
 	}
 	urclient := uptimerobot.NewClient(apiKey)
-	accountKey := account.Namespace + "/" + account.Name
+	accountKey := account.Name
 
 	const myFinalizerName = "uptimerobot.com/finalizer"
 	if !mw.DeletionTimestamp.IsZero() {
@@ -285,6 +285,7 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		if r.Recorder != nil {
 			r.Recorder.Event(mw, "Normal", "Created", fmt.Sprintf("Maintenance window created with ID %s", mw.Status.ID))
 		}
+		onAPISuccess(accountKey, r.Recorder, mw)
 		if err := r.Status().Update(ctx, mw); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -368,10 +369,10 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 				if r.Recorder != nil {
 					r.Recorder.Event(mw, "Normal", "Recreated", fmt.Sprintf("Maintenance window recreated with ID %s", mw.Status.ID))
 				}
+				onAPISuccess(accountKey, r.Recorder, mw)
 				if err := r.Status().Update(ctx, mw); err != nil {
 					return ctrl.Result{}, err
 				}
-				onAPISuccess(accountKey, r.Recorder, mw)
 				return ctrl.Result{RequeueAfter: AddSyncJitter(mw.Spec.SyncInterval.Duration)}, nil
 			}
 			metrics.ReconciliationErrorsTotal.WithLabelValues("maintenancewindow", "api_error").Inc()
@@ -396,12 +397,12 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		if r.Recorder != nil {
 			r.Recorder.Event(mw, "Normal", "Updated", "Maintenance window updated successfully")
 		}
+		onAPISuccess(accountKey, r.Recorder, mw)
 		if err := r.Status().Update(ctx, mw); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
 
-	onAPISuccess(accountKey, r.Recorder, mw)
 	return ctrl.Result{RequeueAfter: AddSyncJitter(mw.Spec.SyncInterval.Duration)}, nil
 }
 

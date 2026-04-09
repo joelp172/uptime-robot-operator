@@ -106,7 +106,7 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	}
 
 	urclient := uptimerobot.NewClient(apiKey)
-	accountKey := account.Namespace + "/" + account.Name
+	accountKey := account.Name
 
 	if !resource.DeletionTimestamp.IsZero() {
 		if controllerutil.ContainsFinalizer(resource, slackIntegrationFinalizerName) {
@@ -286,14 +286,16 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		}
 	}
 
+	// Record API success before the status write so the HalfOpen probe
+	// slot is released even if the Kubernetes status update fails.
+	onAPISuccess(accountKey, r.Recorder, resource)
+
 	SetReadyCondition(&resource.Status.Conditions, true, ReasonReconcileSuccess, "SlackIntegration reconciled successfully", resource.Generation)
 	SetSyncedCondition(&resource.Status.Conditions, true, ReasonSyncSuccess, "Successfully synced with UptimeRobot", resource.Generation)
 	SetErrorCondition(&resource.Status.Conditions, false, ReasonReconcileSuccess, "", resource.Generation)
 	if err := r.updateSlackIntegrationStatus(ctx, resource); err != nil {
 		return ctrl.Result{}, err
 	}
-
-	onAPISuccess(accountKey, r.Recorder, resource)
 	return ctrl.Result{RequeueAfter: AddSyncJitter(resource.Spec.SyncInterval.Duration)}, nil
 }
 

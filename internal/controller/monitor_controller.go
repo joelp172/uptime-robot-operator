@@ -131,7 +131,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 	urclient := uptimerobot.NewClient(apiKey)
-	accountKey := account.Namespace + "/" + account.Name
+	accountKey := account.Name
 	recordMonitorError := func(errorType string) {
 		metrics.ReconciliationErrorsTotal.WithLabelValues("monitor", errorType).Inc()
 	}
@@ -414,6 +414,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			if monitor.Spec.Monitor.Type == urtypes.TypeHeartbeat && result.URL != "" {
 				monitor.Status.HeartbeatURL = buildHeartbeatURL(configuredHeartbeatBaseURL(), monitor.Status.ID, result.URL)
 			}
+			onAPISuccess(accountKey, r.Recorder, monitor)
 			if err := r.updateMonitorStatus(ctx, monitor); err != nil {
 				return ctrl.Result{}, err
 			}
@@ -465,6 +466,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			// Set status to reflect actual state after pause operation
 			monitor.Status.Status = monitor.Spec.Monitor.Status
 			monitor.Status.State = monitorStateLabel(monitor.Spec.Monitor.Status)
+			onAPISuccess(accountKey, r.Recorder, monitor)
 			if err := r.updateMonitorStatus(ctx, monitor); err != nil {
 				return ctrl.Result{}, err
 			}
@@ -626,14 +628,15 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		if monitorMissing {
 			log.FromContext(ctx).Info("Recreated monitor after out-of-band deletion", "oldID", oldID, "newID", result.ID)
 		}
+
+		// Record API success before the status write so the HalfOpen probe
+		// slot is released even if the Kubernetes status update fails.
+		onAPISuccess(accountKey, r.Recorder, monitor)
+
 		if err := r.updateMonitorStatus(ctx, monitor); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
-
-	// Record success before local follow-up operations (heartbeat publish) so
-	// the circuit breaker sees the API as healthy even if a local step fails.
-	onAPISuccess(accountKey, r.Recorder, monitor)
 
 	if err := r.reconcileHeartbeatURLPublishTarget(ctx, monitor); err != nil {
 		recordMonitorError("heartbeat_publish_error")

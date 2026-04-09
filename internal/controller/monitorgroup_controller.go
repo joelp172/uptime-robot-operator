@@ -127,7 +127,7 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			if result.Success {
 				cleanupAccount := &uptimerobotv1.Account{}
 				if err := GetAccount(ctx, r.Client, cleanupAccount, groupResource.Spec.Account.Name); err == nil {
-					onAPISuccess(cleanupAccount.Namespace+"/"+cleanupAccount.Name, r.Recorder, groupResource)
+					onAPISuccess(cleanupAccount.Name, r.Recorder, groupResource)
 				}
 			}
 
@@ -179,7 +179,7 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, tokenErr
 	}
 	backendClient := uptimerobot.NewClient(apiToken)
-	accountKey := credentialVault.Namespace + "/" + credentialVault.Name
+	accountKey := credentialVault.Name
 
 	// Circuit breaker: skip API calls when the circuit is not allowing traffic.
 	if !DefaultCircuitBreaker.Allow(accountKey) {
@@ -267,6 +267,7 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			r.Recorder.Event(groupResource, "Normal", "Created", fmt.Sprintf("Monitor group created with ID %s", groupResource.Status.ID))
 		}
 
+		onAPISuccess(accountKey, r.Recorder, groupResource)
 		if statusErr := r.Status().Update(ctx, groupResource); statusErr != nil {
 			return ctrl.Result{}, statusErr
 		}
@@ -320,11 +321,10 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 					r.Recorder.Event(groupResource, "Normal", "Recreated", fmt.Sprintf("Monitor group recreated with ID %s", groupResource.Status.ID))
 				}
 
+				onAPISuccess(accountKey, r.Recorder, groupResource)
 				if statusErr := r.Status().Update(ctx, groupResource); statusErr != nil {
 					return ctrl.Result{}, statusErr
 				}
-
-				onAPISuccess(accountKey, r.Recorder, groupResource)
 				return ctrl.Result{RequeueAfter: AddSyncJitter(groupResource.Spec.SyncInterval.Duration)}, nil
 			}
 			metrics.ReconciliationErrorsTotal.WithLabelValues("monitorgroup", "api_error").Inc()
@@ -353,12 +353,12 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			r.Recorder.Event(groupResource, "Normal", "Updated", "Monitor group updated successfully")
 		}
 
+		onAPISuccess(accountKey, r.Recorder, groupResource)
 		if statusErr := r.Status().Update(ctx, groupResource); statusErr != nil {
 			return ctrl.Result{}, statusErr
 		}
 	}
 
-	onAPISuccess(accountKey, r.Recorder, groupResource)
 	return ctrl.Result{RequeueAfter: AddSyncJitter(groupResource.Spec.SyncInterval.Duration)}, nil
 }
 

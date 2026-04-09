@@ -72,7 +72,7 @@ type circuitEntry struct {
 }
 
 // CircuitBreaker implements per-account API protection.
-// It tracks consecutive API failures keyed by account (namespace/name).
+// It tracks consecutive API failures keyed by account name.
 // After reaching failureThreshold consecutive failures the circuit opens and
 // API calls are skipped. After cooldownPeriod the circuit transitions to
 // HalfOpen so a single probe call can test whether the API has recovered.
@@ -112,6 +112,7 @@ func (cb *CircuitBreaker) entry(key string) *circuitEntry {
 	}
 	e := &circuitEntry{state: CircuitClosed}
 	cb.entries[key] = e
+	metrics.CircuitBreakerState.WithLabelValues(key).Set(float64(CircuitClosed))
 	return e
 }
 
