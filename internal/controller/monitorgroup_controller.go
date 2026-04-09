@@ -127,7 +127,7 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			if result.Success {
 				cleanupAccount := &uptimerobotv1.Account{}
 				if err := GetAccount(ctx, r.Client, cleanupAccount, groupResource.Spec.Account.Name); err == nil {
-					DefaultCircuitBreaker.RecordSuccess(cleanupAccount.Namespace + "/" + cleanupAccount.Name)
+					onAPISuccess(cleanupAccount.Namespace+"/"+cleanupAccount.Name, r.Recorder, groupResource)
 				}
 			}
 
@@ -247,7 +247,7 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			if r.Recorder != nil {
 				r.Recorder.Event(groupResource, "Warning", "SyncFailed", msg)
 			}
-			onTransientAPIFailure(accountKey, creationErr, r.Recorder, groupResource)
+			onAPIFailure(accountKey, creationErr, r.Recorder, groupResource)
 			if updateErr := r.Status().Update(ctx, groupResource); updateErr != nil {
 				return ctrl.Result{}, updateErr
 			}
@@ -301,7 +301,7 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 					if r.Recorder != nil {
 						r.Recorder.Event(groupResource, "Warning", "SyncFailed", msg)
 					}
-					onTransientAPIFailure(accountKey, recreationErr, r.Recorder, groupResource)
+					onAPIFailure(accountKey, recreationErr, r.Recorder, groupResource)
 					if updateErr := r.Status().Update(ctx, groupResource); updateErr != nil {
 						return ctrl.Result{}, updateErr
 					}
@@ -324,7 +324,7 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 					return ctrl.Result{}, statusErr
 				}
 
-				DefaultCircuitBreaker.RecordSuccess(accountKey)
+				onAPISuccess(accountKey, r.Recorder, groupResource)
 				return ctrl.Result{RequeueAfter: AddSyncJitter(groupResource.Spec.SyncInterval.Duration)}, nil
 			}
 			metrics.ReconciliationErrorsTotal.WithLabelValues("monitorgroup", "api_error").Inc()
@@ -335,7 +335,7 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			if r.Recorder != nil {
 				r.Recorder.Event(groupResource, "Warning", "SyncFailed", msg)
 			}
-			onTransientAPIFailure(accountKey, updateErr, r.Recorder, groupResource)
+			onAPIFailure(accountKey, updateErr, r.Recorder, groupResource)
 			if statusUpdateErr := r.Status().Update(ctx, groupResource); statusUpdateErr != nil {
 				return ctrl.Result{}, statusUpdateErr
 			}
@@ -358,7 +358,7 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 	}
 
-	DefaultCircuitBreaker.RecordSuccess(accountKey)
+	onAPISuccess(accountKey, r.Recorder, groupResource)
 	return ctrl.Result{RequeueAfter: AddSyncJitter(groupResource.Spec.SyncInterval.Duration)}, nil
 }
 

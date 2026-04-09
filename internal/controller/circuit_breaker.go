@@ -165,15 +165,19 @@ func (cb *CircuitBreaker) Allow(accountKey string) bool {
 }
 
 // RecordSuccess closes the circuit and resets the failure counter.
-func (cb *CircuitBreaker) RecordSuccess(accountKey string) {
+// Returns true if the circuit transitioned from Open or HalfOpen to Closed
+// (i.e. recovery just completed).
+func (cb *CircuitBreaker) RecordSuccess(accountKey string) bool {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
 
 	e := cb.entry(accountKey)
+	wasOpen := e.state != CircuitClosed
 	e.consecutiveFails = 0
 	e.state = CircuitClosed
 	e.probeInFlight = false
 	metrics.CircuitBreakerState.WithLabelValues(accountKey).Set(float64(CircuitClosed))
+	return wasOpen
 }
 
 // RecordFailure increments the consecutive failure counter.
@@ -234,17 +238,32 @@ func (cb *CircuitBreaker) ConsecutiveFailures(accountKey string) int {
 	return e.consecutiveFails
 }
 
-// onTransientAPIFailure records a transient API failure for the account's circuit breaker
-// using DefaultCircuitBreaker, and emits a CircuitBreakerOpened Kubernetes event if the
-// circuit just transitioned to Open. It is a no-op when err is not a transient error.
-// Controllers that make UptimeRobot API calls share this helper to avoid duplicating the
-// IsTransientError → RecordFailure → event-emission pattern.
-func onTransientAPIFailure(accountKey string, err error, recorder record.EventRecorder, obj client.Object) {
+// onAPIFailure records an API failure for the account's circuit breaker using
+// DefaultCircuitBreaker, and emits a CircuitBreakerOpened Kubernetes event if
+// the circuit just transitioned to Open.
+//
+// For transient errors the failure is always recorded. For non-transient errors
+// the failure is only recorded when the circuit is HalfOpen, because the probe
+// slot must be released on any error to prevent permanently blocking API calls.
+// Controllers that make UptimeRobot API calls share this helper.
+func onAPIFailure(accountKey string, err error, recorder record.EventRecorder, obj client.Object) {
 	if !IsTransientError(err) {
-		return
+		// Non-transient errors only matter in HalfOpen — release the probe slot.
+		if DefaultCircuitBreaker.State(accountKey) != CircuitHalfOpen {
+			return
+		}
 	}
 	if justOpened := DefaultCircuitBreaker.RecordFailure(accountKey); justOpened && recorder != nil {
 		recorder.Event(obj, "Warning", "CircuitBreakerOpened",
 			"UptimeRobot API circuit breaker opened after repeated failures")
+	}
+}
+
+// onAPISuccess records a successful API call and emits a CircuitBreakerClosed
+// event if the circuit just recovered (transitioned from Open/HalfOpen to Closed).
+func onAPISuccess(accountKey string, recorder record.EventRecorder, obj client.Object) {
+	if justClosed := DefaultCircuitBreaker.RecordSuccess(accountKey); justClosed && recorder != nil {
+		recorder.Event(obj, "Normal", "CircuitBreakerClosed",
+			"UptimeRobot API circuit breaker closed — API recovered")
 	}
 }

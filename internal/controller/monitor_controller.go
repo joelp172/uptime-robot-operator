@@ -235,7 +235,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 			// Successful cleanup API call confirms the API is healthy.
 			if result.Success {
-				DefaultCircuitBreaker.RecordSuccess(accountKey)
+				onAPISuccess(accountKey, r.Recorder, monitor)
 			}
 
 			// Remove finalizer (either success or force-remove)
@@ -452,7 +452,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					if r.Recorder != nil {
 						r.Recorder.Event(monitor, "Warning", "SyncFailed", msg)
 					}
-					onTransientAPIFailure(accountKey, err, r.Recorder, monitor)
+					onAPIFailure(accountKey, err, r.Recorder, monitor)
 					if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
 						return ctrl.Result{}, updateErr
 					}
@@ -551,7 +551,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					if r.Recorder != nil {
 						r.Recorder.Event(monitor, "Warning", "SyncFailed", msg)
 					}
-					onTransientAPIFailure(accountKey, err, r.Recorder, monitor)
+					onAPIFailure(accountKey, err, r.Recorder, monitor)
 					if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
 						return ctrl.Result{}, updateErr
 					}
@@ -579,7 +579,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			if r.Recorder != nil {
 				r.Recorder.Event(monitor, "Warning", "SyncFailed", msg)
 			}
-			onTransientAPIFailure(accountKey, err, r.Recorder, monitor)
+			onAPIFailure(accountKey, err, r.Recorder, monitor)
 			if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
 				return ctrl.Result{}, updateErr
 			}
@@ -599,7 +599,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				if r.Recorder != nil {
 					r.Recorder.Event(monitor, "Warning", "SyncFailed", msg)
 				}
-				onTransientAPIFailure(accountKey, err, r.Recorder, monitor)
+				onAPIFailure(accountKey, err, r.Recorder, monitor)
 				if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
 					return ctrl.Result{}, updateErr
 				}
@@ -633,7 +633,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	// Record success before local follow-up operations (heartbeat publish) so
 	// the circuit breaker sees the API as healthy even if a local step fails.
-	DefaultCircuitBreaker.RecordSuccess(accountKey)
+	onAPISuccess(accountKey, r.Recorder, monitor)
 
 	if err := r.reconcileHeartbeatURLPublishTarget(ctx, monitor); err != nil {
 		recordMonitorError("heartbeat_publish_error")
@@ -1047,7 +1047,7 @@ func (r *MonitorReconciler) handleAPIError(ctx context.Context, monitor *uptimer
 	// Update annotations after status to avoid overwriting status changes
 	retryCount := GetRetryCount(monitor.Annotations)
 	if IsTransientError(err) {
-		onTransientAPIFailure(accountKey, err, r.Recorder, monitor)
+		onAPIFailure(accountKey, err, r.Recorder, monitor)
 		monitor.Annotations = IncrementRetryCount(monitor.Annotations)
 		if updateErr := r.Update(ctx, monitor); updateErr != nil {
 			return ctrl.Result{}, updateErr

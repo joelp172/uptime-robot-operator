@@ -155,7 +155,7 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 			// Successful cleanup API call confirms the API is healthy.
 			if result.Success {
-				DefaultCircuitBreaker.RecordSuccess(accountKey)
+				onAPISuccess(accountKey, r.Recorder, resource)
 			}
 
 			// Remove finalizer (either success or force-remove)
@@ -217,7 +217,7 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 			if r.Recorder != nil {
 				r.Recorder.Event(resource, "Warning", "SyncFailed", msg)
 			}
-			onTransientAPIFailure(accountKey, err, r.Recorder, resource)
+			onAPIFailure(accountKey, err, r.Recorder, resource)
 			if updateErr := r.updateSlackIntegrationStatus(ctx, resource); updateErr != nil {
 				return ctrl.Result{}, updateErr
 			}
@@ -251,7 +251,7 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 			if r.Recorder != nil {
 				r.Recorder.Event(resource, "Warning", "SyncFailed", msg)
 			}
-			onTransientAPIFailure(accountKey, err, r.Recorder, resource)
+			onAPIFailure(accountKey, err, r.Recorder, resource)
 			if updateErr := r.updateSlackIntegrationStatus(ctx, resource); updateErr != nil {
 				return ctrl.Result{}, updateErr
 			}
@@ -277,7 +277,7 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 				if r.Recorder != nil {
 					r.Recorder.Event(resource, "Warning", "SyncFailed", msg)
 				}
-				onTransientAPIFailure(accountKey, err, r.Recorder, resource)
+				onAPIFailure(accountKey, err, r.Recorder, resource)
 				if updateErr := r.updateSlackIntegrationStatus(ctx, resource); updateErr != nil {
 					return ctrl.Result{}, updateErr
 				}
@@ -293,7 +293,7 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return ctrl.Result{}, err
 	}
 
-	DefaultCircuitBreaker.RecordSuccess(accountKey)
+	onAPISuccess(accountKey, r.Recorder, resource)
 	return ctrl.Result{RequeueAfter: AddSyncJitter(resource.Spec.SyncInterval.Duration)}, nil
 }
 

@@ -445,7 +445,7 @@ func TestCircuitBreakerRemove(t *testing.T) {
 	}
 }
 
-// ---- onTransientAPIFailure ----
+// ---- onAPIFailure ----
 
 func testObj() *corev1.ConfigMap {
 	return &corev1.ConfigMap{
@@ -464,7 +464,7 @@ func TestOnTransientAPIFailure_NonTransientError(t *testing.T) {
 
 	recorder := record.NewFakeRecorder(10)
 	// A non-transient error (400 Bad Request) should be a no-op.
-	onTransientAPIFailure(testAccountKey, fmt.Errorf("bad request"), recorder, testObj())
+	onAPIFailure(testAccountKey, fmt.Errorf("bad request"), recorder, testObj())
 
 	if DefaultCircuitBreaker.ConsecutiveFailures(testAccountKey) != 0 {
 		t.Error("Non-transient error should not increment failure counter")
@@ -484,7 +484,7 @@ func TestOnTransientAPIFailure_TransientBelowThreshold(t *testing.T) {
 
 	recorder := record.NewFakeRecorder(10)
 	// A transient error (503) that doesn't trip the threshold should record failure but no event.
-	onTransientAPIFailure(testAccountKey, fmt.Errorf("status code: 503"), recorder, testObj())
+	onAPIFailure(testAccountKey, fmt.Errorf("status code: 503"), recorder, testObj())
 
 	if DefaultCircuitBreaker.ConsecutiveFailures(testAccountKey) != 1 {
 		t.Errorf("ConsecutiveFailures = %d, want 1", DefaultCircuitBreaker.ConsecutiveFailures(testAccountKey))
@@ -506,7 +506,7 @@ func TestOnTransientAPIFailure_TransientTripsThreshold(t *testing.T) {
 	obj := testObj()
 
 	// First transient failure: below threshold.
-	onTransientAPIFailure(testAccountKey, fmt.Errorf("status code: 503"), recorder, obj)
+	onAPIFailure(testAccountKey, fmt.Errorf("status code: 503"), recorder, obj)
 	select {
 	case <-recorder.Events:
 		t.Error("First failure should not emit event")
@@ -514,7 +514,7 @@ func TestOnTransientAPIFailure_TransientTripsThreshold(t *testing.T) {
 	}
 
 	// Second transient failure: trips threshold → circuit opens → event emitted.
-	onTransientAPIFailure(testAccountKey, fmt.Errorf("status code: 503"), recorder, obj)
+	onAPIFailure(testAccountKey, fmt.Errorf("status code: 503"), recorder, obj)
 	select {
 	case evt := <-recorder.Events:
 		if evt == "" {
@@ -535,9 +535,51 @@ func TestOnTransientAPIFailure_NilRecorder(t *testing.T) {
 	DefaultCircuitBreaker = NewCircuitBreaker(1, time.Minute)
 
 	// Should not panic with nil recorder.
-	onTransientAPIFailure(testAccountKey, fmt.Errorf("status code: 503"), nil, testObj())
+	onAPIFailure(testAccountKey, fmt.Errorf("status code: 503"), nil, testObj())
 
 	if DefaultCircuitBreaker.State(testAccountKey) != CircuitOpen {
 		t.Error("Circuit should be open even with nil recorder")
+	}
+}
+
+func TestOnAPIFailure_NonTransientInHalfOpenReleasesProbe(t *testing.T) {
+	orig := DefaultCircuitBreaker
+	defer func() { DefaultCircuitBreaker = orig }()
+	DefaultCircuitBreaker = NewCircuitBreaker(2, time.Minute)
+
+	// Open the circuit with transient failures.
+	onAPIFailure(testAccountKey, fmt.Errorf("status code: 503"), nil, testObj())
+	onAPIFailure(testAccountKey, fmt.Errorf("status code: 503"), nil, testObj())
+	if DefaultCircuitBreaker.State(testAccountKey) != CircuitOpen {
+		t.Fatal("Circuit should be open")
+	}
+
+	// Expire cooldown to reach HalfOpen.
+	DefaultCircuitBreaker.mu.Lock()
+	DefaultCircuitBreaker.entries[testAccountKey].openedAt = time.Now().Add(-2 * time.Minute)
+	DefaultCircuitBreaker.mu.Unlock()
+
+	// Claim the probe slot.
+	if !DefaultCircuitBreaker.Allow(testAccountKey) {
+		t.Fatal("Allow() should return true (probe)")
+	}
+
+	recorder := record.NewFakeRecorder(10)
+	// Non-transient error (e.g., 400 Bad Request) during HalfOpen probe.
+	// This MUST release the probe slot and reopen the circuit.
+	onAPIFailure(testAccountKey, fmt.Errorf("bad request"), recorder, testObj())
+
+	if DefaultCircuitBreaker.State(testAccountKey) != CircuitOpen {
+		t.Error("Non-transient error in HalfOpen should reopen circuit")
+	}
+
+	// Verify Allow() is not permanently stuck — after cooldown it should
+	// transition back to HalfOpen and allow a new probe.
+	DefaultCircuitBreaker.mu.Lock()
+	DefaultCircuitBreaker.entries[testAccountKey].openedAt = time.Now().Add(-2 * time.Minute)
+	DefaultCircuitBreaker.mu.Unlock()
+
+	if !DefaultCircuitBreaker.Allow(testAccountKey) {
+		t.Error("After cooldown, Allow() should return true again (probe slot was released)")
 	}
 }
