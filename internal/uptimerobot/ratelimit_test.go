@@ -43,7 +43,8 @@ func TestNewClient_DefaultRateLimit(t *testing.T) {
 // the default rate.
 func TestNewClient_EnvVarRateLimit(t *testing.T) {
 	t.Setenv("UPTIME_ROBOT_RATE_LIMIT", "5")
-	client := NewClient("test-api-key")
+	// Use a unique API key so this test gets its own limiter entry in globalLimiters.
+	client := NewClient("test-api-key-rate5")
 	if client.limiter == nil {
 		t.Fatal("expected limiter to be non-nil")
 	}
@@ -56,12 +57,28 @@ func TestNewClient_EnvVarRateLimit(t *testing.T) {
 // UPTIME_ROBOT_RATE_LIMIT value falls back to the default.
 func TestNewClient_InvalidEnvVarRateLimit(t *testing.T) {
 	t.Setenv("UPTIME_ROBOT_RATE_LIMIT", "not-a-number")
-	client := NewClient("test-api-key")
+	client := NewClient("test-api-key-invalid-rate")
 	if client.limiter == nil {
 		t.Fatal("expected limiter to be non-nil")
 	}
 	if client.limiter.Limit() != rate.Limit(DefaultRateLimit) {
 		t.Errorf("expected default rate limit %v, got %v", DefaultRateLimit, client.limiter.Limit())
+	}
+}
+
+// TestNewClient_SharesLimiterPerAPIKey verifies that multiple NewClient calls
+// with the same API key and rate share a single limiter instance.
+func TestNewClient_SharesLimiterPerAPIKey(t *testing.T) {
+	const key = "test-api-key-shared-limiter"
+	c1 := NewClient(key)
+	c2 := NewClient(key)
+	if c1.limiter != c2.limiter {
+		t.Error("expected clients with the same API key to share a limiter instance")
+	}
+
+	c3 := NewClient("test-api-key-different")
+	if c1.limiter == c3.limiter {
+		t.Error("expected clients with different API keys to have separate limiters")
 	}
 }
 
@@ -76,7 +93,7 @@ func TestDoWithRetry_RateLimiterThrottles(t *testing.T) {
 	defer server.Close()
 
 	// Create a client with a very slow rate (1 request per second) and burst 1.
-	client := NewClient("test-api-key")
+	client := NewClient("test-api-key-throttle")
 	client.limiter = rate.NewLimiter(rate.Every(time.Second), 1)
 	// Use fast retries so the test doesn't wait on backoff.
 	client.baseDelay = time.Millisecond
@@ -109,6 +126,49 @@ func TestDoWithRetry_RateLimiterThrottles(t *testing.T) {
 	}
 }
 
+// TestDoWithRetry_RateLimiterAppliesToRetries verifies that the rate limiter
+// is applied to every retry attempt, not just the initial request.
+func TestDoWithRetry_RateLimiterAppliesToRetries(t *testing.T) {
+	var attemptCount int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count := atomic.AddInt32(&attemptCount, 1)
+		if count == 1 {
+			// First attempt returns 429 to trigger a retry.
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"error":"rate limited"}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	// burst=1: initial attempt consumes the only token; the retry must wait ~1s.
+	client := NewClient("test-api-key-retry-rl")
+	client.limiter = rate.NewLimiter(rate.Every(time.Second), 1)
+	client.baseDelay = time.Millisecond // fast backoff so we don't wait on it
+	client.maxDelay = time.Millisecond
+
+	start := time.Now()
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, server.URL, nil)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+	_, err = client.doWithRetry(context.Background(), req)
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// The first attempt consumes the burst token; the retry must wait ~1s for a new token.
+	const minElapsed = 900 * time.Millisecond
+	if elapsed < minElapsed {
+		t.Errorf("expected retry to be rate-limited (>= %v), got %v", minElapsed, elapsed)
+	}
+	if atomic.LoadInt32(&attemptCount) != 2 {
+		t.Errorf("expected 2 calls, got %d", atomic.LoadInt32(&attemptCount))
+	}
+}
+
 // TestDoWithRetry_RateLimiterContextCancellation verifies that the rate limiter
 // respects context cancellation.
 func TestDoWithRetry_RateLimiterContextCancellation(t *testing.T) {
@@ -118,7 +178,7 @@ func TestDoWithRetry_RateLimiterContextCancellation(t *testing.T) {
 	defer server.Close()
 
 	// Create a client with a very slow rate so the second request must wait.
-	client := NewClient("test-api-key")
+	client := NewClient("test-api-key-cancel")
 	client.limiter = rate.NewLimiter(rate.Every(10*time.Second), 1)
 
 	// The first request should be granted immediately (burst=1).

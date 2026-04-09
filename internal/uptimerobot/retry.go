@@ -153,14 +153,6 @@ func calculateBackoff(attempt int, baseDelay, maxDelay time.Duration, jitterFrac
 
 // doWithRetry wraps an HTTP request with retry logic
 func (c Client) doWithRetry(ctx context.Context, req *http.Request) (*http.Response, error) {
-	// Apply client-side rate limiting before each top-level call to prevent burst
-	// exhaustion of the UptimeRobot API quota.
-	if c.limiter != nil {
-		if err := c.limiter.Wait(ctx); err != nil {
-			return nil, err
-		}
-	}
-
 	startTime := time.Now()
 	maxRetries := c.maxRetries
 	if maxRetries <= 0 {
@@ -190,6 +182,14 @@ func (c Client) doWithRetry(ctx context.Context, req *http.Request) (*http.Respo
 	}
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
+		// Apply rate limiting for every attempt (initial + retries) to prevent
+		// bursting against the API during a wave of retries.
+		if c.limiter != nil {
+			if err := c.limiter.Wait(ctx); err != nil {
+				return nil, err
+			}
+		}
+
 		// Clone the request for retry
 		// Note: We need to handle request body separately since Clone doesn't copy it
 		reqClone := req.Clone(ctx)
