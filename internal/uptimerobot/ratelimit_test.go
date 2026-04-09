@@ -30,7 +30,9 @@ import (
 // TestNewClient_DefaultRateLimit verifies that NewClient sets a limiter with the
 // correct default rate.
 func TestNewClient_DefaultRateLimit(t *testing.T) {
-	t.Cleanup(resetGlobalLimiters)
+	resetClientConfig()
+	resetGlobalLimiters()
+	t.Cleanup(func() { resetGlobalLimiters(); resetClientConfig() })
 	client := NewClient("test-api-key")
 	if client.limiter == nil {
 		t.Fatal("expected limiter to be non-nil")
@@ -43,7 +45,9 @@ func TestNewClient_DefaultRateLimit(t *testing.T) {
 // TestNewClient_EnvVarRateLimit verifies that UPTIME_ROBOT_RATE_LIMIT overrides
 // the default rate.
 func TestNewClient_EnvVarRateLimit(t *testing.T) {
-	t.Cleanup(resetGlobalLimiters)
+	resetClientConfig()
+	resetGlobalLimiters()
+	t.Cleanup(func() { resetGlobalLimiters(); resetClientConfig() })
 	t.Setenv("UPTIME_ROBOT_RATE_LIMIT", "5")
 	client := NewClient("test-api-key-rate5")
 	if client.limiter == nil {
@@ -57,7 +61,7 @@ func TestNewClient_EnvVarRateLimit(t *testing.T) {
 // TestNewClient_InvalidEnvVarRateLimit verifies that invalid
 // UPTIME_ROBOT_RATE_LIMIT values fall back to the default.
 func TestNewClient_InvalidEnvVarRateLimit(t *testing.T) {
-	t.Cleanup(resetGlobalLimiters)
+	t.Cleanup(func() { resetGlobalLimiters(); resetClientConfig() })
 	tests := []struct {
 		name  string
 		value string
@@ -69,6 +73,8 @@ func TestNewClient_InvalidEnvVarRateLimit(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			resetClientConfig()
+			resetGlobalLimiters()
 			t.Setenv("UPTIME_ROBOT_RATE_LIMIT", tt.value)
 			client := NewClient("test-api-key-invalid-" + tt.name)
 			if client.limiter == nil {
@@ -84,7 +90,9 @@ func TestNewClient_InvalidEnvVarRateLimit(t *testing.T) {
 // TestNewClient_SharesLimiterPerAPIKey verifies that multiple NewClient calls
 // with the same API key and rate share a single limiter instance.
 func TestNewClient_SharesLimiterPerAPIKey(t *testing.T) {
-	t.Cleanup(resetGlobalLimiters)
+	resetClientConfig()
+	resetGlobalLimiters()
+	t.Cleanup(func() { resetGlobalLimiters(); resetClientConfig() })
 	const key = "test-api-key-shared-limiter"
 	c1 := NewClient(key)
 	c2 := NewClient(key)
