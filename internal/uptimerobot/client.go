@@ -78,10 +78,11 @@ func resetGlobalLimiters() {
 	})
 }
 
-// clientConfig holds parsed environment variable overrides for NewClient.
+// clientConfig holds parsed numeric/duration environment variable overrides.
 // Parsed once at first use to avoid repeated parsing and log spam on every reconcile.
+// UPTIME_ROBOT_API is intentionally NOT cached here because controller tests
+// change it between reconciles to simulate failure paths.
 type clientConfig struct {
-	apiURL     string
 	maxRetries int
 	baseDelay  time.Duration
 	rateLimit  int
@@ -94,11 +95,6 @@ var (
 
 func getClientConfig() clientConfig {
 	parseConfigOnce.Do(func() {
-		parsedConfig.apiURL = "https://api.uptimerobot.com/v3"
-		if env := os.Getenv("UPTIME_ROBOT_API"); env != "" {
-			parsedConfig.apiURL = strings.TrimSuffix(env, "/")
-		}
-
 		parsedConfig.maxRetries = DefaultMaxRetries
 		if env := os.Getenv("UPTIME_ROBOT_MAX_RETRIES"); env != "" {
 			if n, err := strconv.Atoi(env); err == nil && n > 0 {
@@ -138,20 +134,27 @@ func resetClientConfig() {
 
 // NewClient creates a new UptimeRobot API v3 client.
 // The following environment variables can override defaults (useful for testing):
+//   - UPTIME_ROBOT_API: base URL for the UptimeRobot API (read on every call)
 //   - UPTIME_ROBOT_MAX_RETRIES: maximum number of retry attempts (positive integer)
 //   - UPTIME_ROBOT_BASE_DELAY: base delay between retries (Go duration string, e.g. "1ms")
 //   - UPTIME_ROBOT_RATE_LIMIT: maximum API requests per second (positive integer, default 10)
 //
-// Environment variables are parsed once at first call; invalid values log a warning
-// to stderr and fall back to defaults.
+// Numeric/duration env vars are parsed once at first call; invalid values log a
+// warning to stderr and fall back to defaults. UPTIME_ROBOT_API is read on every
+// call so tests can change it between reconciles.
 //
 // Clients sharing the same API key and rate limit share a single process-wide
 // rate limiter, preventing concurrent reconcilers from each claiming a fresh burst.
 func NewClient(apiKey string) Client {
 	cfg := getClientConfig()
 
+	api := "https://api.uptimerobot.com/v3"
+	if env := os.Getenv("UPTIME_ROBOT_API"); env != "" {
+		api = strings.TrimSuffix(env, "/")
+	}
+
 	return Client{
-		url:            cfg.apiURL,
+		url:            api,
 		apiKey:         apiKey,
 		maxRetries:     cfg.maxRetries,
 		baseDelay:      cfg.baseDelay,
