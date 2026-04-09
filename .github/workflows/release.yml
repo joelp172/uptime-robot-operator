@@ -206,7 +206,7 @@ jobs:
           version: v3.14.0
 
       - name: Download SBOM artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: sbom-v${{ needs.release.outputs.new_release_version }}
           path: sbom-v${{ needs.release.outputs.new_release_version }}
