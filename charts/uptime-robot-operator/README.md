@@ -84,9 +84,10 @@ The operator's ClusterRole grants `create`, `delete`, `get`, `list`, `watch`, `p
 
 This is a wide permission surface. Recommended mitigations include:
 
-- Applying an OPA or Kyverno policy to restrict which Secrets the operator's ServiceAccount may access (e.g. only Secrets labeled `uptimerobot.com/managed: "true"`)
-- Enabling Kubernetes audit logging to alert on unexpected Secret access by the operator's ServiceAccount
-- Keeping `Account` Secrets and operator-managed ConfigMaps in a dedicated namespace
+- Applying an OPA or Kyverno policy to restrict which Secrets and ConfigMaps the operator's ServiceAccount may access (for example, only resources labeled `uptimerobot.com/managed: "true"`).
+- If you enforce a label-based allow policy, note that operator-created heartbeat URL Secrets/ConfigMaps do **not** currently get the `uptimerobot.com/managed: "true"` label automatically; they rely on `ownerReferences`. Add a mutating policy (or equivalent admission control) to inject that label on create, or allow those resources through another policy mechanism.
+- Enabling Kubernetes audit logging to alert on unexpected Secret or ConfigMap access by the operator's ServiceAccount.
+- Keeping `Account` Secrets and operator-managed ConfigMaps in a dedicated namespace.
 
 See the [Security Considerations](https://github.com/joelp172/uptime-robot-operator/blob/main/docs/installation.md#security-considerations) section of the installation docs for full details.
 

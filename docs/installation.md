@@ -165,8 +165,8 @@ Because the operator uses a single ClusterRole, these permissions apply across a
 
 | Mitigation | Description |
 |---|---|
-| **Dedicated namespace** | Keep all `Account` Secrets and operator-managed ConfigMaps in a single namespace and use RBAC audit logging to detect unexpected access. |
-| **OPA / Kyverno policy** | Write a policy that restricts which Secrets the operator's ServiceAccount may `get`/`list` – for example, only Secrets with the label `app.kubernetes.io/managed-by: uptime-robot-operator`. |
+| **Dedicated namespace** | Keep `Account` API-key Secrets in the operator namespace (`uptime-robot-system`), and if you restrict `Monitor` resources to a single namespace, keep operator-managed heartbeat target Secrets/ConfigMaps there as well. Use Kubernetes audit logging to detect unexpected access. |
+| **OPA / Kyverno policy** | Write a policy that restricts which Secrets the operator's ServiceAccount may `get`/`list` – for example, only Secrets with the label `uptimerobot.com/managed: "true"`. |
 | **Label your API-key Secrets** | Add a well-known label (e.g. `uptimerobot.com/managed: "true"`) to every Secret referenced by an `Account` resource so that policy engines can target them precisely. |
 | **Audit logging** | Enable Kubernetes audit logging and alert on any `get`/`list` of Secrets performed by the operator's ServiceAccount outside expected namespaces. |
 
