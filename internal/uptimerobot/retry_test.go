@@ -565,3 +565,62 @@ func TestDoWithRetry_PATCHRequestWithBody(t *testing.T) {
 		t.Errorf("expected 2 attempts, got %d", finalAttempts)
 	}
 }
+
+func TestNewClient_HasHTTPClientWithTimeout(t *testing.T) {
+	client := NewClient("test-api-key")
+
+	if client.httpClient == nil {
+		t.Fatal("NewClient() httpClient is nil, want non-nil *http.Client")
+	}
+	if client.httpClient.Timeout == 0 {
+		t.Errorf("NewClient() httpClient.Timeout = 0, want non-zero timeout")
+	}
+	if client.httpClient.Timeout != DefaultHTTPTimeout {
+		t.Errorf("NewClient() httpClient.Timeout = %v, want %v", client.httpClient.Timeout, DefaultHTTPTimeout)
+	}
+}
+
+func TestDoWithRetry_HTTPClientTimeout(t *testing.T) {
+	// Create a server that hangs until the test ends, simulating a slow/hung upstream.
+	serverDone := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-serverDone // Block until the test signals completion.
+	}))
+	defer func() {
+		close(serverDone)
+		server.Close()
+	}()
+
+	// Use a very short timeout so the test completes quickly.
+	client := NewClient("test-api-key")
+	client.httpClient = &http.Client{Timeout: 50 * time.Millisecond}
+	// Keep retries and delays minimal to avoid long test runtime.
+	client.maxRetries = 1
+	client.baseDelay = 10 * time.Millisecond
+	client.maxDelay = 10 * time.Millisecond
+	client.jitterFraction = 0
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, server.URL, nil)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+
+	start := time.Now()
+	_, reqErr := client.doWithRetry(context.Background(), req)
+	elapsed := time.Since(start)
+
+	if reqErr == nil {
+		t.Fatal("doWithRetry() error = nil, want timeout error")
+	}
+
+	// The timeout wraps ErrMaxRetriesExceeded (timeout is retryable); verify the
+	// error message contains a timeout indication.
+	if !strings.Contains(reqErr.Error(), "timeout") && !strings.Contains(reqErr.Error(), "deadline exceeded") {
+		t.Errorf("doWithRetry() error = %v, want timeout or deadline exceeded error", reqErr)
+	}
+
+	// Should have returned well under 5 seconds (client timeout is 50ms, 1 retry + small backoff).
+	if elapsed > 5*time.Second {
+		t.Errorf("doWithRetry() took %v, expected to timeout quickly", elapsed)
+	}
+}

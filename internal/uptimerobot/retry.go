@@ -201,7 +201,14 @@ func (c Client) doWithRetry(ctx context.Context, req *http.Request) (*http.Respo
 			reqClone.Body = body
 		}
 
-		resp, err := http.DefaultClient.Do(reqClone)
+		// Resolve the HTTP client to use for this request.
+		// Prefer the client's own httpClient; fall back to a dedicated client with
+		// the default timeout rather than http.DefaultClient (which has no timeout).
+		httpClient := c.httpClient
+		if httpClient == nil {
+			httpClient = &http.Client{Timeout: DefaultHTTPTimeout}
+		}
+		resp, err := httpClient.Do(reqClone)
 
 		// Success case
 		if err == nil && resp.StatusCode < 400 {
