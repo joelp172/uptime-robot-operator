@@ -75,6 +75,22 @@ kubectl delete crd accounts.uptimerobot.com contacts.uptimerobot.com monitors.up
 | `securityContext.capabilities.drop` | Linux capabilities to drop                 | `["ALL"]`        |
 | `securityContext.readOnlyRootFilesystem` | Mount root filesystem as read-only   | `true`           |
 
+#### RBAC permissions for Secrets and ConfigMaps
+
+The operator's ClusterRole grants `create`, `delete`, `get`, `list`, `watch`, `patch`, and `update` on **all** Secrets and ConfigMaps cluster-wide. These permissions are required for:
+
+- **Reading API key Secrets** referenced by `Account` resources
+- **Publishing heartbeat URLs** back to Secrets or ConfigMaps for heartbeat monitors
+
+This is a wide permission surface. Recommended mitigations include:
+
+- Applying an OPA or Kyverno policy to restrict which Secrets and ConfigMaps the operator's ServiceAccount may access (for example, only resources labeled `uptimerobot.com/managed: "true"`).
+- If you enforce a label-based allow policy, note that operator-created heartbeat URL Secrets/ConfigMaps do **not** currently get the `uptimerobot.com/managed: "true"` label automatically; they rely on `ownerReferences`. Add a mutating policy (or equivalent admission control) to inject that label on create, or allow those resources through another policy mechanism.
+- Enabling Kubernetes audit logging to alert on unexpected Secret or ConfigMap access by the operator's ServiceAccount.
+- Keeping `Account` Secrets and operator-managed ConfigMaps in a dedicated namespace.
+
+See the [Security Considerations](https://github.com/joelp172/uptime-robot-operator/blob/main/docs/installation.md#security-considerations) section of the installation docs for full details.
+
 ### Resource Parameters
 
 | Name                              | Description                                      | Value            |
