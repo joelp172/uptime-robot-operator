@@ -24,7 +24,7 @@ jobs:
       new_release_version: ${{ steps.semantic_dry.outputs.new_release_version }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -51,11 +51,11 @@ jobs:
     permissions:
       contents: write
       packages: write
-      id-token: write  # Required for cosign keyless signing
-      security-events: write  # Required for uploading SARIF results
+      id-token: write # Required for cosign keyless signing
+      security-events: write # Required for uploading SARIF results
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ github.sha }}
 
@@ -130,21 +130,21 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      
+
       - name: Generate SBOM (SPDX)
         uses: aquasecurity/trivy-action@0.35.0
         with:
           image-ref: ghcr.io/${{ github.repository_owner }}/uptime-robot-operator@${{ steps.build.outputs.digest }}
           format: 'spdx-json'
           output: 'sbom-spdx.json'
-      
+
       - name: Generate SBOM (CycloneDX)
         uses: aquasecurity/trivy-action@0.35.0
         with:
           image-ref: ghcr.io/${{ github.repository_owner }}/uptime-robot-operator@${{ steps.build.outputs.digest }}
           format: 'cyclonedx'
           output: 'sbom-cyclonedx.json'
-      
+
       - name: Upload SBOM artifacts
         uses: actions/upload-artifact@v7
         with:
@@ -152,17 +152,17 @@ jobs:
           path: |
             sbom-spdx.json
             sbom-cyclonedx.json
-      
+
       # Image Signing with Cosign
       - name: Install Cosign
         uses: sigstore/cosign-installer@v4.1.0
-      
+
       - name: Sign container images
         run: |
           IMAGE_DIGEST="ghcr.io/${{ github.repository_owner }}/uptime-robot-operator@${{ steps.build.outputs.digest }}"
           echo "Signing ${IMAGE_DIGEST}"
           cosign sign --yes "${IMAGE_DIGEST}"
-      
+
       - name: Attest SBOM to images
         run: |
           IMAGE_DIGEST="ghcr.io/${{ github.repository_owner }}/uptime-robot-operator@${{ steps.build.outputs.digest }}"
@@ -185,7 +185,7 @@ jobs:
       new_release_version: ${{ steps.semantic_publish.outputs.new_release_version }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
@@ -235,7 +235,7 @@ jobs:
       packages: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: v${{ needs.release.outputs.new_release_version }}
 
@@ -268,7 +268,7 @@ jobs:
       packages: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: v${{ needs.release.outputs.new_release_version }}
 
