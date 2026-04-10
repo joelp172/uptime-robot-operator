@@ -619,8 +619,8 @@ func TestDoWithRetry_HTTPClientTimeout(t *testing.T) {
 		t.Errorf("doWithRetry() error = %v, want timeout or deadline exceeded error", reqErr)
 	}
 
-	// Should have returned well under 5 seconds (client timeout is 50ms, 1 retry + small backoff).
-	if elapsed > 5*time.Second {
+	// Should have returned well under 1 second (client timeout is 50ms, 1 retry + 10ms backoff).
+	if elapsed > 1*time.Second {
 		t.Errorf("doWithRetry() took %v, expected to timeout quickly", elapsed)
 	}
 }
