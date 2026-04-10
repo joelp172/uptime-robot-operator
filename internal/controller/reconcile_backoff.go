@@ -38,6 +38,10 @@ const (
 	// BackoffJitterFraction is the fraction of delay to use for jitter (0.15 = 15%)
 	BackoffJitterFraction = 0.15
 
+	// SyncJitterFraction is the fraction of jitter added to periodic sync intervals (±10%).
+	// This spreads reconciliations evenly across the sync window to avoid burst API traffic.
+	SyncJitterFraction = 0.10
+
 	// AnnotationRetryCount tracks the number of retry attempts for a resource
 	AnnotationRetryCount = "uptimerobot.com/retry-count"
 )
@@ -163,6 +167,23 @@ func CalculateRequeueDelay(attempt int) time.Duration {
 	}
 
 	return delay
+}
+
+// AddSyncJitter adds ±10% random jitter to a periodic sync interval.
+// This spreads reconciliations evenly across the sync window, preventing
+// burst API traffic when many resources share the same syncInterval.
+// Example: 24h ± 2.4h = requeue between 21.6h and 26.4h.
+func AddSyncJitter(d time.Duration) time.Duration {
+	if d <= 0 {
+		return d
+	}
+	jitterRange := float64(d) * SyncJitterFraction
+	jitter := (rand.Float64()*2 - 1) * jitterRange // Random value in [-jitterRange, +jitterRange]
+	result := time.Duration(float64(d) + jitter)
+	if result <= 0 {
+		return d
+	}
+	return result
 }
 
 // GetRetryCount extracts the retry count from resource annotations.

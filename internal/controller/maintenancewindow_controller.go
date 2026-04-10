@@ -118,6 +118,7 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, err
 	}
 	urclient := uptimerobot.NewClient(apiKey)
+	accountKey := account.Name
 
 	const myFinalizerName = "uptimerobot.com/finalizer"
 	if !mw.DeletionTimestamp.IsZero() {
@@ -161,6 +162,11 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 				return ctrl.Result{RequeueAfter: result.RequeueAfter}, nil
 			}
 
+			// Successful cleanup API call confirms the API is healthy.
+			if result.Success {
+				onAPISuccess(accountKey, r.Recorder, mw)
+			}
+
 			// Remove finalizer (either success or force-remove)
 			controllerutil.RemoveFinalizer(mw, myFinalizerName)
 			if err := r.Update(ctx, mw); err != nil {
@@ -169,6 +175,12 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		}
 
 		return ctrl.Result{}, nil
+	}
+
+	// Circuit breaker: skip API calls when the circuit is not allowing traffic.
+	if !DefaultCircuitBreaker.Allow(accountKey) {
+		log.FromContext(ctx).Info("Circuit breaker blocking API call", "account", accountKey, "state", DefaultCircuitBreaker.State(accountKey))
+		return ctrl.Result{RequeueAfter: DefaultCircuitBreaker.CooldownPeriod()}, nil
 	}
 
 	// Add finalizer before creating external resource to prevent orphaning
@@ -257,6 +269,7 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			if r.Recorder != nil {
 				r.Recorder.Event(mw, "Warning", "SyncFailed", msg)
 			}
+			onAPIFailure(accountKey, err, r.Recorder, mw)
 			if updateErr := r.Status().Update(ctx, mw); updateErr != nil {
 				return ctrl.Result{}, updateErr
 			}
@@ -272,6 +285,7 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		if r.Recorder != nil {
 			r.Recorder.Event(mw, "Normal", "Created", fmt.Sprintf("Maintenance window created with ID %s", mw.Status.ID))
 		}
+		onAPISuccess(accountKey, r.Recorder, mw)
 		if err := r.Status().Update(ctx, mw); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -340,6 +354,7 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 					if r.Recorder != nil {
 						r.Recorder.Event(mw, "Warning", "SyncFailed", msg)
 					}
+					onAPIFailure(accountKey, err, r.Recorder, mw)
 					if updateErr := r.Status().Update(ctx, mw); updateErr != nil {
 						return ctrl.Result{}, updateErr
 					}
@@ -354,10 +369,11 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 				if r.Recorder != nil {
 					r.Recorder.Event(mw, "Normal", "Recreated", fmt.Sprintf("Maintenance window recreated with ID %s", mw.Status.ID))
 				}
+				onAPISuccess(accountKey, r.Recorder, mw)
 				if err := r.Status().Update(ctx, mw); err != nil {
 					return ctrl.Result{}, err
 				}
-				return ctrl.Result{RequeueAfter: mw.Spec.SyncInterval.Duration}, nil
+				return ctrl.Result{RequeueAfter: AddSyncJitter(mw.Spec.SyncInterval.Duration)}, nil
 			}
 			metrics.ReconciliationErrorsTotal.WithLabelValues("maintenancewindow", "api_error").Inc()
 			msg := fmt.Sprintf("Failed to update maintenance window: %v", err)
@@ -367,6 +383,7 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			if r.Recorder != nil {
 				r.Recorder.Event(mw, "Warning", "SyncFailed", msg)
 			}
+			onAPIFailure(accountKey, err, r.Recorder, mw)
 			if updateErr := r.Status().Update(ctx, mw); updateErr != nil {
 				return ctrl.Result{}, updateErr
 			}
@@ -380,12 +397,13 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		if r.Recorder != nil {
 			r.Recorder.Event(mw, "Normal", "Updated", "Maintenance window updated successfully")
 		}
+		onAPISuccess(accountKey, r.Recorder, mw)
 		if err := r.Status().Update(ctx, mw); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
 
-	return ctrl.Result{RequeueAfter: mw.Spec.SyncInterval.Duration}, nil
+	return ctrl.Result{RequeueAfter: AddSyncJitter(mw.Spec.SyncInterval.Duration)}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

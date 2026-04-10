@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -103,6 +104,14 @@ func main() {
 	flag.StringVar(&controller.IngressAnnotationPrefix, "ingress-annotation-prefix", controller.IngressAnnotationPrefix,
 		"Ingress annotation prefix",
 	)
+
+	var cbFailureThreshold int
+	var cbCooldownPeriod time.Duration
+	flag.IntVar(&cbFailureThreshold, "circuit-breaker-failure-threshold", controller.DefaultFailureThreshold,
+		"Number of consecutive transient API failures before the circuit breaker opens.")
+	flag.DurationVar(&cbCooldownPeriod, "circuit-breaker-cooldown-period", controller.DefaultCooldownPeriod,
+		"Duration to wait after the circuit breaker opens before allowing a probe request.")
+
 	opts := zap.Options{
 		Development: false,
 	}
@@ -110,6 +119,9 @@ func main() {
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+
+	// Apply configured circuit breaker thresholds (may differ from compile-time defaults).
+	controller.DefaultCircuitBreaker = controller.NewCircuitBreaker(cbFailureThreshold, cbCooldownPeriod)
 
 	// Register custom Prometheus metrics
 	metrics.RegisterMetrics()

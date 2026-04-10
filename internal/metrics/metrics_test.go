@@ -35,6 +35,7 @@ func TestMetricsRegistration(t *testing.T) {
 		MaintenanceWindowsTotal,
 		MonitorGroupsTotal,
 		RateLimitRemaining,
+		CircuitBreakerState,
 	}
 
 	expectedMetrics := map[string]bool{
@@ -47,6 +48,7 @@ func TestMetricsRegistration(t *testing.T) {
 		"uptimerobot_maintenance_windows_total":       false,
 		"uptimerobot_monitor_groups_total":            false,
 		"uptimerobot_rate_limit_remaining":            false,
+		"uptimerobot_circuit_breaker_state":           false,
 	}
 
 	for _, collector := range collectors {

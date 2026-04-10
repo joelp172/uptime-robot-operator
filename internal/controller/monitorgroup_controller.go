@@ -123,6 +123,14 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				return ctrl.Result{RequeueAfter: result.RequeueAfter}, nil
 			}
 
+			// Successful cleanup API call confirms the API is healthy.
+			if result.Success {
+				cleanupAccount := &uptimerobotv1.Account{}
+				if err := GetAccount(ctx, r.Client, cleanupAccount, groupResource.Spec.Account.Name); err == nil {
+					onAPISuccess(cleanupAccount.Name, r.Recorder, groupResource)
+				}
+			}
+
 			// Remove finalizer (either success or force-remove)
 			controllerutil.RemoveFinalizer(groupResource, cleanupMarker)
 			if updateErr := r.Update(ctx, groupResource); updateErr != nil {
@@ -171,6 +179,13 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, tokenErr
 	}
 	backendClient := uptimerobot.NewClient(apiToken)
+	accountKey := credentialVault.Name
+
+	// Circuit breaker: skip API calls when the circuit is not allowing traffic.
+	if !DefaultCircuitBreaker.Allow(accountKey) {
+		log.FromContext(ctx).Info("Circuit breaker blocking API call", "account", accountKey, "state", DefaultCircuitBreaker.State(accountKey))
+		return ctrl.Result{RequeueAfter: DefaultCircuitBreaker.CooldownPeriod()}, nil
+	}
 
 	// Step 5: Attach finalizer for cleanup tracking
 	if !controllerutil.ContainsFinalizer(groupResource, cleanupMarker) {
@@ -232,6 +247,7 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			if r.Recorder != nil {
 				r.Recorder.Event(groupResource, "Warning", "SyncFailed", msg)
 			}
+			onAPIFailure(accountKey, creationErr, r.Recorder, groupResource)
 			if updateErr := r.Status().Update(ctx, groupResource); updateErr != nil {
 				return ctrl.Result{}, updateErr
 			}
@@ -251,6 +267,7 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			r.Recorder.Event(groupResource, "Normal", "Created", fmt.Sprintf("Monitor group created with ID %s", groupResource.Status.ID))
 		}
 
+		onAPISuccess(accountKey, r.Recorder, groupResource)
 		if statusErr := r.Status().Update(ctx, groupResource); statusErr != nil {
 			return ctrl.Result{}, statusErr
 		}
@@ -285,6 +302,7 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 					if r.Recorder != nil {
 						r.Recorder.Event(groupResource, "Warning", "SyncFailed", msg)
 					}
+					onAPIFailure(accountKey, recreationErr, r.Recorder, groupResource)
 					if updateErr := r.Status().Update(ctx, groupResource); updateErr != nil {
 						return ctrl.Result{}, updateErr
 					}
@@ -303,11 +321,11 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 					r.Recorder.Event(groupResource, "Normal", "Recreated", fmt.Sprintf("Monitor group recreated with ID %s", groupResource.Status.ID))
 				}
 
+				onAPISuccess(accountKey, r.Recorder, groupResource)
 				if statusErr := r.Status().Update(ctx, groupResource); statusErr != nil {
 					return ctrl.Result{}, statusErr
 				}
-
-				return ctrl.Result{RequeueAfter: groupResource.Spec.SyncInterval.Duration}, nil
+				return ctrl.Result{RequeueAfter: AddSyncJitter(groupResource.Spec.SyncInterval.Duration)}, nil
 			}
 			metrics.ReconciliationErrorsTotal.WithLabelValues("monitorgroup", "api_error").Inc()
 			msg := fmt.Sprintf("Group update failed: %v", updateErr)
@@ -317,6 +335,7 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			if r.Recorder != nil {
 				r.Recorder.Event(groupResource, "Warning", "SyncFailed", msg)
 			}
+			onAPIFailure(accountKey, updateErr, r.Recorder, groupResource)
 			if statusUpdateErr := r.Status().Update(ctx, groupResource); statusUpdateErr != nil {
 				return ctrl.Result{}, statusUpdateErr
 			}
@@ -334,12 +353,13 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			r.Recorder.Event(groupResource, "Normal", "Updated", "Monitor group updated successfully")
 		}
 
+		onAPISuccess(accountKey, r.Recorder, groupResource)
 		if statusErr := r.Status().Update(ctx, groupResource); statusErr != nil {
 			return ctrl.Result{}, statusErr
 		}
 	}
 
-	return ctrl.Result{RequeueAfter: groupResource.Spec.SyncInterval.Duration}, nil
+	return ctrl.Result{RequeueAfter: AddSyncJitter(groupResource.Spec.SyncInterval.Duration)}, nil
 }
 
 // SetupWithManager configures the controller with manager

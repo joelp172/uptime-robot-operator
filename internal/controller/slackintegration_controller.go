@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	uptimerobotv1 "github.com/joelp172/uptime-robot-operator/api/v1alpha1"
@@ -105,6 +106,7 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	}
 
 	urclient := uptimerobot.NewClient(apiKey)
+	accountKey := account.Name
 
 	if !resource.DeletionTimestamp.IsZero() {
 		if controllerutil.ContainsFinalizer(resource, slackIntegrationFinalizerName) {
@@ -151,6 +153,11 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 				return ctrl.Result{RequeueAfter: result.RequeueAfter}, nil
 			}
 
+			// Successful cleanup API call confirms the API is healthy.
+			if result.Success {
+				onAPISuccess(accountKey, r.Recorder, resource)
+			}
+
 			// Remove finalizer (either success or force-remove)
 			controllerutil.RemoveFinalizer(resource, slackIntegrationFinalizerName)
 			if err := r.Update(ctx, resource); err != nil {
@@ -158,6 +165,12 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 			}
 		}
 		return ctrl.Result{}, nil
+	}
+
+	// Circuit breaker: skip API calls when the circuit is not allowing traffic.
+	if !DefaultCircuitBreaker.Allow(accountKey) {
+		log.FromContext(ctx).Info("Circuit breaker blocking API call", "account", accountKey, "state", DefaultCircuitBreaker.State(accountKey))
+		return ctrl.Result{RequeueAfter: DefaultCircuitBreaker.CooldownPeriod()}, nil
 	}
 
 	// Persist finalizer before any remote create/recreate calls to prevent orphaned integrations.
@@ -204,6 +217,7 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 			if r.Recorder != nil {
 				r.Recorder.Event(resource, "Warning", "SyncFailed", msg)
 			}
+			onAPIFailure(accountKey, err, r.Recorder, resource)
 			if updateErr := r.updateSlackIntegrationStatus(ctx, resource); updateErr != nil {
 				return ctrl.Result{}, updateErr
 			}
@@ -237,6 +251,7 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 			if r.Recorder != nil {
 				r.Recorder.Event(resource, "Warning", "SyncFailed", msg)
 			}
+			onAPIFailure(accountKey, err, r.Recorder, resource)
 			if updateErr := r.updateSlackIntegrationStatus(ctx, resource); updateErr != nil {
 				return ctrl.Result{}, updateErr
 			}
@@ -262,6 +277,7 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 				if r.Recorder != nil {
 					r.Recorder.Event(resource, "Warning", "SyncFailed", msg)
 				}
+				onAPIFailure(accountKey, err, r.Recorder, resource)
 				if updateErr := r.updateSlackIntegrationStatus(ctx, resource); updateErr != nil {
 					return ctrl.Result{}, updateErr
 				}
@@ -270,14 +286,17 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		}
 	}
 
+	// Record API success before the status write so the HalfOpen probe
+	// slot is released even if the Kubernetes status update fails.
+	onAPISuccess(accountKey, r.Recorder, resource)
+
 	SetReadyCondition(&resource.Status.Conditions, true, ReasonReconcileSuccess, "SlackIntegration reconciled successfully", resource.Generation)
 	SetSyncedCondition(&resource.Status.Conditions, true, ReasonSyncSuccess, "Successfully synced with UptimeRobot", resource.Generation)
 	SetErrorCondition(&resource.Status.Conditions, false, ReasonReconcileSuccess, "", resource.Generation)
 	if err := r.updateSlackIntegrationStatus(ctx, resource); err != nil {
 		return ctrl.Result{}, err
 	}
-
-	return ctrl.Result{RequeueAfter: resource.Spec.SyncInterval.Duration}, nil
+	return ctrl.Result{RequeueAfter: AddSyncJitter(resource.Spec.SyncInterval.Duration)}, nil
 }
 
 func (r *SlackIntegrationReconciler) resolveWebhookURL(ctx context.Context, resource *uptimerobotv1.SlackIntegration) (string, error) {
