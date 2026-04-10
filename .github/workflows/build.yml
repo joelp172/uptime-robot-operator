@@ -100,7 +100,7 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.1.4 # https://pkg.go.dev/golang.org/x/vuln/cmd/govulncheck
       - name: Run govulncheck
         run: govulncheck -test ./...
 
