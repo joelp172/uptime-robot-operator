@@ -25,6 +25,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -669,5 +670,189 @@ func TestDoWithRetry_HTTPClientTimeout(t *testing.T) {
 	// Should have returned well under 1 second (client timeout is 50ms, 1 retry + 10ms backoff).
 	if elapsed > 1*time.Second {
 		t.Errorf("doWithRetry() took %v, expected to timeout quickly", elapsed)
+	}
+}
+
+// TestDoWithRetry_500InternalServerError verifies that a 500 response triggers
+// exponential-backoff retries and eventually succeeds.
+func TestDoWithRetry_500InternalServerError(t *testing.T) {
+	client := NewClient("test-api-key")
+	client.baseDelay = 10 * time.Millisecond
+	client.maxDelay = 50 * time.Millisecond
+	client.jitterFraction = 0
+	var attemptCount int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count := atomic.AddInt32(&attemptCount, 1)
+		if count < 3 {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"error":"Internal Server Error"}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer server.Close()
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, server.URL, nil)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+
+	resp, retryErr := client.doWithRetry(context.Background(), req)
+
+	if retryErr != nil {
+		t.Errorf("doWithRetry() error = %v, want nil", retryErr)
+	}
+	if resp == nil {
+		t.Fatal("doWithRetry() response is nil")
+		return
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("doWithRetry() status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	_ = resp.Body.Close()
+
+	if got := atomic.LoadInt32(&attemptCount); got != 3 {
+		t.Errorf("expected 3 attempts, got %d", got)
+	}
+}
+
+// TestDoWithRetry_502BadGateway verifies that a 502 response triggers retries.
+func TestDoWithRetry_502BadGateway(t *testing.T) {
+	client := NewClient("test-api-key")
+	client.baseDelay = 10 * time.Millisecond
+	client.maxDelay = 50 * time.Millisecond
+	client.jitterFraction = 0
+	var attemptCount int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count := atomic.AddInt32(&attemptCount, 1)
+		if count < 3 {
+			w.WriteHeader(http.StatusBadGateway)
+			_, _ = w.Write([]byte(`{"error":"Bad Gateway"}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer server.Close()
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, server.URL, nil)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+
+	resp, retryErr := client.doWithRetry(context.Background(), req)
+
+	if retryErr != nil {
+		t.Errorf("doWithRetry() error = %v, want nil", retryErr)
+	}
+	if resp == nil {
+		t.Fatal("doWithRetry() response is nil")
+		return
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("doWithRetry() status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	_ = resp.Body.Close()
+
+	if got := atomic.LoadInt32(&attemptCount); got != 3 {
+		t.Errorf("expected 3 attempts, got %d", got)
+	}
+}
+
+// TestDoWithRetry_ConnectionRefused verifies that connection-refused errors are
+// treated as retryable and that ErrMaxRetriesExceeded is returned once retries
+// are exhausted.
+func TestDoWithRetry_ConnectionRefused(t *testing.T) {
+	// Start a server just to get a valid host:port, then close it immediately
+	// so that subsequent connection attempts get "connection refused".
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	closedURL := srv.URL
+	srv.Close()
+
+	client := NewClient("test-api-key")
+	client.maxRetries = 2
+	client.baseDelay = 5 * time.Millisecond
+	client.maxDelay = 10 * time.Millisecond
+	client.jitterFraction = 0
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, closedURL, nil)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+
+	start := time.Now()
+	_, retryErr := client.doWithRetry(context.Background(), req)
+	elapsed := time.Since(start)
+
+	if retryErr == nil {
+		t.Fatal("doWithRetry() expected error for connection refused, got nil")
+	}
+	if !errors.Is(retryErr, ErrMaxRetriesExceeded) {
+		t.Errorf("doWithRetry() error = %v, want ErrMaxRetriesExceeded", retryErr)
+	}
+
+	// With maxRetries=2 and baseDelay=5ms the minimum elapsed time is
+	// ~5ms (attempt 0->1) + ~10ms (attempt 1->2) = ~15ms.
+	if elapsed < 10*time.Millisecond {
+		t.Errorf("expected backoff delay for connection-refused retries, got %v", elapsed)
+	}
+}
+
+// TestDoWithRetry_ConcurrentRequests verifies that concurrent doWithRetry calls
+// from multiple goroutines do not interfere with each other and all succeed.
+func TestDoWithRetry_ConcurrentRequests(t *testing.T) {
+	var callCount int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&callCount, 1)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer server.Close()
+
+	// Use a fresh client with a permissive rate limiter so rate limiting is not
+	// the bottleneck in this test.
+	client := NewClient("test-api-key-concurrent")
+	client.baseDelay = time.Millisecond
+	client.maxDelay = time.Millisecond
+
+	const numGoroutines = 20
+	var wg sync.WaitGroup
+	errs := make([]error, numGoroutines)
+
+	for i := range numGoroutines {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, server.URL, nil)
+			if err != nil {
+				errs[idx] = fmt.Errorf("create request: %w", err)
+				return
+			}
+			resp, err := client.doWithRetry(context.Background(), req)
+			if err != nil {
+				errs[idx] = err
+				return
+			}
+			if resp != nil && resp.Body != nil {
+				_ = resp.Body.Close()
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("goroutine %d: unexpected error: %v", i, err)
+		}
+	}
+
+	if got := atomic.LoadInt32(&callCount); got != numGoroutines {
+		t.Errorf("expected %d calls, got %d", numGoroutines, got)
 	}
 }

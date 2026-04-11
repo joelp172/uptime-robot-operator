@@ -38,6 +38,13 @@ type ServerState struct {
 	// Force specific HTTP status codes for certain endpoints (0 = normal behavior).
 	forceUserMeHTTPStatus        int
 	forceAlertContactsHTTPStatus int
+	// forceGlobalHTTPStatus overrides ALL endpoints when non-zero.
+	forceGlobalHTTPStatus int
+	// intermittentFailStatus / intermittentFailCount simulate transient failures:
+	// the first intermittentFailCount requests return intermittentFailStatus,
+	// then normal handling resumes.
+	intermittentFailStatus int
+	intermittentFailCount  int
 }
 
 func defaultIntegrations() (map[int]map[string]any, int) {
@@ -101,6 +108,65 @@ func (s *ServerState) Reset() {
 	s.nextIntegration = next
 	s.forceUserMeHTTPStatus = 0
 	s.forceAlertContactsHTTPStatus = 0
+	s.forceGlobalHTTPStatus = 0
+	s.intermittentFailStatus = 0
+	s.intermittentFailCount = 0
+}
+
+// SetGlobalHTTPStatus forces every endpoint to return the given HTTP status code.
+// Set to 0 to restore normal per-endpoint behaviour.
+func (s *ServerState) SetGlobalHTTPStatus(code int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.forceGlobalHTTPStatus = code
+}
+
+// SetIntermittentFailure configures the server to return statusCode for the next
+// count requests (across all endpoints), after which normal handling resumes.
+// This simulates transient/intermittent API failures.
+func (s *ServerState) SetIntermittentFailure(statusCode, count int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.intermittentFailStatus = statusCode
+	s.intermittentFailCount = count
+}
+
+// checkGlobalOverride returns true and writes the overriding status code when a
+// global or intermittent-failure override is active. Callers should return
+// immediately when this returns true.
+func (s *ServerState) checkGlobalOverride(w http.ResponseWriter) bool {
+	// Fast path: hold only a read lock to check whether any override is active.
+	// This avoids serialising all normal (non-override) requests through a write lock.
+	s.mu.RLock()
+	globalStatus := s.forceGlobalHTTPStatus
+	failCount := s.intermittentFailCount
+	s.mu.RUnlock()
+
+	if failCount == 0 && globalStatus == 0 {
+		return false
+	}
+
+	// Slow path: an override is active – take the write lock so we can safely
+	// decrement intermittentFailCount if needed.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Intermittent failures take precedence and count down.
+	if s.intermittentFailCount > 0 {
+		s.intermittentFailCount--
+		code := s.intermittentFailStatus
+		w.WriteHeader(code)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "intermittent failure for testing"})
+		return true
+	}
+
+	if s.forceGlobalHTTPStatus != 0 {
+		w.WriteHeader(s.forceGlobalHTTPStatus)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "forced error for testing"})
+		return true
+	}
+
+	return false
 }
 
 // SetCreateMonitorID overrides the ID returned by POST /monitors.
@@ -187,7 +253,6 @@ func NewServer() *httptest.Server {
 // NewServerWithState creates a new test server with the given state tracker.
 func NewServerWithState(state *ServerState) *httptest.Server {
 	mux := http.NewServeMux()
-
 	// GET /monitors - List monitors
 	mux.HandleFunc("GET /monitors", func(w http.ResponseWriter, r *http.Request) {
 		handleGetMonitors(w, r, state)
@@ -268,7 +333,18 @@ func NewServerWithState(state *ServerState) *httptest.Server {
 		handleDeleteIntegration(w, r, state)
 	})
 
-	return httptest.NewServer(mux)
+	return httptest.NewServer(globalOverrideMiddleware(state, mux))
+}
+
+// globalOverrideMiddleware wraps an http.Handler and applies any global or
+// intermittent-failure overrides configured on state before delegating to next.
+func globalOverrideMiddleware(state *ServerState, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if state.checkGlobalOverride(w) {
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func handleGetMonitors(w http.ResponseWriter, r *http.Request, state *ServerState) {
