@@ -567,6 +567,9 @@ func TestDoWithRetry_PATCHRequestWithBody(t *testing.T) {
 }
 
 func TestNewClient_HasHTTPClientWithTimeout(t *testing.T) {
+	resetClientConfig()
+	t.Cleanup(resetClientConfig)
+
 	client := NewClient("test-api-key")
 
 	if client.httpClient == nil {
@@ -577,6 +580,50 @@ func TestNewClient_HasHTTPClientWithTimeout(t *testing.T) {
 	}
 	if client.httpClient.Timeout != DefaultHTTPTimeout {
 		t.Errorf("NewClient() httpClient.Timeout = %v, want %v", client.httpClient.Timeout, DefaultHTTPTimeout)
+	}
+}
+
+// TestNewClient_EnvVarHTTPTimeout verifies that UPTIME_ROBOT_HTTP_TIMEOUT
+// overrides the default timeout.
+func TestNewClient_EnvVarHTTPTimeout(t *testing.T) {
+	resetClientConfig()
+	t.Cleanup(resetClientConfig)
+	t.Setenv("UPTIME_ROBOT_HTTP_TIMEOUT", "10s")
+
+	client := NewClient("test-api-key-timeout10")
+	if client.httpClient == nil {
+		t.Fatal("NewClient() httpClient is nil, want non-nil *http.Client")
+	}
+	if client.httpClient.Timeout != 10*time.Second {
+		t.Errorf("NewClient() httpClient.Timeout = %v, want %v", client.httpClient.Timeout, 10*time.Second)
+	}
+}
+
+// TestNewClient_InvalidEnvVarHTTPTimeout verifies that invalid
+// UPTIME_ROBOT_HTTP_TIMEOUT values fall back to the default.
+func TestNewClient_InvalidEnvVarHTTPTimeout(t *testing.T) {
+	t.Cleanup(resetClientConfig)
+	tests := []struct {
+		name  string
+		value string
+	}{
+		{"non-duration", "abc"},
+		{"zero", "0s"},
+		{"negative", "-5s"},
+		{"empty-looking", " "},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resetClientConfig()
+			t.Setenv("UPTIME_ROBOT_HTTP_TIMEOUT", tt.value)
+			client := NewClient("test-api-key-invalid-" + tt.name)
+			if client.httpClient == nil {
+				t.Fatal("NewClient() httpClient is nil, want non-nil *http.Client")
+			}
+			if client.httpClient.Timeout != DefaultHTTPTimeout {
+				t.Errorf("NewClient() httpClient.Timeout = %v, want default %v", client.httpClient.Timeout, DefaultHTTPTimeout)
+			}
+		})
 	}
 }
 

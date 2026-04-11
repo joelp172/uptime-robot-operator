@@ -140,7 +140,7 @@ func getClientConfig() clientConfig {
 //   - UPTIME_ROBOT_MAX_RETRIES: maximum number of retry attempts (positive integer)
 //   - UPTIME_ROBOT_BASE_DELAY: base delay between retries (Go duration string, e.g. "1ms")
 //   - UPTIME_ROBOT_RATE_LIMIT: maximum API requests per second (positive integer, default 10)
-//   - UPTIME_ROBOT_HTTP_TIMEOUT: timeout for individual HTTP requests (Go duration string, e.g. "30s")
+//   - UPTIME_ROBOT_HTTP_TIMEOUT: timeout for individual HTTP requests (Go duration string, e.g. "30s", default 30s)
 //
 // Numeric/duration env vars are parsed once at first call; invalid values log a
 // warning to stderr and fall back to defaults. UPTIME_ROBOT_API is read on every
