@@ -124,6 +124,9 @@ func (s *ServerState) SetGlobalHTTPStatus(code int) {
 // SetIntermittentFailure configures the server to return statusCode for the next
 // count requests (across all endpoints), after which normal handling resumes.
 // This simulates transient/intermittent API failures.
+// Pass 0 for count (or call Reset) to clear any active intermittent-failure override.
+// Note: under high concurrency the actual number of failure responses may be
+// slightly fewer than count due to the read-lock fast path in checkGlobalOverride.
 func (s *ServerState) SetIntermittentFailure(statusCode, count int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -135,19 +138,6 @@ func (s *ServerState) SetIntermittentFailure(statusCode, count int) {
 // global or intermittent-failure override is active. Callers should return
 // immediately when this returns true.
 func (s *ServerState) checkGlobalOverride(w http.ResponseWriter) bool {
-	// Fast path: hold only a read lock to check whether any override is active.
-	// This avoids serialising all normal (non-override) requests through a write lock.
-	s.mu.RLock()
-	globalStatus := s.forceGlobalHTTPStatus
-	failCount := s.intermittentFailCount
-	s.mu.RUnlock()
-
-	if failCount == 0 && globalStatus == 0 {
-		return false
-	}
-
-	// Slow path: an override is active – take the write lock so we can safely
-	// decrement intermittentFailCount if needed.
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
