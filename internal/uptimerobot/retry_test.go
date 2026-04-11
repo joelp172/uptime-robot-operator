@@ -706,7 +706,6 @@ func TestDoWithRetry_500InternalServerError(t *testing.T) {
 	}
 	if resp == nil {
 		t.Fatal("doWithRetry() response is nil")
-		return
 	}
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("doWithRetry() status = %d, want %d", resp.StatusCode, http.StatusOK)
@@ -750,7 +749,6 @@ func TestDoWithRetry_502BadGateway(t *testing.T) {
 	}
 	if resp == nil {
 		t.Fatal("doWithRetry() response is nil")
-		return
 	}
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("doWithRetry() status = %d, want %d", resp.StatusCode, http.StatusOK)
