@@ -18,6 +18,7 @@ package uptimerobottest
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -526,9 +527,7 @@ func handleDeleteIntegration(w http.ResponseWriter, r *http.Request, state *Serv
 func serveJSONFile(w http.ResponseWriter, filename string) {
 	f, err := responses.FS.Open(filename)
 	if err != nil {
-		// Return a generic success response if file doesn't exist
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+		http.Error(w, fmt.Sprintf("test fixture %q not found: %v", filename, err), http.StatusInternalServerError)
 		return
 	}
 	defer func() { _ = f.Close() }()
