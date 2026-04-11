@@ -60,6 +60,8 @@ var _ = Describe("MaintenanceWindow CRD Reconciliation", Ordered, Label("mainten
 		})
 
 		It("should create once maintenance window", func() {
+			onceStartDate := time.Now().UTC().AddDate(0, 0, 1).Format("2006-01-02")
+
 			mwYAML := fmt.Sprintf(`
 apiVersion: uptimerobot.com/v1alpha1
 kind: MaintenanceWindow
@@ -71,10 +73,10 @@ spec:
     name: e2e-account-%s
   name: "E2E Once MW"
   interval: once
-  startDate: "2026-03-01"
+  startDate: "%s"
   startTime: "02:00:00"
   duration: 1h
-`, mwName, testRunID)
+`, mwName, testRunID, onceStartDate)
 
 			applyMaintenanceWindow(mwYAML)
 			mwID := waitMaintenanceWindowReadyAndGetID(mwName)
@@ -115,7 +117,7 @@ spec:
 					"02:00:00",
 					60,  // 1h in minutes
 					nil, // no days for once interval
-					"2026-03-01",
+					onceStartDate,
 					mw,
 				)
 				g.Expect(errs).To(BeEmpty(), "field validation: %s", errs)
