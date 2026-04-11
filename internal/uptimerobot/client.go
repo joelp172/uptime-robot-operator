@@ -40,8 +40,12 @@ import (
 
 const apiMonitorType = "API"
 
-// DefaultRateLimit is the default maximum number of API requests per second.
-const DefaultRateLimit = 10
+const (
+	// DefaultRateLimit is the default maximum number of API requests per second.
+	DefaultRateLimit = 10
+	// DefaultHTTPTimeout is the default timeout for individual HTTP requests.
+	DefaultHTTPTimeout = 30 * time.Second
+)
 
 // globalLimiters is a process-wide registry of rate limiters keyed by a hash
 // of the API key and the configured rate. This ensures all Client instances
@@ -78,9 +82,10 @@ func getSharedLimiter(apiKey string, rateLimit int) *rate.Limiter {
 // UPTIME_ROBOT_API is intentionally NOT cached here because controller tests
 // change it between reconciles to simulate failure paths.
 type clientConfig struct {
-	maxRetries int
-	baseDelay  time.Duration
-	rateLimit  int
+	maxRetries  int
+	baseDelay   time.Duration
+	rateLimit   int
+	httpTimeout time.Duration
 }
 
 var (
@@ -116,6 +121,15 @@ func getClientConfig() clientConfig {
 				fmt.Fprintf(os.Stderr, "WARNING: invalid UPTIME_ROBOT_RATE_LIMIT=%q (must be a positive integer), using default %d\n", env, DefaultRateLimit)
 			}
 		}
+
+		parsedConfig.httpTimeout = DefaultHTTPTimeout
+		if env := os.Getenv("UPTIME_ROBOT_HTTP_TIMEOUT"); env != "" {
+			if d, err := time.ParseDuration(env); err == nil && d > 0 {
+				parsedConfig.httpTimeout = d
+			} else {
+				fmt.Fprintf(os.Stderr, "WARNING: invalid UPTIME_ROBOT_HTTP_TIMEOUT=%q (must be a positive Go duration string, e.g. \"30s\"), using default %v\n", env, DefaultHTTPTimeout)
+			}
+		}
 	})
 	return parsedConfig
 }
@@ -126,6 +140,7 @@ func getClientConfig() clientConfig {
 //   - UPTIME_ROBOT_MAX_RETRIES: maximum number of retry attempts (positive integer)
 //   - UPTIME_ROBOT_BASE_DELAY: base delay between retries (Go duration string, e.g. "1ms")
 //   - UPTIME_ROBOT_RATE_LIMIT: maximum API requests per second (positive integer, default 10)
+//   - UPTIME_ROBOT_HTTP_TIMEOUT: timeout for individual HTTP requests (Go duration string, e.g. "30s", default 30s)
 //
 // Numeric/duration env vars are parsed once at first call; invalid values log a
 // warning to stderr and fall back to defaults. UPTIME_ROBOT_API is read on every
@@ -144,6 +159,7 @@ func NewClient(apiKey string) Client {
 	return Client{
 		url:            api,
 		apiKey:         apiKey,
+		httpClient:     &http.Client{Timeout: cfg.httpTimeout},
 		maxRetries:     cfg.maxRetries,
 		baseDelay:      cfg.baseDelay,
 		maxDelay:       DefaultMaxDelay,
@@ -160,6 +176,10 @@ func NewClient(apiKey string) Client {
 type Client struct {
 	url    string
 	apiKey string
+
+	// httpClient is the dedicated HTTP client used for all API requests.
+	// It has a configurable timeout to prevent goroutines from blocking indefinitely.
+	httpClient *http.Client
 
 	// limiter throttles outbound API requests to prevent quota exhaustion.
 	// Shared across all Client instances for the same API key.

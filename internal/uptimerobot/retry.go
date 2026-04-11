@@ -25,6 +25,7 @@ import (
 	"math/rand/v2"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -181,6 +182,15 @@ func (c Client) doWithRetry(ctx context.Context, req *http.Request) (*http.Respo
 		endpoint = endpoint[:idx]
 	}
 
+	// Resolve the HTTP client to use for all attempts.
+	// Prefer the client's own httpClient; fall back to a dedicated client with
+	// the default timeout rather than http.DefaultClient (which has no timeout).
+	httpClient := c.httpClient
+	if httpClient == nil {
+		fmt.Fprintf(os.Stderr, "WARNING: httpClient is nil (Client not created via NewClient?), using default timeout %v\n", DefaultHTTPTimeout)
+		httpClient = &http.Client{Timeout: DefaultHTTPTimeout}
+	}
+
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		// Apply rate limiting for every attempt (initial + retries) to prevent
 		// bursting against the API, whether from concurrent reconcilers or retry waves.
@@ -201,7 +211,7 @@ func (c Client) doWithRetry(ctx context.Context, req *http.Request) (*http.Respo
 			reqClone.Body = body
 		}
 
-		resp, err := http.DefaultClient.Do(reqClone)
+		resp, err := httpClient.Do(reqClone)
 
 		// Success case
 		if err == nil && resp.StatusCode < 400 {
