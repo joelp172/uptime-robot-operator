@@ -126,8 +126,6 @@ func (s *ServerState) SetGlobalHTTPStatus(code int) {
 // count requests (across all endpoints), after which normal handling resumes.
 // This simulates transient/intermittent API failures.
 // Pass 0 for count (or call Reset) to clear any active intermittent-failure override.
-// Note: under high concurrency the actual number of failure responses may be
-// slightly fewer than count due to the read-lock fast path in checkGlobalOverride.
 func (s *ServerState) SetIntermittentFailure(statusCode, count int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -139,25 +137,41 @@ func (s *ServerState) SetIntermittentFailure(statusCode, count int) {
 // global or intermittent-failure override is active. Callers should return
 // immediately when this returns true.
 func (s *ServerState) checkGlobalOverride(w http.ResponseWriter) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	// Fast path: no overrides active — use a read lock to avoid serialising
+	// normal requests through a write lock.
+	s.mu.RLock()
+	if s.intermittentFailCount == 0 && s.forceGlobalHTTPStatus == 0 {
+		s.mu.RUnlock()
+		return false
+	}
+	s.mu.RUnlock()
 
+	var (
+		code int
+		body map[string]string
+	)
+
+	// Slow path: an override is active — take the write lock to safely read and
+	// decrement state, then release the lock before performing I/O.
+	s.mu.Lock()
 	// Intermittent failures take precedence and count down.
 	if s.intermittentFailCount > 0 {
 		s.intermittentFailCount--
-		code := s.intermittentFailStatus
-		w.WriteHeader(code)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "intermittent failure for testing"})
-		return true
+		code = s.intermittentFailStatus
+		body = map[string]string{"error": "intermittent failure for testing"}
+	} else if s.forceGlobalHTTPStatus != 0 {
+		code = s.forceGlobalHTTPStatus
+		body = map[string]string{"error": "forced error for testing"}
+	}
+	s.mu.Unlock()
+
+	if code == 0 {
+		return false
 	}
 
-	if s.forceGlobalHTTPStatus != 0 {
-		w.WriteHeader(s.forceGlobalHTTPStatus)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "forced error for testing"})
-		return true
-	}
-
-	return false
+	w.WriteHeader(code)
+	_ = json.NewEncoder(w).Encode(body)
+	return true
 }
 
 // SetCreateMonitorID overrides the ID returned by POST /monitors.

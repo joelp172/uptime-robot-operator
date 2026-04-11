@@ -3,6 +3,7 @@ package uptimerobottest
 import (
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -115,5 +116,20 @@ func TestServerState_ResetClearsOverrides(t *testing.T) {
 	}
 	if state.intermittentFailStatus != 0 {
 		t.Errorf("expected intermittentFailStatus=0 after Reset, got %d", state.intermittentFailStatus)
+	}
+}
+
+// TestServeJSONFile_MissingFixture verifies that serveJSONFile returns a 500
+// error when the requested fixture file does not exist.
+func TestServeJSONFile_MissingFixture(t *testing.T) {
+	w := httptest.NewRecorder()
+	serveJSONFile(w, "nonexistent_fixture.json")
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected status %d, got %d", http.StatusInternalServerError, w.Code)
+	}
+	body := w.Body.String()
+	if body == "" {
+		t.Error("expected error message in response body")
 	}
 }
