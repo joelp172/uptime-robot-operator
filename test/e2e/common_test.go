@@ -274,6 +274,25 @@ func waitMonitorReadyAndGetID(monitorName string) string {
 	return strings.TrimSpace(monitorID)
 }
 
+// waitForObservedGeneration waits until status.observedGeneration is populated.
+func waitForObservedGeneration(resourceType, name, namespace string) {
+	By(fmt.Sprintf("waiting for %s %s observedGeneration to be populated", resourceType, name))
+
+	Eventually(func(g Gomega) {
+		args := []string{"get", resourceType, name}
+		if namespace != "" {
+			args = append(args, "-n", namespace)
+		}
+		args = append(args, "-o", "jsonpath={.status.observedGeneration}")
+
+		cmd := exec.Command("kubectl", args...)
+		output, err := utils.Run(cmd)
+		g.Expect(err).NotTo(HaveOccurred())
+
+		g.Expect(strings.TrimSpace(output)).NotTo(BeEmpty())
+	}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
+}
+
 // waitForAccountReady waits for an account to report status.ready=true and emits
 // reconciliation diagnostics when the timeout is reached.
 func waitForAccountReady(accountName string) {

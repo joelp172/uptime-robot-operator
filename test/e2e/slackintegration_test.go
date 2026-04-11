@@ -113,10 +113,7 @@ spec:
 		Expect(integrationID).NotTo(BeEmpty())
 
 		By("verifying SlackIntegration status conditions and observedGeneration")
-		cmd = exec.Command("kubectl", "get", "slackintegration", integrationName, "-n", namespace, "-o", "jsonpath={.status.observedGeneration}")
-		observedGeneration, err := utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(strings.TrimSpace(observedGeneration)).NotTo(BeEmpty())
+		waitForObservedGeneration("slackintegration", integrationName, namespace)
 
 		cmd = exec.Command("kubectl", "get", "slackintegration", integrationName, "-n", namespace, "-o", "jsonpath={.status.conditions[?(@.type==\"Ready\")].status}")
 		readyStatus, err := utils.Run(cmd)

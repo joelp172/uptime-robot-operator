@@ -82,13 +82,8 @@ spec:
 			mwID := waitMaintenanceWindowReadyAndGetID(mwName)
 
 			By("verifying MaintenanceWindow status conditions and observedGeneration")
+			waitForObservedGeneration("maintenancewindow", mwName, "")
 			cmd := exec.Command("kubectl", "get", "maintenancewindow", mwName,
-				"-o", "jsonpath={.status.observedGeneration}")
-			observedGeneration, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(strings.TrimSpace(observedGeneration)).NotTo(BeEmpty())
-
-			cmd = exec.Command("kubectl", "get", "maintenancewindow", mwName,
 				"-o", "jsonpath={.status.conditions[?(@.type==\"Ready\")].status}")
 			readyStatus, err := utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
