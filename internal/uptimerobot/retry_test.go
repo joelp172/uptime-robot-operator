@@ -783,9 +783,10 @@ func TestDoWithRetry_ConcurrentRequests(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// Use a fresh client with default rate limiter — backoff delays are minimized
-	// so the test focuses on concurrency correctness rather than retry timing.
+	// Use a fresh client and disable the shared rate limiter so this test stays
+	// fast and exercises true concurrency rather than limiter-induced blocking.
 	client := NewClient("test-api-key-concurrent")
+	client.limiter = nil
 	client.baseDelay = time.Millisecond
 	client.maxDelay = time.Millisecond
 

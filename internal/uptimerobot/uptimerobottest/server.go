@@ -169,6 +169,7 @@ func (s *ServerState) checkGlobalOverride(w http.ResponseWriter) bool {
 		return false
 	}
 
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(body)
 	return true

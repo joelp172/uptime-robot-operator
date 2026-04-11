@@ -53,17 +53,17 @@ func TestServerState_GlobalHTTPStatus(t *testing.T) {
 		t.Errorf("expected %d, got %d", http.StatusServiceUnavailable, resp.StatusCode)
 	}
 
-	// After reset, normal behaviour should be restored.
+	// After clearing the override, normal behaviour should be restored.
 	state.SetGlobalHTTPStatus(0)
 
 	resp2, err := http.Get(srv.URL + "/monitors") //nolint:noctx
 	if err != nil {
-		t.Fatalf("GET /monitors after reset: %v", err)
+		t.Fatalf("GET /monitors after clearing the override: %v", err)
 	}
 	defer func() { _ = resp2.Body.Close() }()
 
 	if resp2.StatusCode != http.StatusOK {
-		t.Errorf("expected %d after reset, got %d", http.StatusOK, resp2.StatusCode)
+		t.Errorf("expected %d after clearing the override, got %d", http.StatusOK, resp2.StatusCode)
 	}
 }
 
