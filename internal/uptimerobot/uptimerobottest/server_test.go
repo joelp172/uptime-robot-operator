@@ -123,7 +123,7 @@ func TestServerState_ResetClearsOverrides(t *testing.T) {
 // error when the requested fixture file does not exist.
 func TestServeJSONFile_MissingFixture(t *testing.T) {
 	w := httptest.NewRecorder()
-	serveJSONFile(w, "nonexistent_fixture.json")
+	serveJSONFile(w, "nonexistent_fixture.json", 0)
 
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("expected status %d, got %d", http.StatusInternalServerError, w.Code)

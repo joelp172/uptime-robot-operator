@@ -364,12 +364,12 @@ func handleGetMonitors(w http.ResponseWriter, r *http.Request, state *ServerStat
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": "monitor not found"})
 			return
 		}
-		serveJSONFile(w, "monitor.json")
+		serveJSONFile(w, "monitor.json", 0)
 		return
 	}
 
 	// List monitors
-	serveJSONFile(w, "monitors.json")
+	serveJSONFile(w, "monitors.json", 0)
 }
 
 func handleCreateMonitor(w http.ResponseWriter, state *ServerState) {
@@ -395,7 +395,7 @@ func handleUpdateMonitor(w http.ResponseWriter, r *http.Request, state *ServerSt
 		// Simulate monitor becoming active again after update/recreate path.
 		state.MarkMonitorActive(monitorID)
 	}
-	serveJSONFile(w, "monitor_update.json")
+	serveJSONFile(w, "monitor_update.json", 0)
 }
 
 func handleDeleteMonitor(w http.ResponseWriter, r *http.Request, state *ServerState) {
@@ -441,7 +441,7 @@ func handleGetUser(w http.ResponseWriter, state *ServerState) {
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "forced error for testing"})
 		return
 	}
-	serveJSONFile(w, "user_me.json")
+	serveJSONFile(w, "user_me.json", 0)
 }
 
 func handleGetAlertContacts(w http.ResponseWriter, state *ServerState) {
@@ -453,7 +453,7 @@ func handleGetAlertContacts(w http.ResponseWriter, state *ServerState) {
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "forced error for testing"})
 		return
 	}
-	serveJSONFile(w, "alert_contacts.json")
+	serveJSONFile(w, "alert_contacts.json", 0)
 }
 
 func handleGetMaintenanceWindows(w http.ResponseWriter, r *http.Request) {
@@ -461,21 +461,20 @@ func handleGetMaintenanceWindows(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/maintenance-windows/")
 	if path != "" && path != r.URL.Path {
 		// Single maintenance window request
-		serveJSONFile(w, "maintenance_window.json")
+		serveJSONFile(w, "maintenance_window.json", 0)
 		return
 	}
 
 	// List maintenance windows
-	serveJSONFile(w, "maintenance_windows.json")
+	serveJSONFile(w, "maintenance_windows.json", 0)
 }
 
 func handleCreateMaintenanceWindow(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusCreated)
-	serveJSONFile(w, "maintenance_window_create.json")
+	serveJSONFile(w, "maintenance_window_create.json", http.StatusCreated)
 }
 
 func handleUpdateMaintenanceWindow(w http.ResponseWriter, r *http.Request) {
-	serveJSONFile(w, "maintenance_window_update.json")
+	serveJSONFile(w, "maintenance_window_update.json", 0)
 }
 
 func handleDeleteMaintenanceWindow(w http.ResponseWriter, r *http.Request) {
@@ -487,21 +486,20 @@ func handleGetMonitorGroups(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/monitor-groups/")
 	if path != "" && path != r.URL.Path {
 		// Single monitor group request
-		serveJSONFile(w, "monitor_group.json")
+		serveJSONFile(w, "monitor_group.json", 0)
 		return
 	}
 
 	// List monitor groups
-	serveJSONFile(w, "monitor_groups.json")
+	serveJSONFile(w, "monitor_groups.json", 0)
 }
 
 func handleCreateMonitorGroup(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusCreated)
-	serveJSONFile(w, "monitor_group_create.json")
+	serveJSONFile(w, "monitor_group_create.json", http.StatusCreated)
 }
 
 func handleUpdateMonitorGroup(w http.ResponseWriter, r *http.Request) {
-	serveJSONFile(w, "monitor_group_update.json")
+	serveJSONFile(w, "monitor_group_update.json", 0)
 }
 
 func handleDeleteMonitorGroup(w http.ResponseWriter, r *http.Request) {
@@ -539,7 +537,11 @@ func handleDeleteIntegration(w http.ResponseWriter, r *http.Request, state *Serv
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func serveJSONFile(w http.ResponseWriter, filename string) {
+// serveJSONFile reads a fixture from the embedded responses filesystem and
+// writes it as a JSON response with the given HTTP status code. If statusCode
+// is 0, http.StatusOK (200) is used. If the fixture file cannot be opened, a
+// 500 error is returned so tests fail loudly on missing fixtures.
+func serveJSONFile(w http.ResponseWriter, filename string, statusCode int) {
 	f, err := responses.FS.Open(filename)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("test fixture %q not found: %v", filename, err), http.StatusInternalServerError)
@@ -548,5 +550,8 @@ func serveJSONFile(w http.ResponseWriter, filename string) {
 	defer func() { _ = f.Close() }()
 
 	w.Header().Set("Content-Type", "application/json")
+	if statusCode != 0 {
+		w.WriteHeader(statusCode)
+	}
 	_, _ = io.Copy(w, f)
 }
