@@ -35,7 +35,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
@@ -64,14 +64,9 @@ jobs:
         run: |
           make install
 
-      - name: Install cert-manager
-        run: |
-          make cert-manager-install
-          make cert-manager-wait
-
       - name: Deploy operator
         run: |
-          make deploy IMG=uptime-robot-operator:e2e
+          make deploy-with-cert-manager IMG=uptime-robot-operator:e2e
 
       - name: Wait for operator to be ready
         run: |

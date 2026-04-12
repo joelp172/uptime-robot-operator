@@ -25,9 +25,12 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot/uptimerobottest"
 )
 
 func TestIsRetryableStatusCode(t *testing.T) {
@@ -670,4 +673,192 @@ func TestDoWithRetry_HTTPClientTimeout(t *testing.T) {
 	if elapsed > 1*time.Second {
 		t.Errorf("doWithRetry() took %v, expected to timeout quickly", elapsed)
 	}
+}
+
+// TestDoWithRetry_RetryableStatusCodes verifies that retryable HTTP status codes
+// (500, 502) trigger exponential-backoff retries and eventually succeed.
+func TestDoWithRetry_RetryableStatusCodes(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+	}{
+		{"500 Internal Server Error", http.StatusInternalServerError},
+		{"502 Bad Gateway", http.StatusBadGateway},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := NewClient("test-api-key")
+			client.baseDelay = 10 * time.Millisecond
+			client.maxDelay = 50 * time.Millisecond
+			client.jitterFraction = 0
+			var attemptCount int32
+
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				count := atomic.AddInt32(&attemptCount, 1)
+				if count < 3 {
+					w.WriteHeader(tt.statusCode)
+					_, _ = fmt.Fprintf(w, `{"error":"%d"}`, tt.statusCode)
+					return
+				}
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"status":"ok"}`))
+			}))
+			defer server.Close()
+
+			req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, server.URL, nil)
+			if err != nil {
+				t.Fatalf("failed to create request: %v", err)
+			}
+
+			resp, retryErr := client.doWithRetry(context.Background(), req)
+
+			if retryErr != nil {
+				t.Fatalf("doWithRetry() error = %v, want nil", retryErr)
+			}
+			if resp == nil {
+				t.Fatal("doWithRetry() response is nil")
+			}
+			if resp.StatusCode != http.StatusOK {
+				t.Errorf("doWithRetry() status = %d, want %d", resp.StatusCode, http.StatusOK)
+			}
+			_ = resp.Body.Close()
+
+			if got := atomic.LoadInt32(&attemptCount); got != 3 {
+				t.Errorf("expected 3 attempts, got %d", got)
+			}
+		})
+	}
+}
+
+// TestDoWithRetry_ConnectionRefused verifies that connection-refused errors are
+// treated as retryable and that ErrMaxRetriesExceeded is returned once retries
+// are exhausted.
+func TestDoWithRetry_ConnectionRefused(t *testing.T) {
+	// Start a server just to get a valid host:port, then close it immediately
+	// so that subsequent connection attempts get "connection refused".
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	closedURL := srv.URL
+	srv.Close()
+
+	client := NewClient("test-api-key")
+	client.maxRetries = 2
+	client.baseDelay = 5 * time.Millisecond
+	client.maxDelay = 10 * time.Millisecond
+	client.jitterFraction = 0
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, closedURL, nil)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+
+	start := time.Now()
+	_, retryErr := client.doWithRetry(context.Background(), req)
+	elapsed := time.Since(start)
+
+	if retryErr == nil {
+		t.Fatal("doWithRetry() expected error for connection refused, got nil")
+	}
+	if !errors.Is(retryErr, ErrMaxRetriesExceeded) {
+		t.Errorf("doWithRetry() error = %v, want ErrMaxRetriesExceeded", retryErr)
+	}
+
+	// With maxRetries=2 and baseDelay=5ms the total backoff should be well
+	// above 10ms (5ms after attempt 0, 10ms after attempt 1).
+	if elapsed < 10*time.Millisecond {
+		t.Errorf("expected backoff delay for connection-refused retries, got %v", elapsed)
+	}
+}
+
+// TestDoWithRetry_ConcurrentRequests verifies that concurrent doWithRetry calls
+// from multiple goroutines do not interfere with each other and all succeed.
+func TestDoWithRetry_ConcurrentRequests(t *testing.T) {
+	var callCount int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&callCount, 1)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer server.Close()
+
+	// Use a fresh client and disable the shared rate limiter so this test stays
+	// fast and exercises true concurrency rather than limiter-induced blocking.
+	client := NewClient("test-api-key-concurrent")
+	client.limiter = nil
+	client.baseDelay = time.Millisecond
+	client.maxDelay = time.Millisecond
+
+	const numGoroutines = 20
+	var wg sync.WaitGroup
+	errs := make([]error, numGoroutines)
+
+	for i := range numGoroutines {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, server.URL, nil)
+			if err != nil {
+				errs[idx] = fmt.Errorf("create request: %w", err)
+				return
+			}
+			resp, err := client.doWithRetry(context.Background(), req)
+			if err != nil {
+				errs[idx] = err
+				return
+			}
+			if resp != nil {
+				if resp.StatusCode != http.StatusOK {
+					errs[idx] = fmt.Errorf("unexpected status: %d", resp.StatusCode)
+				}
+				_ = resp.Body.Close()
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("goroutine %d: unexpected error: %v", i, err)
+		}
+	}
+
+	if got := atomic.LoadInt32(&callCount); got != numGoroutines {
+		t.Errorf("expected %d calls, got %d", numGoroutines, got)
+	}
+}
+
+// TestDoWithRetry_IntermittentFailureWithTestServer verifies end-to-end retry
+// behaviour using the test server's SetIntermittentFailure feature.
+func TestDoWithRetry_IntermittentFailureWithTestServer(t *testing.T) {
+	state := uptimerobottest.NewServerState()
+	srv := uptimerobottest.NewServerWithState(state)
+	defer srv.Close()
+
+	// First 2 requests return 500, then normal handling resumes.
+	state.SetIntermittentFailure(http.StatusInternalServerError, 2)
+
+	client := NewClient("test-api-key")
+	client.baseDelay = 5 * time.Millisecond
+	client.maxDelay = 10 * time.Millisecond
+	client.jitterFraction = 0
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL+"/monitors", nil)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+
+	resp, retryErr := client.doWithRetry(context.Background(), req)
+	if retryErr != nil {
+		t.Fatalf("doWithRetry() error = %v, want nil", retryErr)
+	}
+	if resp == nil {
+		t.Fatal("doWithRetry() response is nil")
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("doWithRetry() status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	_ = resp.Body.Close()
 }

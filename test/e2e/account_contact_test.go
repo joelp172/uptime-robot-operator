@@ -117,12 +117,7 @@ spec:
 			Expect(contactID).NotTo(BeEmpty(), "Account should have at least one alert contact")
 
 			By("verifying Account status conditions and observedGeneration")
-			cmd = exec.Command("kubectl", "get", "account",
-				fmt.Sprintf("e2e-account-%s", testRunID),
-				"-o", "jsonpath={.status.observedGeneration}")
-			observedGeneration, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(strings.TrimSpace(observedGeneration)).NotTo(BeEmpty())
+			waitForObservedGeneration("account", fmt.Sprintf("e2e-account-%s", testRunID), "")
 
 			cmd = exec.Command("kubectl", "get", "account",
 				fmt.Sprintf("e2e-account-%s", testRunID),
@@ -260,14 +255,7 @@ spec:
 			}, 1*time.Minute, 5*time.Second).Should(Succeed())
 
 			By("verifying Contact status conditions and observedGeneration")
-			Eventually(func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "contact",
-					contactName,
-					"-o", "jsonpath={.status.observedGeneration}")
-				observedGeneration, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(strings.TrimSpace(observedGeneration)).NotTo(BeEmpty())
-			}, 1*time.Minute, 5*time.Second).Should(Succeed())
+			waitForObservedGeneration("contact", contactName, "")
 
 			Eventually(func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "contact",

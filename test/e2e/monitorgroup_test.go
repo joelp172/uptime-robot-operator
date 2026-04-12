@@ -107,11 +107,7 @@ spec:
 			Expect(output).NotTo(BeEmpty())
 
 			By("verifying MonitorGroup status conditions and observedGeneration")
-			cmd = exec.Command("kubectl", "get", "monitorgroup", monitorGroupName, "-n", namespace,
-				"-o", "jsonpath={.status.observedGeneration}")
-			observedGeneration, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(strings.TrimSpace(observedGeneration)).NotTo(BeEmpty())
+			waitForObservedGeneration("monitorgroup", monitorGroupName, namespace)
 
 			cmd = exec.Command("kubectl", "get", "monitorgroup", monitorGroupName, "-n", namespace,
 				"-o", "jsonpath={.status.conditions[?(@.type==\"Ready\")].status}")
