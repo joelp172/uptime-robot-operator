@@ -1,6 +1,6 @@
 module github.com/joelp172/uptime-robot-operator
 
-go 1.26.1
+go 1.26.2
 
 require (
 	github.com/dmarkham/enumer v1.5.11
@@ -57,7 +57,7 @@ require (
 	go.uber.org/zap v1.27.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.3 // indirect
 	golang.org/x/mod v0.32.0 // indirect
-	golang.org/x/net v0.50.0 // indirect
+	golang.org/x/net v0.51.0 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.41.0 // indirect
