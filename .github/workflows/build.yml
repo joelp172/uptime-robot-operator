@@ -41,6 +41,7 @@ jobs:
         uses: golangci/golangci-lint-action@v7
         with:
           version: v2.0.2
+          install-mode: goinstall
 
   verify-crds:
     name: Verify CRDs
@@ -90,7 +91,6 @@ jobs:
     name: Go Vulnerability Check
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
-    continue-on-error: true
     permissions:
       contents: read
     steps:
