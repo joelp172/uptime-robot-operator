@@ -756,14 +756,15 @@ func isSlackIntegrationAlreadyExists409(body []byte) bool {
 
 // selectDuplicateSlackIntegrationCandidate returns a single safe duplicate
 // target for 409 adoption. Matching requires a Slack integration whose
-// webhook URL matches, and (when a FriendlyName is provided) whose FriendlyName
-// also matches, to avoid aliasing distinct CRs that happen to share a webhook.
+// webhook URL AND FriendlyName both match the desired spec. Adoption is
+// refused when FriendlyName is empty, since matching on webhook alone would
+// silently alias distinct CRs across clusters that happen to share a channel.
 func selectDuplicateSlackIntegrationCandidate(existing []IntegrationResponse, desired SlackIntegrationData) (*IntegrationResponse, bool) {
 	targetWebhook := strings.TrimSpace(desired.WebhookURL)
-	if targetWebhook == "" {
+	targetName := strings.TrimSpace(desired.FriendlyName)
+	if targetWebhook == "" || targetName == "" {
 		return nil, false
 	}
-	targetName := strings.TrimSpace(desired.FriendlyName)
 
 	candidates := make([]IntegrationResponse, 0, 1)
 	for i := range existing {
@@ -774,14 +775,12 @@ func selectDuplicateSlackIntegrationCandidate(existing []IntegrationResponse, de
 		if strings.TrimSpace(integration.Value) != targetWebhook {
 			continue
 		}
-		if targetName != "" {
-			existingName := ""
-			if integration.FriendlyName != nil {
-				existingName = strings.TrimSpace(*integration.FriendlyName)
-			}
-			if existingName != targetName {
-				continue
-			}
+		existingName := ""
+		if integration.FriendlyName != nil {
+			existingName = strings.TrimSpace(*integration.FriendlyName)
+		}
+		if existingName != targetName {
+			continue
 		}
 		candidates = append(candidates, integration)
 	}

@@ -226,6 +226,31 @@ func TestCreateSlackIntegration_NoAdoptionOnZeroCandidates(t *testing.T) {
 	}
 }
 
+func TestCreateSlackIntegration_RefusesAdoptionWhenFriendlyNameEmpty(t *testing.T) {
+	t.Parallel()
+
+	// A unique webhook match must not be enough on its own — without a
+	// FriendlyName we cannot tell whether this integration belongs to us or
+	// another cluster, so adoption must be refused and the original 409 surfaced.
+	listBody := `{
+		"nextLink": null,
+		"data": [
+			{"id": 42, "friendlyName": "Existing", "type": "Slack", "value": "https://hooks.slack.com/services/SHARED", "sslExpirationReminder": false, "customValue": ""}
+		]
+	}`
+	srv, _ := slackIntegrationTestServer(t, listBody, 0)
+	defer srv.Close()
+
+	client := Client{url: srv.URL, apiKey: "test-key"}
+	_, err := client.CreateSlackIntegration(context.Background(), SlackIntegrationData{
+		FriendlyName: "",
+		WebhookURL:   "https://hooks.slack.com/services/SHARED",
+	})
+	if err == nil {
+		t.Fatalf("expected original 409 to be surfaced when FriendlyName is empty")
+	}
+}
+
 func TestCreateSlackIntegration_SkipsNonSlackWithSameWebhook(t *testing.T) {
 	t.Parallel()
 

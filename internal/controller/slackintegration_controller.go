@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/joelp172/uptime-robot-operator/internal/metrics"
@@ -417,6 +418,14 @@ func (r *SlackIntegrationReconciler) recreateSlackIntegration(
 }
 
 func normalizeSlackIntegrationData(data uptimerobot.SlackIntegrationData) uptimerobot.SlackIntegrationData {
+	// Trim whitespace from string fields so that values sourced from secrets
+	// or ConfigMaps (which often carry a trailing newline) match cleanly
+	// against what UptimeRobot stores and returns. Without this, adoption
+	// and drift-detection would flap for otherwise-identical inputs.
+	data.FriendlyName = strings.TrimSpace(data.FriendlyName)
+	data.WebhookURL = strings.TrimSpace(data.WebhookURL)
+	data.CustomValue = strings.TrimSpace(data.CustomValue)
+	data.EnableNotificationsFor = strings.TrimSpace(data.EnableNotificationsFor)
 	if data.EnableNotificationsFor == "" {
 		data.EnableNotificationsFor = "UpAndDown"
 	}
