@@ -116,6 +116,40 @@ var _ = Describe("MonitorGroup Controller", func() {
 			Expect(mg.Status.Ready).To(BeTrue())
 		})
 
+		It("should recover from status update conflict", func() {
+			mg := CreateMonitorGroup(ctx, "test-status-conflict-mg", account.Name, uptimerobotv1.MonitorGroupSpec{
+				FriendlyName: "Status Conflict Group",
+			})
+			defer CleanupMonitorGroup(ctx, mg)
+
+			reconciler := &MonitorGroupReconciler{
+				Client:   k8sClient,
+				Scheme:   k8sClient.Scheme(),
+				Recorder: record.NewFakeRecorder(100),
+			}
+
+			stale := &uptimerobotv1.MonitorGroup{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace}, stale)).To(Succeed())
+
+			latest := &uptimerobotv1.MonitorGroup{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace}, latest)).To(Succeed())
+			latest.Status.Ready = true
+			latest.Status.ID = "11111"
+			Expect(k8sClient.Status().Update(ctx, latest)).To(Succeed())
+
+			stale.Status.Ready = true
+			stale.Status.ID = "22222"
+			stale.Status.MonitorCount = 3
+			stale.Status.ObservedGeneration = stale.Generation
+			Expect(reconciler.updateMonitorGroupStatus(ctx, stale)).To(Succeed())
+
+			updated := &uptimerobotv1.MonitorGroup{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace}, updated)).To(Succeed())
+			Expect(updated.Status.ID).To(Equal("22222"))
+			Expect(updated.Status.MonitorCount).To(Equal(3))
+			Expect(updated.Status.Ready).To(BeTrue())
+		})
+
 		It("should preserve status.ready when update of an existing monitor group fails", func() {
 			mg := CreateMonitorGroup(ctx, "test-update-failure-mg", account.Name, uptimerobotv1.MonitorGroupSpec{
 				FriendlyName: "Update Failure Group",
