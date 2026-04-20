@@ -364,6 +364,50 @@ func TestCreateSlackIntegration_ListFailureSurfacesOriginal409(t *testing.T) {
 	}
 }
 
+func TestListIntegrations_FollowsNextLink(t *testing.T) {
+	t.Parallel()
+
+	var baseURL string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != integrationsPath {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		switch r.URL.Query().Get("page") {
+		case "":
+			next := baseURL + integrationsPath + "?page=2"
+			_, _ = w.Write([]byte(`{
+				"nextLink": "` + next + `",
+				"data": [
+					{"id": 1, "friendlyName": "First", "type": "Slack", "value": "https://hooks.slack.com/services/FIRST", "sslExpirationReminder": false, "customValue": ""}
+				]
+			}`))
+		case "2":
+			_, _ = w.Write([]byte(`{
+				"nextLink": null,
+				"data": [
+					{"id": 2, "friendlyName": "Second", "type": "Slack", "value": "https://hooks.slack.com/services/SECOND", "sslExpirationReminder": false, "customValue": ""}
+				]
+			}`))
+		default:
+			t.Fatalf("unexpected page: %q", r.URL.Query().Get("page"))
+		}
+	}))
+	defer srv.Close()
+	baseURL = srv.URL
+
+	client := Client{url: srv.URL, apiKey: "test-key"}
+	integrations, err := client.ListIntegrations(context.Background())
+	if err != nil {
+		t.Fatalf("ListIntegrations returned error: %v", err)
+	}
+	if len(integrations) != 2 {
+		t.Fatalf("expected 2 integrations after pagination, got %d", len(integrations))
+	}
+	if integrations[0].ID != 1 || integrations[1].ID != 2 {
+		t.Fatalf("unexpected pagination order: %+v", integrations)
+	}
+}
+
 func TestListAndDeleteIntegrations(t *testing.T) {
 	t.Parallel()
 

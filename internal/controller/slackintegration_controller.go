@@ -330,13 +330,22 @@ func (r *SlackIntegrationReconciler) findMatchingSlackIntegration(
 		return nil, err
 	}
 
+	matches := make([]uptimerobot.IntegrationResponse, 0, 1)
 	for i := range integrations {
 		integration := integrations[i]
 		if slackIntegrationMatchesDesired(&integration, desired) {
-			return &integration, nil
+			matches = append(matches, integration)
 		}
 	}
-	return nil, nil
+
+	switch len(matches) {
+	case 0:
+		return nil, nil
+	case 1:
+		return &matches[0], nil
+	default:
+		return nil, fmt.Errorf("found %d matching Slack integrations for %q; refusing ambiguous adoption", len(matches), desired.FriendlyName)
+	}
 }
 
 func (r *SlackIntegrationReconciler) resolveWebhookURL(ctx context.Context, resource *uptimerobotv1.SlackIntegration) (string, error) {

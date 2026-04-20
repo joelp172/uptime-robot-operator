@@ -1147,15 +1147,29 @@ func (c Client) CreateSlackIntegration(ctx context.Context, data SlackIntegratio
 	return result, err
 }
 
-// ListIntegrations lists integrations using the v3 API.
+// ListIntegrations lists all integrations using the v3 API, following
+// nextLink pagination so callers (notably 409 adoption) can find matches
+// that live on later pages.
 // GET /integrations
 func (c Client) ListIntegrations(ctx context.Context) ([]IntegrationResponse, error) {
-	var result IntegrationsListResponse
-	err := c.doJSON(ctx, http.MethodGet, "integrations", nil, &result)
-	if err != nil {
+	var all []IntegrationResponse
+	var resp IntegrationsListResponse
+	if err := c.doJSON(ctx, http.MethodGet, "integrations", nil, &resp); err != nil {
 		return nil, err
 	}
-	return result.Integrations, nil
+	all = append(all, resp.Integrations...)
+	for resp.NextLink != nil && *resp.NextLink != "" {
+		nextURL := *resp.NextLink
+		if !strings.HasPrefix(nextURL, "http") {
+			nextURL = strings.TrimSuffix(c.url, "/") + "/" + strings.TrimPrefix(nextURL, "/")
+		}
+		resp = IntegrationsListResponse{}
+		if err := c.doGetJSON(ctx, nextURL, &resp); err != nil {
+			return nil, err
+		}
+		all = append(all, resp.Integrations...)
+	}
+	return all, nil
 }
 
 // DeleteIntegration deletes an integration by ID using the v3 API.
