@@ -21,6 +21,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -149,5 +150,189 @@ spec:
 
 		By("verifying integration is deleted from UptimeRobot API")
 		WaitForIntegrationDeletedFromAPI(apiKey, integrationID)
+	})
+
+	Context("Duplicate SlackIntegration", func() {
+		baseName := fmt.Sprintf("e2e-slack-dup-base-%s", testRunID)
+		duplicateName := fmt.Sprintf("e2e-slack-dup-attempt-%s", testRunID)
+		mismatchName := fmt.Sprintf("e2e-slack-dup-mismatch-%s", testRunID)
+		webhookSecretName := fmt.Sprintf("e2e-slack-dup-webhook-%s", testRunID)
+		friendlyName := fmt.Sprintf("E2E Slack Duplicate %s", testRunID)
+		var sharedIntegrationID string
+
+		BeforeAll(func() {
+			if skipCRDReconciliation {
+				Skip("Skipping SlackIntegration duplicate tests: UPTIME_ROBOT_API_KEY not set")
+			}
+			if os.Getenv("UPTIME_ROBOT_SLACK_WEBHOOK_URL") == "" {
+				Skip("Skipping SlackIntegration duplicate tests: UPTIME_ROBOT_SLACK_WEBHOOK_URL not set")
+			}
+
+			By("creating shared webhook secret for duplicate tests")
+			secretYAML := fmt.Sprintf(`
+apiVersion: v1
+kind: Secret
+metadata:
+  name: %s
+  namespace: %s
+type: Opaque
+stringData:
+  webhookURL: %s
+`, webhookSecretName, namespace, os.Getenv("UPTIME_ROBOT_SLACK_WEBHOOK_URL"))
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(secretYAML)
+			out, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create duplicate webhook secret: %s", out)
+		})
+
+		AfterAll(func() {
+			if skipCRDReconciliation {
+				return
+			}
+			// Delete mismatch and duplicate first (prune: false) so they don't try to clean up the shared integration.
+			cmd := exec.Command("kubectl", "delete", "slackintegration", mismatchName, "-n", namespace, "--ignore-not-found=true")
+			_, _ = utils.Run(cmd)
+			cmd = exec.Command("kubectl", "delete", "slackintegration", duplicateName, "-n", namespace, "--ignore-not-found=true")
+			_, _ = utils.Run(cmd)
+			// Delete the base CR last (prune: true) — this will remove the integration from the API.
+			cmd = exec.Command("kubectl", "delete", "slackintegration", baseName, "-n", namespace, "--ignore-not-found=true")
+			_, _ = utils.Run(cmd)
+			cmd = exec.Command("kubectl", "delete", "secret", webhookSecretName, "-n", namespace, "--ignore-not-found=true")
+			_, _ = utils.Run(cmd)
+
+			if sharedIntegrationID != "" {
+				WaitForIntegrationDeletedFromAPI(os.Getenv("UPTIME_ROBOT_API_KEY"), sharedIntegrationID)
+			}
+		})
+
+		It("should adopt an existing Slack integration on 409 duplicate and share the ID", func() {
+			By("creating the base SlackIntegration")
+			baseYAML := fmt.Sprintf(`
+apiVersion: uptimerobot.com/v1alpha1
+kind: SlackIntegration
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  syncInterval: 1m
+  prune: true
+  account:
+    name: e2e-account-%s
+  integration:
+    friendlyName: %q
+    enableNotificationsFor: Down
+    sslExpirationReminder: false
+    secretName: %s
+    webhookURLKey: webhookURL
+`, baseName, namespace, testRunID, friendlyName, webhookSecretName)
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(baseYAML)
+			out, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create base SlackIntegration: %s", out)
+
+			By("waiting for base SlackIntegration to become ready")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "slackintegration", baseName, "-n", namespace, "-o", "jsonpath={.status.ready}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(strings.TrimSpace(output)).To(Equal("true"))
+			}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
+
+			cmd = exec.Command("kubectl", "get", "slackintegration", baseName, "-n", namespace, "-o", "jsonpath={.status.id}")
+			baseID, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			baseID = strings.TrimSpace(baseID)
+			Expect(baseID).NotTo(BeEmpty())
+			sharedIntegrationID = baseID
+
+			By("creating a duplicate SlackIntegration with identical friendlyName and webhookURL (prune: false)")
+			dupYAML := fmt.Sprintf(`
+apiVersion: uptimerobot.com/v1alpha1
+kind: SlackIntegration
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  syncInterval: 1m
+  prune: false
+  account:
+    name: e2e-account-%s
+  integration:
+    friendlyName: %q
+    enableNotificationsFor: Down
+    sslExpirationReminder: false
+    secretName: %s
+    webhookURLKey: webhookURL
+`, duplicateName, namespace, testRunID, friendlyName, webhookSecretName)
+			cmd = exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(dupYAML)
+			out, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create duplicate SlackIntegration: %s", out)
+
+			By("verifying duplicate SlackIntegration adopts the existing integration ID")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "slackintegration", duplicateName, "-n", namespace, "-o", "jsonpath={.status.ready}")
+				ready, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(strings.TrimSpace(ready)).To(Equal("true"))
+
+				cmd = exec.Command("kubectl", "get", "slackintegration", duplicateName, "-n", namespace, "-o", "jsonpath={.status.id}")
+				dupID, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(strings.TrimSpace(dupID)).To(Equal(baseID))
+			}, 2*time.Minute, e2ePollInterval).Should(Succeed())
+		})
+
+		It("should not adopt when webhook matches but friendlyName differs", func() {
+			By("verifying the base SlackIntegration still exists from the prior test")
+			cmd := exec.Command("kubectl", "get", "slackintegration", baseName, "-n", namespace, "-o", "jsonpath={.status.id}")
+			baseID, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(strings.TrimSpace(baseID)).NotTo(BeEmpty(), "prior test should have created the base integration")
+
+			By("creating a SlackIntegration with same webhook but a different friendlyName")
+			mismatchYAML := fmt.Sprintf(`
+apiVersion: uptimerobot.com/v1alpha1
+kind: SlackIntegration
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  syncInterval: 1m
+  prune: false
+  account:
+    name: e2e-account-%s
+  integration:
+    friendlyName: "E2E Slack Mismatch %s"
+    enableNotificationsFor: Down
+    sslExpirationReminder: false
+    secretName: %s
+    webhookURLKey: webhookURL
+`, mismatchName, namespace, testRunID, testRunID, webhookSecretName)
+			cmd = exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(mismatchYAML)
+			out, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create mismatch SlackIntegration: %s", out)
+
+			By("verifying the CR surfaces the 409 error and does not become ready")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "slackintegration", mismatchName, "-n", namespace,
+					"-o", "jsonpath={.status.conditions[?(@.type==\"Error\")].status}")
+				errStatus, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(strings.TrimSpace(errStatus)).To(Equal("True"))
+
+				cmd = exec.Command("kubectl", "get", "slackintegration", mismatchName, "-n", namespace, "-o", "jsonpath={.status.ready}")
+				ready, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(strings.TrimSpace(ready)).NotTo(Equal("true"))
+			}, 2*time.Minute, e2ePollInterval).Should(Succeed())
+
+			By("confirming the mismatch CR did not set status.id (no silent adoption)")
+			cmd = exec.Command("kubectl", "get", "slackintegration", mismatchName, "-n", namespace, "-o", "jsonpath={.status.id}")
+			mismatchID, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(strings.TrimSpace(mismatchID)).To(BeEmpty())
+		})
 	})
 })
