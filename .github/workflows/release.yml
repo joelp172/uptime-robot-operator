@@ -201,7 +201,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Setup Helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@v5
         with:
           version: v3.14.0
 
@@ -273,7 +273,7 @@ jobs:
           ref: v${{ needs.release.outputs.new_release_version }}
 
       - name: Install Helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@v5
         with:
           version: v3.20.0
 
