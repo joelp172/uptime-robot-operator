@@ -422,9 +422,9 @@ func (r *MaintenanceWindowReconciler) updateMaintenanceWindowStatus(ctx context.
 
 	log.FromContext(ctx).Info("status update conflicted, refetching and retrying", "maintenancewindow", client.ObjectKeyFromObject(mw))
 	desiredStatus := mw.Status
-	reader := client.Reader(r.Client)
-	if r.APIReader != nil {
-		reader = r.APIReader
+	reader := r.APIReader
+	if reader == nil {
+		reader = r.Client
 	}
 
 	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
