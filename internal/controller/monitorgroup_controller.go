@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -363,8 +364,10 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	return ctrl.Result{RequeueAfter: AddSyncJitter(groupResource.Spec.SyncInterval.Duration)}, nil
 }
 
-// updateMonitorGroupStatus writes status and retries once on conflict so a
-// successful create isn't followed by another create attempt.
+// updateMonitorGroupStatus writes status and retries on conflict by refetching
+// the latest resource and re-applying the desired status, so a successful
+// create isn't followed by another create attempt when the first status write
+// loses a resourceVersion race.
 func (r *MonitorGroupReconciler) updateMonitorGroupStatus(ctx context.Context, groupResource *uptimerobotv1.MonitorGroup) error {
 	err := r.Status().Update(ctx, groupResource)
 	if err == nil {
@@ -374,17 +377,16 @@ func (r *MonitorGroupReconciler) updateMonitorGroupStatus(ctx context.Context, g
 		return err
 	}
 
-	latest := &uptimerobotv1.MonitorGroup{}
-	if getErr := r.Get(ctx, client.ObjectKeyFromObject(groupResource), latest); getErr != nil {
-		return getErr
-	}
-	latest.Status.Ready = groupResource.Status.Ready
-	latest.Status.ID = groupResource.Status.ID
-	latest.Status.MonitorCount = groupResource.Status.MonitorCount
-	latest.Status.ObservedGeneration = groupResource.Status.ObservedGeneration
-	latest.Status.LastReconciled = groupResource.Status.LastReconciled
-	latest.Status.Conditions = groupResource.Status.Conditions
-	return r.Status().Update(ctx, latest)
+	log.FromContext(ctx).Info("status update conflicted, refetching and retrying", "monitorgroup", client.ObjectKeyFromObject(groupResource))
+	desiredStatus := groupResource.Status
+	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+		latest := &uptimerobotv1.MonitorGroup{}
+		if getErr := r.Get(ctx, client.ObjectKeyFromObject(groupResource), latest); getErr != nil {
+			return fmt.Errorf("refetch for status retry: %w", getErr)
+		}
+		latest.Status = desiredStatus
+		return r.Status().Update(ctx, latest)
+	})
 }
 
 // SetupWithManager configures the controller with manager
