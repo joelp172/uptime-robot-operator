@@ -25,9 +25,11 @@ import (
 
 	"github.com/joelp172/uptime-robot-operator/internal/metrics"
 	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -94,7 +96,7 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		if r.Recorder != nil {
 			r.Recorder.Event(mw, "Warning", "DependencyNotReady", msg)
 		}
-		if updateErr := r.Status().Update(ctx, mw); updateErr != nil {
+		if updateErr := r.updateMaintenanceWindowStatus(ctx, mw); updateErr != nil {
 			return ctrl.Result{}, updateErr
 		}
 		return ctrl.Result{}, err
@@ -112,7 +114,7 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		if r.Recorder != nil {
 			r.Recorder.Event(mw, "Warning", "SecretNotFound", msg)
 		}
-		if updateErr := r.Status().Update(ctx, mw); updateErr != nil {
+		if updateErr := r.updateMaintenanceWindowStatus(ctx, mw); updateErr != nil {
 			return ctrl.Result{}, updateErr
 		}
 		return ctrl.Result{}, err
@@ -153,7 +155,7 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			})
 
 			// Update status with cleanup progress
-			if updateErr := r.Status().Update(ctx, mw); updateErr != nil {
+			if updateErr := r.updateMaintenanceWindowStatus(ctx, mw); updateErr != nil {
 				return ctrl.Result{}, updateErr
 			}
 
@@ -228,7 +230,7 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		durationMinutes = 1
 	}
 
-	if !mw.Status.Ready {
+	if mw.Status.ID == "" {
 		// Create new maintenance window
 		logger.Info("Creating maintenance window",
 			"name", mw.Spec.Name,
@@ -270,7 +272,7 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 				r.Recorder.Event(mw, "Warning", "SyncFailed", msg)
 			}
 			onAPIFailure(accountKey, err, r.Recorder, mw)
-			if updateErr := r.Status().Update(ctx, mw); updateErr != nil {
+			if updateErr := r.updateMaintenanceWindowStatus(ctx, mw); updateErr != nil {
 				return ctrl.Result{}, updateErr
 			}
 			return ctrl.Result{}, fmt.Errorf("failed to create maintenance window: %w", err)
@@ -286,7 +288,7 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			r.Recorder.Event(mw, "Normal", "Created", fmt.Sprintf("Maintenance window created with ID %s", mw.Status.ID))
 		}
 		onAPISuccess(accountKey, r.Recorder, mw)
-		if err := r.Status().Update(ctx, mw); err != nil {
+		if err := r.updateMaintenanceWindowStatus(ctx, mw); err != nil {
 			return ctrl.Result{}, err
 		}
 	} else {
@@ -355,7 +357,7 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 						r.Recorder.Event(mw, "Warning", "SyncFailed", msg)
 					}
 					onAPIFailure(accountKey, err, r.Recorder, mw)
-					if updateErr := r.Status().Update(ctx, mw); updateErr != nil {
+					if updateErr := r.updateMaintenanceWindowStatus(ctx, mw); updateErr != nil {
 						return ctrl.Result{}, updateErr
 					}
 					return ctrl.Result{}, fmt.Errorf("failed to recreate maintenance window: %w", err)
@@ -370,7 +372,7 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 					r.Recorder.Event(mw, "Normal", "Recreated", fmt.Sprintf("Maintenance window recreated with ID %s", mw.Status.ID))
 				}
 				onAPISuccess(accountKey, r.Recorder, mw)
-				if err := r.Status().Update(ctx, mw); err != nil {
+				if err := r.updateMaintenanceWindowStatus(ctx, mw); err != nil {
 					return ctrl.Result{}, err
 				}
 				return ctrl.Result{RequeueAfter: AddSyncJitter(mw.Spec.SyncInterval.Duration)}, nil
@@ -384,7 +386,7 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 				r.Recorder.Event(mw, "Warning", "SyncFailed", msg)
 			}
 			onAPIFailure(accountKey, err, r.Recorder, mw)
-			if updateErr := r.Status().Update(ctx, mw); updateErr != nil {
+			if updateErr := r.updateMaintenanceWindowStatus(ctx, mw); updateErr != nil {
 				return ctrl.Result{}, updateErr
 			}
 			return ctrl.Result{}, fmt.Errorf("failed to update maintenance window: %w", err)
@@ -398,12 +400,36 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			r.Recorder.Event(mw, "Normal", "Updated", "Maintenance window updated successfully")
 		}
 		onAPISuccess(accountKey, r.Recorder, mw)
-		if err := r.Status().Update(ctx, mw); err != nil {
+		if err := r.updateMaintenanceWindowStatus(ctx, mw); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
 
 	return ctrl.Result{RequeueAfter: AddSyncJitter(mw.Spec.SyncInterval.Duration)}, nil
+}
+
+// updateMaintenanceWindowStatus writes status and retries on conflict by refetching
+// the latest resource and re-applying the desired status. This avoids duplicate
+// create calls when the first status write loses a resourceVersion race.
+func (r *MaintenanceWindowReconciler) updateMaintenanceWindowStatus(ctx context.Context, mw *uptimerobotv1.MaintenanceWindow) error {
+	err := r.Status().Update(ctx, mw)
+	if err == nil {
+		return nil
+	}
+	if !apierrors.IsConflict(err) {
+		return err
+	}
+
+	log.FromContext(ctx).Info("status update conflicted, refetching and retrying", "maintenancewindow", client.ObjectKeyFromObject(mw))
+	desiredStatus := mw.Status
+	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+		latest := &uptimerobotv1.MaintenanceWindow{}
+		if getErr := r.Get(ctx, client.ObjectKeyFromObject(mw), latest); getErr != nil {
+			return fmt.Errorf("refetch for status retry: %w", getErr)
+		}
+		latest.Status = desiredStatus
+		return r.Status().Update(ctx, latest)
+	})
 }
 
 // SetupWithManager sets up the controller with the Manager.
