@@ -24,9 +24,11 @@ import (
 
 	"github.com/joelp172/uptime-robot-operator/internal/metrics"
 	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -114,7 +116,7 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			})
 
 			// Update status with cleanup progress
-			if updateErr := r.Status().Update(ctx, groupResource); updateErr != nil {
+			if updateErr := r.updateMonitorGroupStatus(ctx, groupResource); updateErr != nil {
 				return ctrl.Result{}, updateErr
 			}
 
@@ -154,7 +156,7 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		if r.Recorder != nil {
 			r.Recorder.Event(groupResource, "Warning", "DependencyNotReady", msg)
 		}
-		if updateErr := r.Status().Update(ctx, groupResource); updateErr != nil {
+		if updateErr := r.updateMonitorGroupStatus(ctx, groupResource); updateErr != nil {
 			return ctrl.Result{}, updateErr
 		}
 		return ctrl.Result{}, vaultErr
@@ -173,7 +175,7 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		if r.Recorder != nil {
 			r.Recorder.Event(groupResource, "Warning", "SecretNotFound", msg)
 		}
-		if updateErr := r.Status().Update(ctx, groupResource); updateErr != nil {
+		if updateErr := r.updateMonitorGroupStatus(ctx, groupResource); updateErr != nil {
 			return ctrl.Result{}, updateErr
 		}
 		return ctrl.Result{}, tokenErr
@@ -228,7 +230,7 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	// Step 7: Execute creation or update logic
-	if !groupResource.Status.Ready {
+	if groupResource.Status.ID == "" {
 		// Creation pathway
 		creationPayload := uptimerobot.GroupCreationWireFormat{
 			Name:       groupResource.Spec.FriendlyName,
@@ -248,7 +250,7 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				r.Recorder.Event(groupResource, "Warning", "SyncFailed", msg)
 			}
 			onAPIFailure(accountKey, creationErr, r.Recorder, groupResource)
-			if updateErr := r.Status().Update(ctx, groupResource); updateErr != nil {
+			if updateErr := r.updateMonitorGroupStatus(ctx, groupResource); updateErr != nil {
 				return ctrl.Result{}, updateErr
 			}
 			return ctrl.Result{}, fmt.Errorf("group creation failed: %w", creationErr)
@@ -268,7 +270,7 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 
 		onAPISuccess(accountKey, r.Recorder, groupResource)
-		if statusErr := r.Status().Update(ctx, groupResource); statusErr != nil {
+		if statusErr := r.updateMonitorGroupStatus(ctx, groupResource); statusErr != nil {
 			return ctrl.Result{}, statusErr
 		}
 	} else {
@@ -303,7 +305,7 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 						r.Recorder.Event(groupResource, "Warning", "SyncFailed", msg)
 					}
 					onAPIFailure(accountKey, recreationErr, r.Recorder, groupResource)
-					if updateErr := r.Status().Update(ctx, groupResource); updateErr != nil {
+					if updateErr := r.updateMonitorGroupStatus(ctx, groupResource); updateErr != nil {
 						return ctrl.Result{}, updateErr
 					}
 					return ctrl.Result{}, fmt.Errorf("group recreation failed: %w", recreationErr)
@@ -322,7 +324,7 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				}
 
 				onAPISuccess(accountKey, r.Recorder, groupResource)
-				if statusErr := r.Status().Update(ctx, groupResource); statusErr != nil {
+				if statusErr := r.updateMonitorGroupStatus(ctx, groupResource); statusErr != nil {
 					return ctrl.Result{}, statusErr
 				}
 				return ctrl.Result{RequeueAfter: AddSyncJitter(groupResource.Spec.SyncInterval.Duration)}, nil
@@ -336,7 +338,7 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				r.Recorder.Event(groupResource, "Warning", "SyncFailed", msg)
 			}
 			onAPIFailure(accountKey, updateErr, r.Recorder, groupResource)
-			if statusUpdateErr := r.Status().Update(ctx, groupResource); statusUpdateErr != nil {
+			if statusUpdateErr := r.updateMonitorGroupStatus(ctx, groupResource); statusUpdateErr != nil {
 				return ctrl.Result{}, statusUpdateErr
 			}
 			return ctrl.Result{}, fmt.Errorf("group update failed: %w", updateErr)
@@ -354,12 +356,37 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 
 		onAPISuccess(accountKey, r.Recorder, groupResource)
-		if statusErr := r.Status().Update(ctx, groupResource); statusErr != nil {
+		if statusErr := r.updateMonitorGroupStatus(ctx, groupResource); statusErr != nil {
 			return ctrl.Result{}, statusErr
 		}
 	}
 
 	return ctrl.Result{RequeueAfter: AddSyncJitter(groupResource.Spec.SyncInterval.Duration)}, nil
+}
+
+// updateMonitorGroupStatus writes status and retries on conflict by refetching
+// the latest resource and re-applying the desired status, so a successful
+// create isn't followed by another create attempt when the first status write
+// loses a resourceVersion race.
+func (r *MonitorGroupReconciler) updateMonitorGroupStatus(ctx context.Context, groupResource *uptimerobotv1.MonitorGroup) error {
+	err := r.Status().Update(ctx, groupResource)
+	if err == nil {
+		return nil
+	}
+	if !apierrors.IsConflict(err) {
+		return err
+	}
+
+	log.FromContext(ctx).Info("status update conflicted, refetching and retrying", "monitorgroup", client.ObjectKeyFromObject(groupResource))
+	desiredStatus := groupResource.Status
+	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+		latest := &uptimerobotv1.MonitorGroup{}
+		if getErr := r.Get(ctx, client.ObjectKeyFromObject(groupResource), latest); getErr != nil {
+			return fmt.Errorf("refetch for status retry: %w", getErr)
+		}
+		latest.Status = desiredStatus
+		return r.Status().Update(ctx, latest)
+	})
 }
 
 // SetupWithManager configures the controller with manager
