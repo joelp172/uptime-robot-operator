@@ -297,7 +297,9 @@ var _ = Describe("Account Controller", func() {
 
 			Expect(k8sClient.Get(ctx, namespacedName, account)).To(Succeed())
 			Expect(account.Status.Ready).To(BeTrue())
-			Expect(account.Status.AlertContacts).To(BeEmpty())
+			Expect(account.Status.AlertContacts).To(HaveLen(1))
+			Expect(account.Status.AlertContacts[0].FriendlyName).To(Equal("Mock Slack"))
+			Expect(account.Status.AlertContacts[0].ID).To(Equal("101"))
 
 			ready := findCondition(account.Status.Conditions, TypeReady)
 			Expect(ready).NotTo(BeNil())
@@ -310,7 +312,7 @@ var _ = Describe("Account Controller", func() {
 			ReconcileAccount(ctx, account)
 
 			Expect(account.Status.Email).To(Equal("test@example.com"))
-			Expect(account.Status.AlertContacts).To(HaveLen(3))
+			Expect(account.Status.AlertContacts).To(HaveLen(4))
 
 			var johnDoe *uptimerobotv1.AlertContactInfo
 			for i := range account.Status.AlertContacts {
@@ -322,6 +324,17 @@ var _ = Describe("Account Controller", func() {
 			Expect(johnDoe).NotTo(BeNil())
 			Expect(johnDoe.ID).To(Equal("993765"))
 			Expect(johnDoe.Type).To(Equal("Email"))
+
+			var mockSlack *uptimerobotv1.AlertContactInfo
+			for i := range account.Status.AlertContacts {
+				if account.Status.AlertContacts[i].FriendlyName == "Mock Slack" {
+					mockSlack = &account.Status.AlertContacts[i]
+					break
+				}
+			}
+			Expect(mockSlack).NotTo(BeNil())
+			Expect(mockSlack.ID).To(Equal("101"))
+			Expect(mockSlack.Type).To(Equal("Slack"))
 		})
 	})
 })

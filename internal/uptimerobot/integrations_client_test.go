@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 )
@@ -460,5 +461,66 @@ func TestListAndDeleteIntegrations(t *testing.T) {
 	}
 	if !deleteCalled {
 		t.Fatal("expected delete endpoint to be called")
+	}
+}
+
+func TestFindContactID_FallsBackToSlackIntegration(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/user/alert-contacts":
+			_, _ = w.Write([]byte(`[{"id":1,"friendlyName":"Email Contact","type":"Email","status":"Active","value":"test@example.com"}]`))
+		case r.Method == http.MethodGet && r.URL.Path == integrationsPath:
+			_, _ = w.Write([]byte(`{
+				"nextLink": null,
+				"data": [
+					{"id": 44, "friendlyName": "platform-alerts", "type": "Slack", "status": "Active", "value": "https://hooks.slack.com/services/PLATFORM"}
+				]
+			}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := Client{url: server.URL, apiKey: "test-key"}
+	id, err := client.FindContactID(context.Background(), "platform-alerts")
+	if err != nil {
+		t.Fatalf("FindContactID returned error: %v", err)
+	}
+	if id != "44" {
+		t.Fatalf("expected integration-backed id 44, got %q", id)
+	}
+}
+
+func TestFindContactID_AmbiguousSlackIntegrationNameReturnsError(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/user/alert-contacts":
+			_, _ = w.Write([]byte(`[]`))
+		case r.Method == http.MethodGet && r.URL.Path == integrationsPath:
+			_, _ = w.Write([]byte(`{
+				"nextLink": null,
+				"data": [
+					{"id": 44, "friendlyName": "platform-alerts", "type": "Slack", "status": "Active", "value": "https://hooks.slack.com/services/PLATFORM"},
+					{"id": 45, "friendlyName": "platform-alerts", "type": "Slack", "status": "Active", "value": "https://hooks.slack.com/services/PLATFORM2"}
+				]
+			}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := Client{url: server.URL, apiKey: "test-key"}
+	_, err := client.FindContactID(context.Background(), "platform-alerts")
+	if err == nil {
+		t.Fatal("expected ambiguous integration lookup to fail")
+	}
+	if !strings.Contains(err.Error(), "multiple Slack integrations found") {
+		t.Fatalf("expected ambiguity error, got: %v", err)
 	}
 }

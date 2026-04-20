@@ -1000,7 +1000,43 @@ func (c Client) FindContactID(ctx context.Context, friendlyName string) (string,
 		}
 	}
 
+	integrationID, err := c.findSlackIntegrationIDByFriendlyName(ctx, friendlyName)
+	if err == nil {
+		return integrationID, nil
+	}
+	if !errors.Is(err, ErrIntegrationNotFound) {
+		return "", err
+	}
+
 	return "", ErrContactNotFound
+}
+
+func (c Client) findSlackIntegrationIDByFriendlyName(ctx context.Context, friendlyName string) (string, error) {
+	integrations, err := c.ListIntegrations(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	matches := make([]IntegrationResponse, 0, 1)
+	for i := range integrations {
+		integration := integrations[i]
+		if integration.Type == nil || *integration.Type != slackIntegrationType {
+			continue
+		}
+		if integration.FriendlyName == nil || *integration.FriendlyName != friendlyName {
+			continue
+		}
+		matches = append(matches, integration)
+	}
+
+	switch len(matches) {
+	case 0:
+		return "", ErrIntegrationNotFound
+	case 1:
+		return strconv.Itoa(matches[0].ID), nil
+	default:
+		return "", fmt.Errorf("multiple Slack integrations found with friendly name %q", friendlyName)
+	}
 }
 
 // GetAccountDetails retrieves account details using the v3 API.

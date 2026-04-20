@@ -13,12 +13,12 @@ Set up Slack notifications in UptimeRobot and attach them to monitors managed by
 - `SlackIntegration` manages the Slack webhook integration in UptimeRobot.
 - `Monitor` resources do not reference `SlackIntegration` directly.
 - `Monitor` resources send alerts through `Contact` resources in `spec.contacts`.
-- Your `Contact` must point at a Slack alert contact that exists in your UptimeRobot account.
+- `Contact` lookup by `spec.contact.name` first checks account alert contacts, then falls back to matching Slack integrations by friendly name.
 
 Use this flow:
 
 1. Create a `SlackIntegration` resource.
-2. Ensure a Slack alert contact exists in UptimeRobot.
+2. Confirm a Slack contact is visible in `Account.status.alertContacts` (the operator now includes matching Slack integrations there for discoverability).
 3. Create a `Contact` resource that references that alert contact.
 4. Reference that `Contact` from your `Monitor.spec.contacts`.
 
@@ -143,6 +143,6 @@ kubectl get monitor api-health -o jsonpath='{.status.ready}{"\t"}{.status.id}{"\
 - `SlackIntegration` not ready:
   Check `kubectl describe slackintegration <name> -n <namespace>` for webhook/account errors.
 - `Contact` not ready:
-  Confirm the referenced contact exists in account status and ID/name matches exactly.
+  Confirm the referenced contact name/ID exists in `Account.status.alertContacts`. If you have multiple Slack integrations with the same friendly name, use `spec.contact.id` to avoid ambiguity.
 - `Monitor` has no Slack notifications:
   Confirm the monitor includes the Slack `Contact` in `spec.contacts`.

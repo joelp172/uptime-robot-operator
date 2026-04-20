@@ -300,6 +300,35 @@ var _ = Describe("Contact Controller", func() {
 			Eventually(recorder.Events).Should(Receive(ContainSubstring("SyncFailed")))
 		})
 
+		It("should resolve contact name from matching Slack integration when alert contact is missing", func() {
+			name := fmt.Sprintf("test-slack-integration-%d", time.Now().UnixNano())
+			contactFromIntegration := &uptimerobotv1.Contact{
+				ObjectMeta: metav1.ObjectMeta{Name: name},
+				Spec: uptimerobotv1.ContactSpec{
+					Account: corev1.LocalObjectReference{Name: account.Name},
+					Contact: uptimerobotv1.ContactValues{
+						Name: "Mock Slack",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, contactFromIntegration)).To(Succeed())
+			defer CleanupContact(ctx, contactFromIntegration)
+
+			controllerReconciler := &ContactReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: name},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name}, contactFromIntegration)).To(Succeed())
+			Expect(contactFromIntegration.Status.Ready).To(BeTrue())
+			Expect(contactFromIntegration.Status.ID).To(Equal("101"))
+		})
+
 		It("should set failure conditions when API error occurs during contact name resolution", func() {
 			serverState.SetAlertContactsHTTPStatus(http.StatusInternalServerError)
 

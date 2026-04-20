@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -136,9 +137,15 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		log.FromContext(ctx).Error(err, "failed to fetch alert contacts")
 		// Don't fail the reconciliation if we can't get contacts
 	}
+	integrations, err := urclient.ListIntegrations(ctx)
+	if err != nil {
+		log.FromContext(ctx).Error(err, "failed to fetch integrations")
+		// Don't fail the reconciliation if we can't get integrations
+	}
 
 	// Convert to status format
-	alertContacts := make([]uptimerobotv1.AlertContactInfo, 0, len(contacts))
+	alertContacts := make([]uptimerobotv1.AlertContactInfo, 0, len(contacts)+len(integrations))
+	alertContactIDs := make(map[string]struct{}, len(contacts))
 	for _, c := range contacts {
 		info := uptimerobotv1.AlertContactInfo{
 			ID:    fmt.Sprintf("%d", c.ID),
@@ -147,6 +154,27 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 		if c.FriendlyName != nil {
 			info.FriendlyName = *c.FriendlyName
+		}
+		alertContacts = append(alertContacts, info)
+		alertContactIDs[info.ID] = struct{}{}
+	}
+	for _, integration := range integrations {
+		if integration.Type == nil || *integration.Type != "Slack" {
+			continue
+		}
+
+		id := strconv.Itoa(integration.ID)
+		if _, exists := alertContactIDs[id]; exists {
+			continue
+		}
+
+		info := uptimerobotv1.AlertContactInfo{
+			ID:    id,
+			Type:  *integration.Type,
+			Value: integration.Value,
+		}
+		if integration.FriendlyName != nil {
+			info.FriendlyName = *integration.FriendlyName
 		}
 		alertContacts = append(alertContacts, info)
 	}
