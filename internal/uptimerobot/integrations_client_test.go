@@ -226,6 +226,46 @@ func TestCreateSlackIntegration_NoAdoptionOnZeroCandidates(t *testing.T) {
 	}
 }
 
+func TestIsSlackIntegrationAlreadyExists409(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		body []byte
+		want bool
+	}{
+		{"empty body", nil, false},
+		{"invalid json", []byte("not-json"), false},
+		{"missing code", []byte(`{"message":"other"}`), false},
+		{"unrelated code", []byte(`{"code":"999-999"}`), false},
+		{"duplicate slack code", []byte(`{"code":"021-001","message":"already exists"}`), true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := isSlackIntegrationAlreadyExists409(tc.body); got != tc.want {
+				t.Errorf("got %v want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSelectDuplicateSlackIntegrationCandidate_RefusesWhenFriendlyNameEmpty(t *testing.T) {
+	t.Parallel()
+
+	slack := slackIntegrationType
+	existing := []IntegrationResponse{
+		{ID: 1, Type: &slack, FriendlyName: stringPtr("X"), Value: "https://hooks.slack.com/services/SHARED"},
+	}
+	if _, ok := selectDuplicateSlackIntegrationCandidate(existing, SlackIntegrationData{
+		WebhookURL: "https://hooks.slack.com/services/SHARED",
+	}); ok {
+		t.Fatalf("expected refusal when FriendlyName is empty")
+	}
+}
+
+func stringPtr(s string) *string { return &s }
+
 func TestCreateSlackIntegration_RefusesAdoptionWhenFriendlyNameEmpty(t *testing.T) {
 	t.Parallel()
 
