@@ -138,8 +138,8 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 
 			// Define the cleanup function
 			cleanupFunc := func(ctx context.Context) error {
-				if !mw.Spec.Prune || !mw.Status.Ready {
-					// Skip cleanup if Prune is false or resource is not ready
+				if !mw.Spec.Prune || mw.Status.ID == "" {
+					// Skip cleanup if Prune is false or there is no backend ID
 					return nil
 				}
 				return urclient.DeleteMaintenanceWindow(ctx, mw.Status.ID)
@@ -422,12 +422,24 @@ func (r *MaintenanceWindowReconciler) updateMaintenanceWindowStatus(ctx context.
 
 	log.FromContext(ctx).Info("status update conflicted, refetching and retrying", "maintenancewindow", client.ObjectKeyFromObject(mw))
 	desiredStatus := mw.Status
+	reader := client.Reader(r.Client)
+	if r.APIReader != nil {
+		reader = r.APIReader
+	}
+
 	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
 		latest := &uptimerobotv1.MaintenanceWindow{}
-		if getErr := r.Get(ctx, client.ObjectKeyFromObject(mw), latest); getErr != nil {
+		if getErr := reader.Get(ctx, client.ObjectKeyFromObject(mw), latest); getErr != nil {
 			return fmt.Errorf("refetch for status retry: %w", getErr)
 		}
-		latest.Status = desiredStatus
+
+		retriedStatus := desiredStatus
+		retriedStatus.ObservedGeneration = latest.Generation
+		for i := range retriedStatus.Conditions {
+			retriedStatus.Conditions[i].ObservedGeneration = latest.Generation
+		}
+
+		latest.Status = retriedStatus
 		return r.Status().Update(ctx, latest)
 	})
 }
