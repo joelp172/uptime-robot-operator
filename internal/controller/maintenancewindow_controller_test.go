@@ -163,7 +163,7 @@ var _ = Describe("MaintenanceWindow Controller", func() {
 			Expect(updated.Status.Ready).To(BeTrue())
 		})
 
-		It("should not re-create backend window when Status.ID is set and Status.Ready is false", func() {
+		It("should not re-create backend window when Status.ID exists even if Status.Ready is false", func() {
 			mw := CreateMaintenanceWindow(ctx, "test-no-duplicate-create-mw", account.Name, uptimerobotv1.MaintenanceWindowSpec{
 				Name:      "No Duplicate Create MW",
 				Interval:  "daily",
