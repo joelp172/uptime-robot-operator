@@ -2,6 +2,10 @@
 
 Configure different monitor types, alert contacts, and monitoring behaviour.
 
+Related guides:
+- [Configure Monitor Groups](monitor-groups.md)
+- [Configure Slack Alerting for Monitors](slack-alerting.md)
+
 ## Monitor Types
 
 ### HTTPS
@@ -153,6 +157,8 @@ spec:
 ```
 
 ## Alert Contacts
+
+For a complete Slack workflow (create `SlackIntegration`, create `Contact`, wire into `Monitor`), see [Configure Slack Alerting for Monitors](slack-alerting.md).
 
 ### Using Default Contact
 
