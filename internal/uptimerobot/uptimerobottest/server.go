@@ -204,6 +204,50 @@ func (s *ServerState) SetAlertContactsHTTPStatus(code int) {
 	s.forceAlertContactsHTTPStatus = code
 }
 
+// SetSlackIntegrations replaces in-memory integrations with the provided set.
+// Each entry should include at least an "id" and "friendlyName". Missing "type"
+// defaults to "Slack".
+func (s *ServerState) SetSlackIntegrations(integrations []map[string]any) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.integrations = make(map[int]map[string]any, len(integrations))
+	maxID := 100
+	for i := range integrations {
+		entry := make(map[string]any, len(integrations[i])+1)
+		for key, value := range integrations[i] {
+			entry[key] = value
+		}
+		if _, ok := entry["type"]; !ok {
+			entry["type"] = "Slack"
+		}
+
+		id := 0
+		switch v := entry["id"].(type) {
+		case int:
+			id = v
+		case int64:
+			id = int(v)
+		case float64:
+			id = int(v)
+		case string:
+			if parsed, err := strconv.Atoi(v); err == nil {
+				id = parsed
+			}
+		}
+		if id <= 0 {
+			maxID++
+			id = maxID
+		}
+		entry["id"] = id
+		s.integrations[id] = entry
+		if id > maxID {
+			maxID = id
+		}
+	}
+	s.nextIntegration = maxID + 1
+}
+
 func (s *ServerState) createIntegration(body map[string]any) map[string]any {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -3,6 +3,7 @@ package uptimerobot
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -519,6 +520,9 @@ func TestFindContactID_AmbiguousSlackIntegrationNameReturnsError(t *testing.T) {
 	_, err := client.FindContactID(context.Background(), "platform-alerts")
 	if err == nil {
 		t.Fatal("expected ambiguous integration lookup to fail")
+	}
+	if !errors.Is(err, ErrContactAmbiguous) {
+		t.Fatalf("expected ErrContactAmbiguous, got: %v", err)
 	}
 	if !strings.Contains(err.Error(), "multiple Slack integrations found") {
 		t.Fatalf("expected ambiguity error, got: %v", err)

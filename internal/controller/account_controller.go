@@ -43,6 +43,8 @@ import (
 
 var ClusterResourceNamespace = "uptime-robot-system"
 
+const slackIntegrationType = "Slack"
+
 // AccountReconciler reconciles a Account object
 type AccountReconciler struct {
 	client.Client
@@ -145,7 +147,7 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	// Convert to status format
 	alertContacts := make([]uptimerobotv1.AlertContactInfo, 0, len(contacts))
-	alertContactIDs := make(map[string]struct{}, len(contacts))
+	alertContactIDs := make(map[string]struct{}, len(contacts)+len(integrations))
 	for _, c := range contacts {
 		info := uptimerobotv1.AlertContactInfo{
 			ID:    fmt.Sprintf("%d", c.ID),
@@ -159,7 +161,7 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		alertContactIDs[info.ID] = struct{}{}
 	}
 	for _, integration := range integrations {
-		if integration.Type == nil || *integration.Type != "Slack" {
+		if integration.Type == nil || *integration.Type != slackIntegrationType {
 			continue
 		}
 

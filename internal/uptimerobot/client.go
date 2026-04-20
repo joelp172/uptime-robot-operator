@@ -200,6 +200,7 @@ var (
 	ErrResponse            = errors.New("received fail from Uptime Robot API")
 	ErrMonitorNotFound     = errors.New("monitor not found")
 	ErrContactNotFound     = errors.New("contact not found")
+	ErrContactAmbiguous    = errors.New("contact lookup is ambiguous")
 	ErrIntegrationNotFound = errors.New("integration not found")
 	ErrNotFound            = errors.New("resource not found")
 )
@@ -1017,7 +1018,7 @@ func (c Client) findSlackIntegrationIDByFriendlyName(ctx context.Context, friend
 		return "", err
 	}
 
-	var matches []IntegrationResponse
+	matches := make([]IntegrationResponse, 0, 1)
 	for i := range integrations {
 		integration := integrations[i]
 		if integration.Type == nil || *integration.Type != slackIntegrationType {
@@ -1035,7 +1036,7 @@ func (c Client) findSlackIntegrationIDByFriendlyName(ctx context.Context, friend
 	case 1:
 		return strconv.Itoa(matches[0].ID), nil
 	default:
-		return "", fmt.Errorf("multiple Slack integrations found with friendly name %q", friendlyName)
+		return "", fmt.Errorf("%w: multiple Slack integrations found with friendly name %q", ErrContactAmbiguous, friendlyName)
 	}
 }
 
