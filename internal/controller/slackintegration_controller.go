@@ -207,10 +207,26 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	createData = normalizeSlackIntegrationData(createData)
 
 	if !resource.Status.Ready || resource.Status.ID == "" {
-		if existing, err := r.findMatchingSlackIntegration(ctx, urclient, createData); err == nil && existing != nil {
+		existing, lookupErr := r.findMatchingSlackIntegration(ctx, urclient, createData)
+		if lookupErr != nil {
+			metrics.ReconciliationErrorsTotal.WithLabelValues("slackintegration", "api_error").Inc()
+			msg := fmt.Sprintf("Failed to list integrations: %v", lookupErr)
+			SetReadyCondition(&resource.Status.Conditions, false, ReasonAPIError, msg, resource.Generation)
+			SetSyncedCondition(&resource.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to sync with UptimeRobot: %v", lookupErr), resource.Generation)
+			SetErrorCondition(&resource.Status.Conditions, true, ReasonAPIError, msg, resource.Generation)
+			if r.Recorder != nil {
+				r.Recorder.Event(resource, "Warning", "SyncFailed", msg)
+			}
+			onAPIFailure(accountKey, lookupErr, r.Recorder, resource)
+			if updateErr := r.updateSlackIntegrationStatus(ctx, resource); updateErr != nil {
+				return ctrl.Result{}, updateErr
+			}
+			return ctrl.Result{}, lookupErr
+		}
+		if existing != nil {
 			resource.Status.Ready = true
 			resource.Status.ID = strconv.Itoa(existing.ID)
-			resource.Status.Type = "Slack"
+			resource.Status.Type = stringPointerValue(existing.Type)
 		} else if err := r.recreateSlackIntegration(ctx, urclient, resource, createData, 0); err != nil {
 			metrics.ReconciliationErrorsTotal.WithLabelValues("slackintegration", "api_error").Inc()
 			resource.Status.Ready = false

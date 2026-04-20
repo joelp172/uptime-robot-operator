@@ -40,6 +40,9 @@ import (
 
 const apiMonitorType = "API"
 
+// slackIntegrationType is the API-side string identifying a Slack integration.
+const slackIntegrationType = "Slack"
+
 const (
 	// DefaultRateLimit is the default maximum number of API requests per second.
 	DefaultRateLimit = 10
@@ -751,20 +754,34 @@ func isSlackIntegrationAlreadyExists409(body []byte) bool {
 	return payload.Code == "021-001"
 }
 
+// selectDuplicateSlackIntegrationCandidate returns a single safe duplicate
+// target for 409 adoption. Matching requires a Slack integration whose
+// webhook URL matches, and (when a FriendlyName is provided) whose FriendlyName
+// also matches, to avoid aliasing distinct CRs that happen to share a webhook.
 func selectDuplicateSlackIntegrationCandidate(existing []IntegrationResponse, desired SlackIntegrationData) (*IntegrationResponse, bool) {
 	targetWebhook := strings.TrimSpace(desired.WebhookURL)
 	if targetWebhook == "" {
 		return nil, false
 	}
+	targetName := strings.TrimSpace(desired.FriendlyName)
 
 	candidates := make([]IntegrationResponse, 0, 1)
 	for i := range existing {
 		integration := existing[i]
-		if integration.Type == nil || *integration.Type != "Slack" {
+		if integration.Type == nil || *integration.Type != slackIntegrationType {
 			continue
 		}
 		if strings.TrimSpace(integration.Value) != targetWebhook {
 			continue
+		}
+		if targetName != "" {
+			existingName := ""
+			if integration.FriendlyName != nil {
+				existingName = strings.TrimSpace(*integration.FriendlyName)
+			}
+			if existingName != targetName {
+				continue
+			}
 		}
 		candidates = append(candidates, integration)
 	}
@@ -1108,7 +1125,7 @@ func parseAPIAssertionTarget(operator urtypes.AssertionOperator, value string) i
 func (c Client) CreateSlackIntegration(ctx context.Context, data SlackIntegrationData) (IntegrationResponse, error) {
 	var result IntegrationResponse
 	req := CreateSlackIntegrationRequest{
-		Type: "Slack",
+		Type: slackIntegrationType,
 		Data: data,
 	}
 	err := c.doJSON(ctx, http.MethodPost, "integrations", req, &result)

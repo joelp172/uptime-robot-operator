@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"time"
 
@@ -156,6 +157,32 @@ var _ = Describe("SlackIntegration Controller", func() {
 			Expect(slackIntegration.Status.ID).To(Equal("101"))
 			Expect(slackIntegration.Status.Type).To(Equal("Slack"))
 			Expect(slackIntegration.Finalizers).To(ContainElement(slackIntegrationFinalizerName))
+		})
+
+		It("should surface ListIntegrations failure instead of creating a duplicate", func() {
+			controllerReconciler := &SlackIntegrationReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			// Force the next request (the pre-create ListIntegrations call) to fail with a
+			// non-retryable status so the client does not transparently recover.
+			serverState.SetIntermittentFailure(http.StatusBadRequest, 1)
+			DeferCleanup(func() { serverState.SetIntermittentFailure(0, 0) })
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).To(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, namespacedName, slackIntegration)).To(Succeed())
+			Expect(slackIntegration.Status.Ready).To(BeFalse())
+			Expect(slackIntegration.Status.ID).To(BeEmpty())
+
+			ready := findCondition(slackIntegration.Status.Conditions, TypeReady)
+			Expect(ready).NotTo(BeNil())
+			Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+			Expect(ready.Reason).To(Equal(ReasonAPIError))
 		})
 
 		It("should recreate integration when spec drifts from existing integration", func() {
