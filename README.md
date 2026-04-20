@@ -93,6 +93,7 @@ EOF
 | [Getting Started](docs/getting-started.md) | Create your first monitor (tutorial) |
 | [Security](SECURITY.md) | Verify images and deployment best practices |
 | [Monitors](docs/monitors.md) | Configure monitor types and alerts |
+| [Slack Alerting](docs/slack-alerting.md) | Configure Slack integration and wire alerts to monitors |
 | [Metrics](docs/metrics.md) | Prometheus metrics and Grafana dashboards |
 | [Migration Guide](docs/migration-guide.md) | Adopt existing UptimeRobot resources |
 | [Maintenance Windows](docs/maintenance-windows.md) | Schedule planned downtime |
