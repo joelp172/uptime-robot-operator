@@ -1017,7 +1017,7 @@ func (c Client) findSlackIntegrationIDByFriendlyName(ctx context.Context, friend
 		return "", err
 	}
 
-	matches := make([]IntegrationResponse, 0, 1)
+	var matches []IntegrationResponse
 	for i := range integrations {
 		integration := integrations[i]
 		if integration.Type == nil || *integration.Type != slackIntegrationType {

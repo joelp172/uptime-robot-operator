@@ -144,7 +144,7 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	// Convert to status format
-	alertContacts := make([]uptimerobotv1.AlertContactInfo, 0, len(contacts)+len(integrations))
+	alertContacts := make([]uptimerobotv1.AlertContactInfo, 0, len(contacts))
 	alertContactIDs := make(map[string]struct{}, len(contacts))
 	for _, c := range contacts {
 		info := uptimerobotv1.AlertContactInfo{
