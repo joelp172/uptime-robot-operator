@@ -40,6 +40,9 @@ import (
 
 const apiMonitorType = "API"
 
+// slackIntegrationType is the API-side string identifying a Slack integration.
+const slackIntegrationType = "Slack"
+
 const (
 	// DefaultRateLimit is the default maximum number of API requests per second.
 	DefaultRateLimit = 10
@@ -737,6 +740,57 @@ func extractErrStatusBody(err error) []byte {
 	return []byte(parts[1])
 }
 
+func isSlackIntegrationAlreadyExists409(body []byte) bool {
+	if len(body) == 0 {
+		return false
+	}
+
+	var payload struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return false
+	}
+	return payload.Code == "021-001"
+}
+
+// selectDuplicateSlackIntegrationCandidate returns a single safe duplicate
+// target for 409 adoption. Matching requires a Slack integration whose
+// webhook URL AND FriendlyName both match the desired spec. Adoption is
+// refused when FriendlyName is empty, since matching on webhook alone would
+// silently alias distinct CRs across clusters that happen to share a channel.
+func selectDuplicateSlackIntegrationCandidate(existing []IntegrationResponse, desired SlackIntegrationData) (*IntegrationResponse, bool) {
+	targetWebhook := strings.TrimSpace(desired.WebhookURL)
+	targetName := strings.TrimSpace(desired.FriendlyName)
+	if targetWebhook == "" || targetName == "" {
+		return nil, false
+	}
+
+	candidates := make([]IntegrationResponse, 0, 1)
+	for i := range existing {
+		integration := existing[i]
+		if integration.Type == nil || *integration.Type != slackIntegrationType {
+			continue
+		}
+		if strings.TrimSpace(integration.Value) != targetWebhook {
+			continue
+		}
+		existingName := ""
+		if integration.FriendlyName != nil {
+			existingName = strings.TrimSpace(*integration.FriendlyName)
+		}
+		if existingName != targetName {
+			continue
+		}
+		candidates = append(candidates, integration)
+	}
+
+	if len(candidates) != 1 {
+		return nil, false
+	}
+	return &candidates[0], true
+}
+
 // selectDuplicateMonitorCandidate returns a single safe duplicate target for 409 adoption.
 // Matching rules:
 //   - Primary path: match by name (+ URL when provided), requiring a unique candidate.
@@ -1070,22 +1124,52 @@ func parseAPIAssertionTarget(operator urtypes.AssertionOperator, value string) i
 func (c Client) CreateSlackIntegration(ctx context.Context, data SlackIntegrationData) (IntegrationResponse, error) {
 	var result IntegrationResponse
 	req := CreateSlackIntegrationRequest{
-		Type: "Slack",
+		Type: slackIntegrationType,
 		Data: data,
 	}
 	err := c.doJSON(ctx, http.MethodPost, "integrations", req, &result)
+	if err == nil {
+		return result, nil
+	}
+
+	if errors.Is(err, ErrStatus) && strings.Contains(err.Error(), "409 Conflict") {
+		body := extractErrStatusBody(err)
+		if isSlackIntegrationAlreadyExists409(body) {
+			integrations, listErr := c.ListIntegrations(ctx)
+			if listErr == nil {
+				if integration, ok := selectDuplicateSlackIntegrationCandidate(integrations, data); ok {
+					return *integration, nil
+				}
+			}
+		}
+	}
+
 	return result, err
 }
 
-// ListIntegrations lists integrations using the v3 API.
+// ListIntegrations lists all integrations using the v3 API, following
+// nextLink pagination so callers (notably 409 adoption) can find matches
+// that live on later pages.
 // GET /integrations
 func (c Client) ListIntegrations(ctx context.Context) ([]IntegrationResponse, error) {
-	var result IntegrationsListResponse
-	err := c.doJSON(ctx, http.MethodGet, "integrations", nil, &result)
-	if err != nil {
+	var all []IntegrationResponse
+	var resp IntegrationsListResponse
+	if err := c.doJSON(ctx, http.MethodGet, "integrations", nil, &resp); err != nil {
 		return nil, err
 	}
-	return result.Integrations, nil
+	all = append(all, resp.Integrations...)
+	for resp.NextLink != nil && *resp.NextLink != "" {
+		nextURL := *resp.NextLink
+		if !strings.HasPrefix(nextURL, "http") {
+			nextURL = strings.TrimSuffix(c.url, "/") + "/" + strings.TrimPrefix(nextURL, "/")
+		}
+		resp = IntegrationsListResponse{}
+		if err := c.doGetJSON(ctx, nextURL, &resp); err != nil {
+			return nil, err
+		}
+		all = append(all, resp.Integrations...)
+	}
+	return all, nil
 }
 
 // DeleteIntegration deletes an integration by ID using the v3 API.

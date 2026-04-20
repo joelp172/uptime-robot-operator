@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/joelp172/uptime-robot-operator/internal/metrics"
@@ -207,7 +208,27 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	createData = normalizeSlackIntegrationData(createData)
 
 	if !resource.Status.Ready || resource.Status.ID == "" {
-		if err := r.recreateSlackIntegration(ctx, urclient, resource, createData, 0); err != nil {
+		existing, lookupErr := r.findMatchingSlackIntegration(ctx, urclient, createData)
+		if lookupErr != nil {
+			metrics.ReconciliationErrorsTotal.WithLabelValues("slackintegration", "api_error").Inc()
+			msg := fmt.Sprintf("Failed to list integrations: %v", lookupErr)
+			SetReadyCondition(&resource.Status.Conditions, false, ReasonAPIError, msg, resource.Generation)
+			SetSyncedCondition(&resource.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to sync with UptimeRobot: %v", lookupErr), resource.Generation)
+			SetErrorCondition(&resource.Status.Conditions, true, ReasonAPIError, msg, resource.Generation)
+			if r.Recorder != nil {
+				r.Recorder.Event(resource, "Warning", "SyncFailed", msg)
+			}
+			onAPIFailure(accountKey, lookupErr, r.Recorder, resource)
+			if updateErr := r.updateSlackIntegrationStatus(ctx, resource); updateErr != nil {
+				return ctrl.Result{}, updateErr
+			}
+			return ctrl.Result{}, lookupErr
+		}
+		if existing != nil {
+			resource.Status.Ready = true
+			resource.Status.ID = strconv.Itoa(existing.ID)
+			resource.Status.Type = stringPointerValue(existing.Type)
+		} else if err := r.recreateSlackIntegration(ctx, urclient, resource, createData, 0); err != nil {
 			metrics.ReconciliationErrorsTotal.WithLabelValues("slackintegration", "api_error").Inc()
 			resource.Status.Ready = false
 			msg := fmt.Sprintf("Failed to create integration: %v", err)
@@ -299,6 +320,34 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	return ctrl.Result{RequeueAfter: AddSyncJitter(resource.Spec.SyncInterval.Duration)}, nil
 }
 
+func (r *SlackIntegrationReconciler) findMatchingSlackIntegration(
+	ctx context.Context,
+	urclient uptimerobot.Client,
+	desired uptimerobot.SlackIntegrationData,
+) (*uptimerobot.IntegrationResponse, error) {
+	integrations, err := urclient.ListIntegrations(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	matches := make([]uptimerobot.IntegrationResponse, 0, 1)
+	for i := range integrations {
+		integration := integrations[i]
+		if slackIntegrationMatchesDesired(&integration, desired) {
+			matches = append(matches, integration)
+		}
+	}
+
+	switch len(matches) {
+	case 0:
+		return nil, nil
+	case 1:
+		return &matches[0], nil
+	default:
+		return nil, fmt.Errorf("found %d matching Slack integrations for %q; refusing ambiguous adoption", len(matches), desired.FriendlyName)
+	}
+}
+
 func (r *SlackIntegrationReconciler) resolveWebhookURL(ctx context.Context, resource *uptimerobotv1.SlackIntegration) (string, error) {
 	if resource.Spec.Integration.WebhookURL != "" {
 		return resource.Spec.Integration.WebhookURL, nil
@@ -378,6 +427,14 @@ func (r *SlackIntegrationReconciler) recreateSlackIntegration(
 }
 
 func normalizeSlackIntegrationData(data uptimerobot.SlackIntegrationData) uptimerobot.SlackIntegrationData {
+	// Trim whitespace from string fields so that values sourced from secrets
+	// or ConfigMaps (which often carry a trailing newline) match cleanly
+	// against what UptimeRobot stores and returns. Without this, adoption
+	// and drift-detection would flap for otherwise-identical inputs.
+	data.FriendlyName = strings.TrimSpace(data.FriendlyName)
+	data.WebhookURL = strings.TrimSpace(data.WebhookURL)
+	data.CustomValue = strings.TrimSpace(data.CustomValue)
+	data.EnableNotificationsFor = strings.TrimSpace(data.EnableNotificationsFor)
 	if data.EnableNotificationsFor == "" {
 		data.EnableNotificationsFor = "UpAndDown"
 	}

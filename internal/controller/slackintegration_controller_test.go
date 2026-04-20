@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"time"
 
@@ -130,6 +131,58 @@ var _ = Describe("SlackIntegration Controller", func() {
 			errCond := findCondition(slackIntegration.Status.Conditions, TypeError)
 			Expect(errCond).NotTo(BeNil())
 			Expect(errCond.Status).To(Equal(metav1.ConditionFalse))
+		})
+
+		It("should adopt an existing matching Slack integration before creating a new one", func() {
+			controllerReconciler := &SlackIntegrationReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			webhookSecret.Data["webhookURL"] = []byte("https://hooks.slack.com/services/T000/B000/MOCK")
+			Expect(k8sClient.Update(ctx, webhookSecret)).To(Succeed())
+
+			slackIntegration.Spec.Integration.FriendlyName = "Mock Slack"
+			slackIntegration.Spec.Integration.EnableNotificationsFor = "Down"
+			slackIntegration.Spec.Integration.CustomValue = "mock"
+			Expect(k8sClient.Update(ctx, slackIntegration)).To(Succeed())
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, namespacedName, slackIntegration)).To(Succeed())
+			Expect(slackIntegration.Status.Ready).To(BeTrue())
+			Expect(slackIntegration.Status.ID).To(Equal("101"))
+			Expect(slackIntegration.Status.Type).To(Equal("Slack"))
+			Expect(slackIntegration.Finalizers).To(ContainElement(slackIntegrationFinalizerName))
+		})
+
+		It("should surface ListIntegrations failure instead of creating a duplicate", func() {
+			controllerReconciler := &SlackIntegrationReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			// Force the next request (the pre-create ListIntegrations call) to fail with a
+			// non-retryable status so the client does not transparently recover.
+			serverState.SetIntermittentFailure(http.StatusBadRequest, 1)
+			DeferCleanup(func() { serverState.SetIntermittentFailure(0, 0) })
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).To(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, namespacedName, slackIntegration)).To(Succeed())
+			Expect(slackIntegration.Status.Ready).To(BeFalse())
+			Expect(slackIntegration.Status.ID).To(BeEmpty())
+
+			ready := findCondition(slackIntegration.Status.Conditions, TypeReady)
+			Expect(ready).NotTo(BeNil())
+			Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+			Expect(ready.Reason).To(Equal(ReasonAPIError))
 		})
 
 		It("should recreate integration when spec drifts from existing integration", func() {
