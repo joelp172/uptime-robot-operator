@@ -23,6 +23,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -114,6 +115,102 @@ var _ = Describe("MonitorGroup Controller", func() {
 			err = k8sClient.Get(ctx, types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace}, mg)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(mg.Status.Ready).To(BeTrue())
+		})
+
+		It("should recover from status update conflict", func() {
+			mg := CreateMonitorGroup(ctx, "test-status-conflict-mg", account.Name, uptimerobotv1.MonitorGroupSpec{
+				FriendlyName: "Status Conflict Group",
+			})
+			defer CleanupMonitorGroup(ctx, mg)
+
+			reconciler := &MonitorGroupReconciler{
+				Client:   k8sClient,
+				Scheme:   k8sClient.Scheme(),
+				Recorder: record.NewFakeRecorder(100),
+			}
+
+			stale := &uptimerobotv1.MonitorGroup{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace}, stale)).To(Succeed())
+
+			latest := &uptimerobotv1.MonitorGroup{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace}, latest)).To(Succeed())
+			latest.Status.Ready = true
+			latest.Status.ID = "11111"
+			Expect(k8sClient.Status().Update(ctx, latest)).To(Succeed())
+
+			stale.Status.Ready = true
+			stale.Status.ID = "22222"
+			stale.Status.MonitorCount = 3
+			stale.Status.ObservedGeneration = stale.Generation
+			Expect(reconciler.updateMonitorGroupStatus(ctx, stale)).To(Succeed())
+
+			updated := &uptimerobotv1.MonitorGroup{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace}, updated)).To(Succeed())
+			Expect(updated.Status.ID).To(Equal("22222"))
+			Expect(updated.Status.MonitorCount).To(Equal(3))
+			Expect(updated.Status.Ready).To(BeTrue())
+		})
+
+		It("should not re-create backend group when Status.ID is set and Status.Ready is false", func() {
+			mg := CreateMonitorGroup(ctx, "test-no-duplicate-create-mg", account.Name, uptimerobotv1.MonitorGroupSpec{
+				FriendlyName: "No Duplicate Create Group",
+			})
+			defer CleanupMonitorGroup(ctx, mg)
+
+			_, err := ReconcileMonitorGroup(ctx, mg)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace}, mg)).To(Succeed())
+			createdID := mg.Status.ID
+			Expect(createdID).NotTo(BeEmpty())
+
+			mg.Status.Ready = false
+			Expect(k8sClient.Status().Update(ctx, mg)).To(Succeed())
+
+			recorder := record.NewFakeRecorder(100)
+			reconciler := &MonitorGroupReconciler{
+				Client:   k8sClient,
+				Scheme:   k8sClient.Scheme(),
+				Recorder: recorder,
+			}
+			_, err = reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			close(recorder.Events)
+			for event := range recorder.Events {
+				Expect(event).NotTo(ContainSubstring("Created"))
+			}
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace}, mg)).To(Succeed())
+			Expect(mg.Status.ID).To(Equal(createdID))
+		})
+
+		It("should surface non-conflict status update errors", func() {
+			mg := CreateMonitorGroup(ctx, "test-nonconflict-status-mg", account.Name, uptimerobotv1.MonitorGroupSpec{
+				FriendlyName: "Non-Conflict Status Group",
+			})
+
+			reconciler := &MonitorGroupReconciler{
+				Client:   k8sClient,
+				Scheme:   k8sClient.Scheme(),
+				Recorder: record.NewFakeRecorder(100),
+			}
+
+			fetched := &uptimerobotv1.MonitorGroup{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace}, fetched)).To(Succeed())
+
+			Expect(k8sClient.Delete(ctx, mg)).To(Succeed())
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace}, &uptimerobotv1.MonitorGroup{})
+				return err != nil
+			}).Should(BeTrue())
+
+			fetched.Status.Ready = true
+			err := reconciler.updateMonitorGroupStatus(ctx, fetched)
+			Expect(err).To(HaveOccurred())
+			Expect(apierrors.IsConflict(err)).To(BeFalse())
 		})
 
 		It("should preserve status.ready when update of an existing monitor group fails", func() {
