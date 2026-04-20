@@ -132,6 +132,32 @@ var _ = Describe("SlackIntegration Controller", func() {
 			Expect(errCond.Status).To(Equal(metav1.ConditionFalse))
 		})
 
+		It("should adopt an existing matching Slack integration before creating a new one", func() {
+			controllerReconciler := &SlackIntegrationReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			webhookSecret.Data["webhookURL"] = []byte("https://hooks.slack.com/services/T000/B000/MOCK")
+			Expect(k8sClient.Update(ctx, webhookSecret)).To(Succeed())
+
+			slackIntegration.Spec.Integration.FriendlyName = "Mock Slack"
+			slackIntegration.Spec.Integration.EnableNotificationsFor = "Down"
+			slackIntegration.Spec.Integration.CustomValue = "mock"
+			Expect(k8sClient.Update(ctx, slackIntegration)).To(Succeed())
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, namespacedName, slackIntegration)).To(Succeed())
+			Expect(slackIntegration.Status.Ready).To(BeTrue())
+			Expect(slackIntegration.Status.ID).To(Equal("101"))
+			Expect(slackIntegration.Status.Type).To(Equal("Slack"))
+			Expect(slackIntegration.Finalizers).To(ContainElement(slackIntegrationFinalizerName))
+		})
+
 		It("should recreate integration when spec drifts from existing integration", func() {
 			controllerReconciler := &SlackIntegrationReconciler{
 				Client: k8sClient,

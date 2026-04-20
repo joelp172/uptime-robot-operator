@@ -207,7 +207,11 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	createData = normalizeSlackIntegrationData(createData)
 
 	if !resource.Status.Ready || resource.Status.ID == "" {
-		if err := r.recreateSlackIntegration(ctx, urclient, resource, createData, 0); err != nil {
+		if existing, err := r.findMatchingSlackIntegration(ctx, urclient, createData); err == nil && existing != nil {
+			resource.Status.Ready = true
+			resource.Status.ID = strconv.Itoa(existing.ID)
+			resource.Status.Type = "Slack"
+		} else if err := r.recreateSlackIntegration(ctx, urclient, resource, createData, 0); err != nil {
 			metrics.ReconciliationErrorsTotal.WithLabelValues("slackintegration", "api_error").Inc()
 			resource.Status.Ready = false
 			msg := fmt.Sprintf("Failed to create integration: %v", err)
@@ -297,6 +301,25 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return ctrl.Result{}, err
 	}
 	return ctrl.Result{RequeueAfter: AddSyncJitter(resource.Spec.SyncInterval.Duration)}, nil
+}
+
+func (r *SlackIntegrationReconciler) findMatchingSlackIntegration(
+	ctx context.Context,
+	urclient uptimerobot.Client,
+	desired uptimerobot.SlackIntegrationData,
+) (*uptimerobot.IntegrationResponse, error) {
+	integrations, err := urclient.ListIntegrations(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range integrations {
+		integration := integrations[i]
+		if slackIntegrationMatchesDesired(&integration, desired) {
+			return &integration, nil
+		}
+	}
+	return nil, nil
 }
 
 func (r *SlackIntegrationReconciler) resolveWebhookURL(ctx context.Context, resource *uptimerobotv1.SlackIntegration) (string, error) {

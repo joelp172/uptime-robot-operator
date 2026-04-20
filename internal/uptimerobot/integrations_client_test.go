@@ -74,6 +74,58 @@ func TestCreateSlackIntegration(t *testing.T) {
 	}
 }
 
+func TestCreateSlackIntegration_AdoptsExistingOnDuplicateWebhookConflict(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/integrations":
+			w.WriteHeader(http.StatusConflict)
+			_, _ = w.Write([]byte(`{"message":"This integration already exists.","code":"021-001"}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/integrations":
+			_, _ = w.Write([]byte(`{
+				"nextLink": null,
+				"data": [
+					{
+						"id": 77,
+						"friendlyName": "Existing Shared Slack",
+						"enableNotificationsFor": "Down",
+						"type": "Slack",
+						"status": "Active",
+						"sslExpirationReminder": false,
+						"value": "https://hooks.slack.com/services/T000/B000/SHARED",
+						"customValue": "shared",
+						"customValue2": "",
+						"customValue3": "",
+						"customValue4": ""
+					}
+				]
+			}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := Client{url: server.URL, apiKey: "test-key"}
+	resp, err := client.CreateSlackIntegration(context.Background(), SlackIntegrationData{
+		FriendlyName:           "Shared Slack",
+		EnableNotificationsFor: "Down",
+		SSLExpirationReminder:  false,
+		WebhookURL:             "https://hooks.slack.com/services/T000/B000/SHARED",
+		CustomValue:            "shared",
+	})
+	if err != nil {
+		t.Fatalf("expected duplicate adoption to succeed, got error: %v", err)
+	}
+	if resp.ID != 77 {
+		t.Fatalf("expected adopted integration id 77, got %d", resp.ID)
+	}
+	if resp.Type == nil || *resp.Type != "Slack" {
+		t.Fatalf("expected response type Slack, got %#v", resp.Type)
+	}
+}
+
 func TestListAndDeleteIntegrations(t *testing.T) {
 	t.Parallel()
 

@@ -737,6 +737,44 @@ func extractErrStatusBody(err error) []byte {
 	return []byte(parts[1])
 }
 
+func isSlackIntegrationAlreadyExists409(body []byte) bool {
+	if len(body) == 0 {
+		return false
+	}
+
+	var payload struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return false
+	}
+	return payload.Code == "021-001"
+}
+
+func selectDuplicateSlackIntegrationCandidate(existing []IntegrationResponse, desired SlackIntegrationData) (*IntegrationResponse, bool) {
+	targetWebhook := strings.TrimSpace(desired.WebhookURL)
+	if targetWebhook == "" {
+		return nil, false
+	}
+
+	candidates := make([]IntegrationResponse, 0, 1)
+	for i := range existing {
+		integration := existing[i]
+		if integration.Type == nil || *integration.Type != "Slack" {
+			continue
+		}
+		if strings.TrimSpace(integration.Value) != targetWebhook {
+			continue
+		}
+		candidates = append(candidates, integration)
+	}
+
+	if len(candidates) != 1 {
+		return nil, false
+	}
+	return &candidates[0], true
+}
+
 // selectDuplicateMonitorCandidate returns a single safe duplicate target for 409 adoption.
 // Matching rules:
 //   - Primary path: match by name (+ URL when provided), requiring a unique candidate.
@@ -1074,6 +1112,22 @@ func (c Client) CreateSlackIntegration(ctx context.Context, data SlackIntegratio
 		Data: data,
 	}
 	err := c.doJSON(ctx, http.MethodPost, "integrations", req, &result)
+	if err == nil {
+		return result, nil
+	}
+
+	if errors.Is(err, ErrStatus) && strings.Contains(err.Error(), "409 Conflict") {
+		body := extractErrStatusBody(err)
+		if isSlackIntegrationAlreadyExists409(body) {
+			integrations, listErr := c.ListIntegrations(ctx)
+			if listErr == nil {
+				if integration, ok := selectDuplicateSlackIntegrationCandidate(integrations, data); ok {
+					return *integration, nil
+				}
+			}
+		}
+	}
+
 	return result, err
 }
 
