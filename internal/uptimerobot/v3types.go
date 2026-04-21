@@ -140,7 +140,7 @@ type UpdateMonitorRequest struct {
 // Note: The v3 API uses camelCase field names and alertContactId is a string.
 type AssignedAlertContactRequest struct {
 	AlertContactID string `json:"alertContactId"` // Alert contact ID (string in v3)
-	Threshold      int    `json:"threshold"`      // Per-contact threshold in seconds
+	Threshold      int    `json:"threshold"`      // Per-contact threshold in MINUTES (UptimeRobot v3)
 	Recurrence     int    `json:"recurrence"`     // Minutes between repeat notifications (0 = disabled)
 }
 
