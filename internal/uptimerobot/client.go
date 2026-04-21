@@ -1026,6 +1026,14 @@ func (c Client) FindContactID(ctx context.Context, friendlyName string) (string,
 		}
 	}
 
+	// Short-circuit: if /user/alert-contacts already yielded more than one
+	// distinct (type, id) match, the lookup is ambiguous no matter what
+	// /integrations returns — dedupe can only collapse keys, never expand
+	// the ambiguity back to a single answer. Skip the extra API call.
+	if len(order) > 1 {
+		return "", fmt.Errorf("%w: friendly name %q matches %d alert contacts; use spec.contact.id to disambiguate", ErrContactAmbiguous, friendlyName, len(order))
+	}
+
 	integrationMatches, err := c.findBridgedIntegrationIDsByFriendlyName(ctx, friendlyName)
 	if err != nil {
 		return "", err

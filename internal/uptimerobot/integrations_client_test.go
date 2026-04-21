@@ -562,6 +562,36 @@ func TestFindContactID_AmbiguousAcrossAlertContactAndIntegrationReturnsError(t *
 	}
 }
 
+func TestFindContactID_ShortCircuitsWhenAlertContactsAlreadyAmbiguous(t *testing.T) {
+	t.Parallel()
+
+	var integrationsCalled int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == alertContactsPath:
+			_, _ = w.Write([]byte(`[
+				{"id":1,"friendlyName":"platform-alerts","type":"Email","status":"Active","value":"a@example.com"},
+				{"id":2,"friendlyName":"platform-alerts","type":"Email","status":"Active","value":"b@example.com"}
+			]`))
+		case r.Method == http.MethodGet && r.URL.Path == integrationsPath:
+			atomic.AddInt32(&integrationsCalled, 1)
+			_, _ = w.Write([]byte(`{"nextLink":null,"data":[]}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := Client{url: server.URL, apiKey: "test-key"}
+	_, err := client.FindContactID(context.Background(), "platform-alerts")
+	if !errors.Is(err, ErrContactAmbiguous) {
+		t.Fatalf("expected ErrContactAmbiguous, got: %v", err)
+	}
+	if got := atomic.LoadInt32(&integrationsCalled); got != 0 {
+		t.Fatalf("expected /integrations not to be called when already ambiguous; called %d times", got)
+	}
+}
+
 func TestFindContactID_DedupesSameSlackContactAcrossSources(t *testing.T) {
 	t.Parallel()
 

@@ -58,6 +58,7 @@ var (
 //+kubebuilder:rbac:groups=uptimerobot.com,resources=accounts,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=uptimerobot.com,resources=accounts/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=uptimerobot.com,resources=accounts/finalizers,verbs=update
+//+kubebuilder:rbac:groups=uptimerobot.com,resources=slackintegrations,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
@@ -238,7 +239,17 @@ func (r *AccountReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		// watched here so Account discoverability refreshes as soon as an
 		// integration is created, updated, or deleted. Add a new line for
 		// each new bridged integration CRD.
-		Watches(&uptimerobotv1.SlackIntegration{}, handler.EnqueueRequestsFromMapFunc(r.mapIntegrationToAccount)).
+		//
+		// GenerationChangedPredicate filters out status-only updates so the
+		// SlackIntegration reconciler's periodic Status().Update calls
+		// (every syncInterval) don't trigger needless Account reconciles
+		// — and with them, extra GetAlertContacts/ListIntegrations calls
+		// against UptimeRobot. Create and Delete events still fire.
+		Watches(
+			&uptimerobotv1.SlackIntegration{},
+			handler.EnqueueRequestsFromMapFunc(r.mapIntegrationToAccount),
+			builder.WithPredicates(predicate.GenerationChangedPredicate{}),
+		).
 		Named("account").
 		Complete(r)
 }
