@@ -153,8 +153,7 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 			// Define the cleanup function
 			cleanupFunc := func(ctx context.Context) error {
-				if !monitor.Spec.Prune || !monitor.Status.Ready {
-					// Skip cleanup if Prune is false or resource is not ready
+				if !monitor.Spec.Prune || monitor.Status.ID == "" {
 					return nil
 				}
 

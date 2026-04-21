@@ -23,8 +23,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/joelp172/uptime-robot-operator/internal/metrics"
-	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -40,6 +38,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	uptimerobotv1 "github.com/joelp172/uptime-robot-operator/api/v1alpha1"
+	"github.com/joelp172/uptime-robot-operator/internal/metrics"
+	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot"
 )
 
 const (
@@ -139,7 +139,6 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			// Define the cleanup function
 			cleanupFunc := func(ctx context.Context) error {
 				if !mw.Spec.Prune || mw.Status.ID == "" {
-					// Skip cleanup if Prune is false or there is no backend ID
 					return nil
 				}
 				return urclient.DeleteMaintenanceWindow(ctx, mw.Status.ID)
@@ -408,29 +407,53 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	return ctrl.Result{RequeueAfter: AddSyncJitter(mw.Spec.SyncInterval.Duration)}, nil
 }
 
-// updateMaintenanceWindowStatus writes status and retries on conflict by refetching
-// the latest resource and re-applying the desired status. This avoids duplicate
-// create calls when the first status write loses a resourceVersion race.
+// updateMaintenanceWindowStatus writes status, retrying on conflict by refetching
+// the object from the API server (bypassing the cache) and re-applying the caller's
+// desired status onto the latest resourceVersion. On each retry ObservedGeneration
+// (top-level and on every condition) is realigned to the refetched object's
+// Generation.
+//
+// If the refetched object's Generation differs from the one the caller reconciled,
+// the helper aborts with a non-conflict error: the status was computed against
+// stale spec and will be recomputed by the next reconcile.
+//
+// Paired with ID-based create gating in Reconcile (Status.ID == "" guards the
+// create path), this ensures a successful backend create whose first status
+// write loses a resourceVersion race is persisted rather than retried as a new
+// create.
+//
+// Requires APIReader to be set; falling back to the cached client would return
+// stale data and cause the retry loop to thrash.
 func (r *MaintenanceWindowReconciler) updateMaintenanceWindowStatus(ctx context.Context, mw *uptimerobotv1.MaintenanceWindow) error {
-	err := r.Status().Update(ctx, mw)
-	if err == nil {
-		return nil
-	}
-	if !apierrors.IsConflict(err) {
-		return err
+	if r.APIReader == nil {
+		return fmt.Errorf("updateMaintenanceWindowStatus: APIReader is required for conflict-safe status writes")
 	}
 
-	log.FromContext(ctx).Info("status update conflicted, refetching and retrying", "maintenancewindow", client.ObjectKeyFromObject(mw))
+	logger := log.FromContext(ctx)
 	desiredStatus := mw.Status
-	reader := r.APIReader
-	if reader == nil {
-		reader = r.Client
-	}
+	reconciledGeneration := mw.Generation
+	key := client.ObjectKeyFromObject(mw)
 
+	firstAttempt := true
 	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+		if firstAttempt {
+			firstAttempt = false
+			if err := r.Status().Update(ctx, mw); err == nil || !apierrors.IsConflict(err) {
+				return err
+			}
+			logger.Info("status update conflicted, refetching and retrying",
+				"maintenancewindow", key,
+				"resourceVersion", mw.ResourceVersion)
+		}
+
 		latest := &uptimerobotv1.MaintenanceWindow{}
-		if getErr := reader.Get(ctx, client.ObjectKeyFromObject(mw), latest); getErr != nil {
+		if getErr := r.APIReader.Get(ctx, key, latest); getErr != nil {
 			return fmt.Errorf("refetch for status retry: %w", getErr)
+		}
+
+		if latest.Generation != reconciledGeneration {
+			return fmt.Errorf("spec changed during status retry (generation %d -> %d): aborting, next reconcile will recompute",
+				reconciledGeneration, latest.Generation)
 		}
 
 		retriedStatus := desiredStatus
