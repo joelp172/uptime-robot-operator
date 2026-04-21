@@ -38,6 +38,9 @@ const (
 	ReasonReconcileSuccess = "ReconcileSuccess"
 	// ReasonReconcileError indicates reconciliation error
 	ReasonReconcileError = "ReconcileError"
+	// ReasonReconcileDegraded indicates reconciliation completed but some
+	// auxiliary data could not be fetched (e.g. upstream list endpoint failed).
+	ReasonReconcileDegraded = "ReconcileDegraded"
 	// ReasonSyncSuccess indicates successful sync to UptimeRobot
 	ReasonSyncSuccess = "SyncSuccess"
 	// ReasonSyncError indicates sync error to UptimeRobot

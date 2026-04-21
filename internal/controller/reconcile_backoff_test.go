@@ -183,6 +183,11 @@ func TestIsPermanentError(t *testing.T) {
 			expected: true,
 		},
 		{
+			name:     "uptimerobot.ErrContactAmbiguous",
+			err:      uptimerobot.ErrContactAmbiguous,
+			expected: true,
+		},
+		{
 			name:     "ErrContactMissingID",
 			err:      ErrContactMissingID,
 			expected: true,

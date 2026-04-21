@@ -300,6 +300,102 @@ var _ = Describe("Contact Controller", func() {
 			Eventually(recorder.Events).Should(Receive(ContainSubstring("SyncFailed")))
 		})
 
+		It("should resolve contact name from matching Slack integration when alert contact is missing", func() {
+			name := fmt.Sprintf("test-slack-integration-%d", time.Now().UnixNano())
+			contactFromIntegration := &uptimerobotv1.Contact{
+				ObjectMeta: metav1.ObjectMeta{Name: name},
+				Spec: uptimerobotv1.ContactSpec{
+					Account: corev1.LocalObjectReference{Name: account.Name},
+					Contact: uptimerobotv1.ContactValues{
+						Name: "Mock Slack",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, contactFromIntegration)).To(Succeed())
+			defer CleanupContact(ctx, contactFromIntegration)
+
+			controllerReconciler := &ContactReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: name},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name}, contactFromIntegration)).To(Succeed())
+			Expect(contactFromIntegration.Status.Ready).To(BeTrue())
+			Expect(contactFromIntegration.Status.ID).To(Equal("101"))
+		})
+
+		It("should set failure conditions without transient requeue when Slack integration friendly name is ambiguous", func() {
+			serverState.SetSlackIntegrations([]map[string]any{
+				{
+					"id":           501,
+					"friendlyName": "Mock Slack",
+					"type":         "Slack",
+					"status":       "Active",
+					"value":        "https://hooks.slack.com/services/T000/B000/ONE",
+				},
+				{
+					"id":           502,
+					"friendlyName": "Mock Slack",
+					"type":         "Slack",
+					"status":       "Active",
+					"value":        "https://hooks.slack.com/services/T000/B000/TWO",
+				},
+			})
+
+			name := fmt.Sprintf("test-slack-integration-ambiguous-%d", time.Now().UnixNano())
+			contactFromAmbiguousIntegration := &uptimerobotv1.Contact{
+				ObjectMeta: metav1.ObjectMeta{Name: name},
+				Spec: uptimerobotv1.ContactSpec{
+					Account: corev1.LocalObjectReference{Name: account.Name},
+					Contact: uptimerobotv1.ContactValues{
+						Name: "Mock Slack",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, contactFromAmbiguousIntegration)).To(Succeed())
+			defer CleanupContact(ctx, contactFromAmbiguousIntegration)
+
+			recorder := record.NewFakeRecorder(10)
+			controllerReconciler := &ContactReconciler{
+				Client:   k8sClient,
+				Scheme:   k8sClient.Scheme(),
+				Recorder: recorder,
+			}
+
+			result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: name},
+			})
+			Expect(err).To(HaveOccurred())
+			Expect(result).To(Equal(reconcile.Result{}))
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name}, contactFromAmbiguousIntegration)).To(Succeed())
+			Expect(contactFromAmbiguousIntegration.Status.Ready).To(BeFalse())
+
+			ready := findCondition(contactFromAmbiguousIntegration.Status.Conditions, TypeReady)
+			Expect(ready).NotTo(BeNil())
+			Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+			Expect(ready.Message).To(ContainSubstring("ambiguous"))
+			Expect(ready.Message).To(ContainSubstring("Mock Slack"))
+
+			synced := findCondition(contactFromAmbiguousIntegration.Status.Conditions, TypeSynced)
+			Expect(synced).NotTo(BeNil())
+			Expect(synced.Status).To(Equal(metav1.ConditionFalse))
+			Expect(synced.Reason).To(Equal(ReasonSyncError))
+
+			errCond := findCondition(contactFromAmbiguousIntegration.Status.Conditions, TypeError)
+			Expect(errCond).NotTo(BeNil())
+			Expect(errCond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(errCond.Message).To(ContainSubstring("ambiguous"))
+			Expect(errCond.Message).To(ContainSubstring("Mock Slack"))
+
+			Eventually(recorder.Events).Should(Receive(And(ContainSubstring("SyncFailed"), ContainSubstring("ambiguous"))))
+		})
+
 		It("should set failure conditions when API error occurs during contact name resolution", func() {
 			serverState.SetAlertContactsHTTPStatus(http.StatusInternalServerError)
 
