@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"time"
 
@@ -25,7 +26,10 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -37,6 +41,54 @@ const (
 	// testTimeout is the default timeout for Eventually checks in tests
 	testTimeout = 5 * time.Second
 )
+
+type errorReader struct {
+	err error
+}
+
+func (e *errorReader) Get(context.Context, client.ObjectKey, client.Object, ...client.GetOption) error {
+	return e.err
+}
+
+func (e *errorReader) List(context.Context, client.ObjectList, ...client.ListOption) error {
+	return e.err
+}
+
+// conflictInjectingClient wraps a client.Client and returns a 409 Conflict error
+// on the first Status().Update call that matches a predicate, then delegates
+// subsequent calls to the underlying client. Used to simulate the
+// resourceVersion race that updateMaintenanceWindowStatus is designed to
+// recover from.
+type conflictInjectingClient struct {
+	client.Client
+	triggered bool
+	shouldFn  func(obj client.Object) bool
+}
+
+func (c *conflictInjectingClient) Status() client.SubResourceWriter {
+	return &conflictInjectingStatusWriter{parent: c, inner: c.Client.Status()}
+}
+
+type conflictInjectingStatusWriter struct {
+	parent *conflictInjectingClient
+	inner  client.SubResourceWriter
+}
+
+func (w *conflictInjectingStatusWriter) Create(ctx context.Context, obj client.Object, subResource client.Object, opts ...client.SubResourceCreateOption) error {
+	return w.inner.Create(ctx, obj, subResource, opts...)
+}
+
+func (w *conflictInjectingStatusWriter) Update(ctx context.Context, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+	if !w.parent.triggered && w.parent.shouldFn != nil && w.parent.shouldFn(obj) {
+		w.parent.triggered = true
+		return errors.NewConflict(schema.GroupResource{Group: "uptimerobot.com", Resource: "maintenancewindows"}, obj.GetName(), fmt.Errorf("injected conflict"))
+	}
+	return w.inner.Update(ctx, obj, opts...)
+}
+
+func (w *conflictInjectingStatusWriter) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+	return w.inner.Patch(ctx, obj, patch, opts...)
+}
 
 var _ = Describe("MaintenanceWindow Controller", func() {
 	Context("Basic Reconciliation", func() {
@@ -123,6 +175,280 @@ var _ = Describe("MaintenanceWindow Controller", func() {
 			err = k8sClient.Get(ctx, types.NamespacedName{Name: mw.Name, Namespace: mw.Namespace}, mw)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(mw.Status.Ready).To(BeTrue())
+		})
+
+		It("should recover from status update conflict", func() {
+			mw := CreateMaintenanceWindow(ctx, "test-status-conflict-mw", account.Name, uptimerobotv1.MaintenanceWindowSpec{
+				Name:      "Status Conflict MW",
+				Interval:  "daily",
+				StartTime: "02:00:00",
+				Duration:  metav1.Duration{Duration: time.Hour},
+			})
+			defer CleanupMaintenanceWindow(ctx, mw)
+
+			reconciler := &MaintenanceWindowReconciler{
+				Client:    k8sClient,
+				APIReader: k8sClient,
+				Scheme:    k8sClient.Scheme(),
+				Recorder:  record.NewFakeRecorder(100),
+			}
+
+			stale := &uptimerobotv1.MaintenanceWindow{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mw.Name, Namespace: mw.Namespace}, stale)).To(Succeed())
+
+			latest := &uptimerobotv1.MaintenanceWindow{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mw.Name, Namespace: mw.Namespace}, latest)).To(Succeed())
+			latest.Status.Ready = true
+			latest.Status.ID = "11111"
+			Expect(k8sClient.Status().Update(ctx, latest)).To(Succeed())
+
+			stale.Status.Ready = true
+			stale.Status.ID = "22222"
+			stale.Status.MonitorCount = 3
+			stale.Status.ObservedGeneration = stale.Generation
+			Expect(reconciler.updateMaintenanceWindowStatus(ctx, stale)).To(Succeed())
+
+			updated := &uptimerobotv1.MaintenanceWindow{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mw.Name, Namespace: mw.Namespace}, updated)).To(Succeed())
+			Expect(updated.Status.ID).To(Equal("22222"))
+			Expect(updated.Status.MonitorCount).To(Equal(3))
+			Expect(updated.Status.Ready).To(BeTrue())
+		})
+
+		It("should align observedGeneration and conditions when retrying conflicted status updates", func() {
+			mw := CreateMaintenanceWindow(ctx, "test-status-conflict-conditions-mw", account.Name, uptimerobotv1.MaintenanceWindowSpec{
+				Name:      "Status Conflict Conditions MW",
+				Interval:  "daily",
+				StartTime: "02:00:00",
+				Duration:  metav1.Duration{Duration: time.Hour},
+			})
+			defer CleanupMaintenanceWindow(ctx, mw)
+
+			stale := &uptimerobotv1.MaintenanceWindow{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mw.Name, Namespace: mw.Namespace}, stale)).To(Succeed())
+
+			latest := &uptimerobotv1.MaintenanceWindow{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mw.Name, Namespace: mw.Namespace}, latest)).To(Succeed())
+			latest.Status.Ready = true
+			latest.Status.ID = "current-id"
+			latest.Status.ObservedGeneration = 0
+			latest.Status.Conditions = []metav1.Condition{
+				{
+					Type:               TypeReady,
+					Status:             metav1.ConditionTrue,
+					Reason:             ReasonReconcileSuccess,
+					ObservedGeneration: 0,
+					LastTransitionTime: metav1.Now(),
+				},
+			}
+			Expect(k8sClient.Status().Update(ctx, latest)).To(Succeed())
+
+			stale.Status.Ready = true
+			stale.Status.ID = "new-id"
+			stale.Status.MonitorCount = 5
+			stale.Status.ObservedGeneration = stale.Generation
+			stale.Status.Conditions = []metav1.Condition{
+				{
+					Type:               TypeReady,
+					Status:             metav1.ConditionTrue,
+					Reason:             ReasonReconcileSuccess,
+					ObservedGeneration: stale.Generation,
+					LastTransitionTime: metav1.Now(),
+				},
+			}
+
+			reconciler := &MaintenanceWindowReconciler{
+				Client:    k8sClient,
+				APIReader: k8sClient,
+				Scheme:    k8sClient.Scheme(),
+			}
+			Expect(reconciler.updateMaintenanceWindowStatus(ctx, stale)).To(Succeed())
+
+			updated := &uptimerobotv1.MaintenanceWindow{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mw.Name, Namespace: mw.Namespace}, updated)).To(Succeed())
+			Expect(updated.Status.ID).To(Equal("new-id"))
+			Expect(updated.Status.MonitorCount).To(Equal(5))
+			Expect(updated.Status.ObservedGeneration).To(Equal(stale.Generation))
+
+			ready := findCondition(updated.Status.Conditions, TypeReady)
+			Expect(ready).NotTo(BeNil())
+			Expect(ready.ObservedGeneration).To(Equal(stale.Generation))
+		})
+
+		It("should abort status retry when spec generation changed under us", func() {
+			mw := CreateMaintenanceWindow(ctx, "test-status-conflict-genchange-mw", account.Name, uptimerobotv1.MaintenanceWindowSpec{
+				Name:      "Status Conflict Gen Change MW",
+				Interval:  "daily",
+				StartTime: "02:00:00",
+				Duration:  metav1.Duration{Duration: time.Hour},
+			})
+			defer CleanupMaintenanceWindow(ctx, mw)
+
+			stale := &uptimerobotv1.MaintenanceWindow{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mw.Name, Namespace: mw.Namespace}, stale)).To(Succeed())
+			reconciledGeneration := stale.Generation
+
+			bumped := &uptimerobotv1.MaintenanceWindow{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mw.Name, Namespace: mw.Namespace}, bumped)).To(Succeed())
+			bumped.Spec.Name = "spec-changed-mid-reconcile"
+			Expect(k8sClient.Update(ctx, bumped)).To(Succeed())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mw.Name, Namespace: mw.Namespace}, bumped)).To(Succeed())
+			bumped.Status.ID = "backend-id"
+			Expect(k8sClient.Status().Update(ctx, bumped)).To(Succeed())
+
+			stale.Status.ID = "stale-write"
+			stale.Status.Ready = true
+
+			reconciler := &MaintenanceWindowReconciler{
+				Client:    k8sClient,
+				APIReader: k8sClient,
+				Scheme:    k8sClient.Scheme(),
+			}
+			err := reconciler.updateMaintenanceWindowStatus(ctx, stale)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("spec changed during status retry"))
+			Expect(err.Error()).To(ContainSubstring(fmt.Sprintf("%d -> %d", reconciledGeneration, bumped.Generation)))
+
+			final := &uptimerobotv1.MaintenanceWindow{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mw.Name, Namespace: mw.Namespace}, final)).To(Succeed())
+			Expect(final.Status.ID).To(Equal("backend-id"))
+		})
+
+		It("should surface refetch errors when retrying conflicted status updates", func() {
+			mw := CreateMaintenanceWindow(ctx, "test-status-conflict-refetch-mw", account.Name, uptimerobotv1.MaintenanceWindowSpec{
+				Name:      "Status Conflict Refetch MW",
+				Interval:  "daily",
+				StartTime: "02:00:00",
+				Duration:  metav1.Duration{Duration: time.Hour},
+			})
+			defer CleanupMaintenanceWindow(ctx, mw)
+
+			stale := &uptimerobotv1.MaintenanceWindow{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mw.Name, Namespace: mw.Namespace}, stale)).To(Succeed())
+
+			latest := &uptimerobotv1.MaintenanceWindow{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mw.Name, Namespace: mw.Namespace}, latest)).To(Succeed())
+			latest.Status.Ready = true
+			latest.Status.ID = "existing-id"
+			Expect(k8sClient.Status().Update(ctx, latest)).To(Succeed())
+
+			stale.Status.Ready = true
+			stale.Status.ID = "newer-id"
+
+			reconciler := &MaintenanceWindowReconciler{
+				Client:    k8sClient,
+				APIReader: &errorReader{err: fmt.Errorf("refetch failure")},
+				Scheme:    k8sClient.Scheme(),
+			}
+
+			err := reconciler.updateMaintenanceWindowStatus(ctx, stale)
+			Expect(err).To(MatchError(ContainSubstring("refetch for status retry")))
+			Expect(err).To(MatchError(ContainSubstring("refetch failure")))
+		})
+
+		It("should not re-create backend window when Status.ID exists even if Status.Ready is false", func() {
+			mw := CreateMaintenanceWindow(ctx, "test-no-duplicate-create-mw", account.Name, uptimerobotv1.MaintenanceWindowSpec{
+				Name:      "No Duplicate Create MW",
+				Interval:  "daily",
+				StartTime: "02:00:00",
+				Duration:  metav1.Duration{Duration: time.Hour},
+			})
+			defer CleanupMaintenanceWindow(ctx, mw)
+
+			_, err := ReconcileMaintenanceWindow(ctx, mw)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mw.Name, Namespace: mw.Namespace}, mw)).To(Succeed())
+			createdID := mw.Status.ID
+			Expect(createdID).NotTo(BeEmpty())
+
+			mw.Status.Ready = false
+			Expect(k8sClient.Status().Update(ctx, mw)).To(Succeed())
+
+			recorder := record.NewFakeRecorder(100)
+			reconciler := &MaintenanceWindowReconciler{
+				Client:    k8sClient,
+				APIReader: k8sClient,
+				Scheme:    k8sClient.Scheme(),
+				Recorder:  recorder,
+			}
+			_, err = reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: mw.Name, Namespace: mw.Namespace},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+		drain:
+			for {
+				select {
+				case event := <-recorder.Events:
+					Expect(event).NotTo(ContainSubstring("Created"))
+				default:
+					break drain
+				}
+			}
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mw.Name, Namespace: mw.Namespace}, mw)).To(Succeed())
+			Expect(mw.Status.ID).To(Equal(createdID))
+		})
+
+		It("should not re-create backend window when status write loses a resourceVersion race", func() {
+			mw := CreateMaintenanceWindow(ctx, "test-race-no-duplicate-mw", account.Name, uptimerobotv1.MaintenanceWindowSpec{
+				Name:      "Race No Duplicate MW",
+				Interval:  "daily",
+				StartTime: "02:00:00",
+				Duration:  metav1.Duration{Duration: time.Hour},
+			})
+			defer CleanupMaintenanceWindow(ctx, mw)
+
+			wrapped := &conflictInjectingClient{
+				Client: k8sClient,
+				shouldFn: func(obj client.Object) bool {
+					got, ok := obj.(*uptimerobotv1.MaintenanceWindow)
+					return ok && got.Name == mw.Name && got.Status.ID != ""
+				},
+			}
+
+			recorder := record.NewFakeRecorder(100)
+			reconciler := &MaintenanceWindowReconciler{
+				Client:    wrapped,
+				APIReader: k8sClient,
+				Scheme:    k8sClient.Scheme(),
+				Recorder:  recorder,
+			}
+
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: mw.Name, Namespace: mw.Namespace},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(wrapped.triggered).To(BeTrue(), "expected the injected conflict to fire on the first post-create status write")
+
+			persisted := &uptimerobotv1.MaintenanceWindow{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mw.Name, Namespace: mw.Namespace}, persisted)).To(Succeed())
+			Expect(persisted.Status.ID).NotTo(BeEmpty(), "status.ID must be persisted despite the conflict so a second reconcile does not re-create")
+			firstID := persisted.Status.ID
+
+			_, err = reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: mw.Name, Namespace: mw.Namespace},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mw.Name, Namespace: mw.Namespace}, persisted)).To(Succeed())
+			Expect(persisted.Status.ID).To(Equal(firstID), "second reconcile must not replace the backend ID")
+
+			createCount := 0
+		drain:
+			for {
+				select {
+				case event := <-recorder.Events:
+					if event != "" && (len(event) >= 14 && event[:14] == "Normal Created") {
+						createCount++
+					}
+				default:
+					break drain
+				}
+			}
+			Expect(createCount).To(Equal(1), "exactly one Created event expected across both reconciles")
 		})
 
 		It("should preserve status.ready when update of an existing maintenance window fails", func() {
