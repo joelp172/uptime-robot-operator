@@ -87,22 +87,46 @@ EOF
 
 ## Documentation
 
+### User Documentation
+
+Guides focused on day-to-day usage and operations.
+
 | Document | Purpose |
 |----------|---------|
 | [Installation](docs/installation.md) | Install via kubectl or Helm |
 | [Getting Started](docs/getting-started.md) | Create your first monitor (tutorial) |
-| [Security](SECURITY.md) | Verify images and deployment best practices |
 | [Monitors](docs/monitors.md) | Configure monitor types and alerts |
 | [Monitor Groups](docs/monitor-groups.md) | Group monitors and manage membership declaratively |
-| [Slack Alerting](docs/slack-alerting.md) | Configure Slack integration and wire alerts to monitors |
-| [Metrics](docs/metrics.md) | Prometheus metrics and Grafana dashboards |
-| [Migration Guide](docs/migration-guide.md) | Adopt existing UptimeRobot resources |
 | [Maintenance Windows](docs/maintenance-windows.md) | Schedule planned downtime |
-| [Architecture](docs/architecture.md) | System architecture and data flows |
+| [Slack Alerting](docs/slack-alerting.md) | End-to-end Slack alert routing for monitors |
+| [Migration Guide](docs/migration-guide.md) | Adopt existing UptimeRobot resources |
 | [Troubleshooting](docs/troubleshooting.md) | Diagnose and fix common issues |
+
+#### CRD Guides
+
+Explicit documentation for each CRD type:
+
+| CRD | Guide |
+|-----|-------|
+| `Account` | [Configure Accounts](docs/accounts.md) |
+| `Contact` | [Configure Contacts](docs/contacts.md) |
+| `Monitor` | [Configure Monitors](docs/monitors.md) |
+| `MonitorGroup` | [Configure Monitor Groups](docs/monitor-groups.md) |
+| `MaintenanceWindow` | [Maintenance Windows](docs/maintenance-windows.md) |
+| `SlackIntegration` | [Configure Slack Integrations](docs/slack-integrations.md) |
+
+### Technical Documentation
+
+Design, API, and contributor-focused documentation.
+
+| Document | Purpose |
+|----------|---------|
+| [Architecture](docs/architecture.md) | System architecture and data flows |
+| [Metrics](docs/metrics.md) | Prometheus metrics and Grafana dashboards |
 | [API Versioning](docs/api-versioning.md) | API stability, deprecation, and upgrade policy |
 | [API Reference](docs/api-reference.md) | Complete CRD field reference |
-| [Development](docs/development.md) | Contributing and testing |
+| [Development](docs/development.md) | Local development and testing |
+| [Security](SECURITY.md) | Image verification and deployment security practices |
 
 ## Monitor Types
 
