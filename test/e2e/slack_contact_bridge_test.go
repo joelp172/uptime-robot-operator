@@ -160,11 +160,24 @@ spec:
 			g.Expect(strings.TrimSpace(ready)).To(Equal("true"))
 		}, 2*time.Minute, e2ePollInterval).Should(Succeed())
 
-		By("verifying Contact.status.id matches the Slack integration ID")
-		cmd := exec.Command("kubectl", "get", "contact", contactName, "-o", "jsonpath={.status.id}")
+		By("verifying Contact.status.id matches the SlackIntegration's current status.id")
+		// Re-read the SlackIntegration's status.id here instead of using the
+		// value captured in BeforeAll: the Slack reconciler can legitimately
+		// replace the underlying integration (e.g. on drift-detected recreate),
+		// in which case the BeforeAll snapshot is stale but the bridge is
+		// still functioning correctly.
+		cmd := exec.Command("kubectl", "get", "slackintegration", integrationName, "-n", namespace,
+			"-o", "jsonpath={.status.id}")
+		currentIntegrationID, err := utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred())
+		currentIntegrationID = strings.TrimSpace(currentIntegrationID)
+		Expect(currentIntegrationID).NotTo(BeEmpty())
+		integrationID = currentIntegrationID
+
+		cmd = exec.Command("kubectl", "get", "contact", contactName, "-o", "jsonpath={.status.id}")
 		resolvedID, err := utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(strings.TrimSpace(resolvedID)).To(Equal(integrationID))
+		Expect(strings.TrimSpace(resolvedID)).To(Equal(currentIntegrationID))
 
 		cmd = exec.Command("kubectl", "get", "contact", contactName,
 			"-o", "jsonpath={.status.conditions[?(@.type==\"Synced\")].status}")
@@ -175,6 +188,16 @@ spec:
 
 	It("should route a Monitor's alert contact to the Slack integration ID", func() {
 		Expect(integrationID).NotTo(BeEmpty(), "BeforeAll must have created the Slack integration")
+
+		// Re-read the current SlackIntegration ID (see note in the Contact
+		// spec above — the underlying ID can change across reconciles).
+		cmd := exec.Command("kubectl", "get", "slackintegration", integrationName, "-n", namespace,
+			"-o", "jsonpath={.status.id}")
+		currentIntegrationID, err := utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred())
+		currentIntegrationID = strings.TrimSpace(currentIntegrationID)
+		Expect(currentIntegrationID).NotTo(BeEmpty())
+		integrationID = currentIntegrationID
 
 		applyMonitor(fmt.Sprintf(`
 apiVersion: uptimerobot.com/v1alpha1
@@ -209,7 +232,7 @@ spec:
 			for _, ac := range monitor.AssignedAlertContacts {
 				ids = append(ids, fmt.Sprintf("%v", ac.AlertContactID))
 			}
-			g.Expect(ids).To(ContainElement(integrationID),
+			g.Expect(ids).To(ContainElement(currentIntegrationID),
 				"Monitor.AssignedAlertContacts should reference the Slack integration ID (got %v)", ids)
 		}, e2ePollTimeout, e2ePollInterval).Should(Succeed())
 	})
