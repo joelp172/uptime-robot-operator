@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"os"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -89,6 +90,101 @@ var _ = Describe("MonitorGroup Controller", func() {
 			errCond := findCondition(mg.Status.Conditions, TypeError)
 			Expect(errCond).NotTo(BeNil())
 			Expect(errCond.Status).To(Equal(metav1.ConditionFalse))
+		})
+
+		It("should flag Ready/Synced/Error when circuit breaker blocks and recover when it closes", func() {
+			mg := CreateMonitorGroup(ctx, "test-circuit-breaker-mg", account.Name, uptimerobotv1.MonitorGroupSpec{
+				FriendlyName: "Circuit Breaker Group",
+			})
+			defer CleanupMonitorGroup(ctx, mg)
+
+			recorder := record.NewFakeRecorder(10)
+			reconciler := &MonitorGroupReconciler{
+				Client:   k8sClient,
+				Scheme:   k8sClient.Scheme(),
+				Recorder: recorder,
+			}
+			req := reconcile.Request{NamespacedName: types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace}}
+
+			_, err := reconciler.Reconcile(ctx, req)
+			Expect(err).NotTo(HaveOccurred())
+
+			origBreaker := DefaultCircuitBreaker
+			const cooldown = 10 * time.Second
+			DefaultCircuitBreaker = NewCircuitBreaker(1, cooldown)
+			DeferCleanup(func() {
+				DefaultCircuitBreaker = origBreaker
+			})
+
+			accountKey := account.Name
+			Expect(DefaultCircuitBreaker.RecordFailure(accountKey)).To(BeTrue())
+			state := DefaultCircuitBreaker.State(accountKey)
+			reason, eventReason, msg := circuitBreakerBlockDetails(accountKey, state, cooldown)
+
+			result, err := reconciler.Reconcile(ctx, req)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(Equal(cooldown))
+
+			Expect(k8sClient.Get(ctx, req.NamespacedName, mg)).To(Succeed())
+			ready := findCondition(mg.Status.Conditions, TypeReady)
+			Expect(ready).NotTo(BeNil())
+			Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+			Expect(ready.Reason).To(Equal(reason))
+			Expect(ready.Message).To(Equal(msg))
+			firstReadyTransition := ready.LastTransitionTime
+
+			synced := findCondition(mg.Status.Conditions, TypeSynced)
+			Expect(synced).NotTo(BeNil())
+			Expect(synced.Status).To(Equal(metav1.ConditionFalse))
+			Expect(synced.Reason).To(Equal(reason))
+			Expect(synced.Message).To(Equal(msg))
+			firstSyncedTransition := synced.LastTransitionTime
+
+			errCond := findCondition(mg.Status.Conditions, TypeError)
+			Expect(errCond).NotTo(BeNil())
+			Expect(errCond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(errCond.Reason).To(Equal(reason))
+			Expect(errCond.Message).To(Equal(msg))
+			firstErrorTransition := errCond.LastTransitionTime
+
+			Eventually(recorder.Events, 2*time.Second, 50*time.Millisecond).Should(Receive(
+				And(ContainSubstring(eventReason), ContainSubstring(accountKey)),
+			))
+
+			result, err = reconciler.Reconcile(ctx, req)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(Equal(cooldown))
+			Expect(k8sClient.Get(ctx, req.NamespacedName, mg)).To(Succeed())
+			ready = findCondition(mg.Status.Conditions, TypeReady)
+			Expect(ready).NotTo(BeNil())
+			Expect(ready.LastTransitionTime).To(Equal(firstReadyTransition))
+			synced = findCondition(mg.Status.Conditions, TypeSynced)
+			Expect(synced).NotTo(BeNil())
+			Expect(synced.LastTransitionTime).To(Equal(firstSyncedTransition))
+			errCond = findCondition(mg.Status.Conditions, TypeError)
+			Expect(errCond).NotTo(BeNil())
+			Expect(errCond.LastTransitionTime).To(Equal(firstErrorTransition))
+			Consistently(recorder.Events, 200*time.Millisecond, 50*time.Millisecond).ShouldNot(Receive())
+
+			Expect(DefaultCircuitBreaker.RecordSuccess(accountKey)).To(BeTrue())
+			_, err = reconciler.Reconcile(ctx, req)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(k8sClient.Get(ctx, req.NamespacedName, mg)).To(Succeed())
+
+			ready = findCondition(mg.Status.Conditions, TypeReady)
+			Expect(ready).NotTo(BeNil())
+			Expect(ready.Status).To(Equal(metav1.ConditionTrue))
+			Expect(ready.Reason).To(Equal(ReasonReconcileSuccess))
+
+			synced = findCondition(mg.Status.Conditions, TypeSynced)
+			Expect(synced).NotTo(BeNil())
+			Expect(synced.Status).To(Equal(metav1.ConditionTrue))
+			Expect(synced.Reason).To(Equal(ReasonSyncSuccess))
+
+			errCond = findCondition(mg.Status.Conditions, TypeError)
+			Expect(errCond).NotTo(BeNil())
+			Expect(errCond.Status).To(Equal(metav1.ConditionFalse))
+			Expect(errCond.Reason).To(Equal(ReasonReconcileSuccess))
 		})
 
 		It("should update monitor group name successfully", func() {

@@ -27,6 +27,7 @@ import (
 	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -170,8 +171,26 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	// Circuit breaker: skip API calls when the circuit is not allowing traffic.
 	if !DefaultCircuitBreaker.Allow(accountKey) {
-		log.FromContext(ctx).Info("Circuit breaker blocking API call", "account", accountKey, "state", DefaultCircuitBreaker.State(accountKey))
-		return ctrl.Result{RequeueAfter: DefaultCircuitBreaker.CooldownPeriod()}, nil
+		logger := log.FromContext(ctx)
+		state := DefaultCircuitBreaker.State(accountKey)
+		logger.Info("Circuit breaker blocking API call", "account", accountKey, "state", state)
+		cooldown := DefaultCircuitBreaker.CooldownPeriod()
+		reason, eventReason, msg := circuitBreakerBlockDetails(accountKey, state, cooldown)
+		alreadyBlocked := conditionMatches(resource.Status.Conditions, TypeSynced, metav1.ConditionFalse, reason, msg) &&
+			conditionMatches(resource.Status.Conditions, TypeReady, metav1.ConditionFalse, reason, msg) &&
+			conditionMatches(resource.Status.Conditions, TypeError, metav1.ConditionTrue, reason, msg)
+		if !alreadyBlocked {
+			SetReadyCondition(&resource.Status.Conditions, false, reason, msg, resource.Generation)
+			SetSyncedCondition(&resource.Status.Conditions, false, reason, msg, resource.Generation)
+			SetErrorCondition(&resource.Status.Conditions, true, reason, msg, resource.Generation)
+			if r.Recorder != nil {
+				r.Recorder.Event(resource, "Warning", eventReason, msg)
+			}
+			if updateErr := r.updateSlackIntegrationStatus(ctx, resource); updateErr != nil {
+				return ctrl.Result{}, updateErr
+			}
+		}
+		return ctrl.Result{RequeueAfter: cooldown}, nil
 	}
 
 	// Persist finalizer before any remote create/recreate calls to prevent orphaned integrations.
