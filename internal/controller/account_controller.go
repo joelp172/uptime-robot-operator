@@ -201,7 +201,10 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		// *reads* during discovery don't invalidate that).
 		SetReadyCondition(&account.Status.Conditions, true, ReasonReconcileDegraded, msg, account.Generation)
 		SetSyncedCondition(&account.Status.Conditions, true, ReasonSyncSuccess, "Successfully synced with UptimeRobot", account.Generation)
-		SetErrorCondition(&account.Status.Conditions, false, ReasonReconcileDegraded, "", account.Generation)
+		// Error stays false with ReasonReconcileSuccess to match the
+		// convention used by the other controllers; the degraded signal
+		// lives solely on Ready.
+		SetErrorCondition(&account.Status.Conditions, false, ReasonReconcileSuccess, "", account.Generation)
 		if r.Recorder != nil {
 			r.Recorder.Event(account, "Warning", "ReconcileDegraded", msg)
 		}
