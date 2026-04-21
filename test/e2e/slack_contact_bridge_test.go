@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -28,6 +29,26 @@ import (
 
 	"github.com/joelp172/uptime-robot-operator/test/utils"
 )
+
+// alertContactIDToString renders the interface{}-typed AlertContactID from
+// the UptimeRobot monitor response (number or string depending on endpoint)
+// as a plain decimal string. A generic fmt.Sprintf("%v", ...) on a float64
+// collapses large IDs to scientific notation (e.g. "8.34704e+06"), which
+// never matches the integration ID format the operator uses.
+func alertContactIDToString(v interface{}) string {
+	switch t := v.(type) {
+	case string:
+		return t
+	case int:
+		return strconv.Itoa(t)
+	case int64:
+		return strconv.FormatInt(t, 10)
+	case float64:
+		return strconv.FormatInt(int64(t), 10)
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
 
 // Covers the bridge between SlackIntegration (/integrations) and Contact/Monitor
 // alert routing (/user/alert-contacts). See issue #185 for the scenario these
@@ -230,7 +251,7 @@ spec:
 			g.Expect(err).NotTo(HaveOccurred())
 			ids := make([]string, 0, len(monitor.AssignedAlertContacts))
 			for _, ac := range monitor.AssignedAlertContacts {
-				ids = append(ids, fmt.Sprintf("%v", ac.AlertContactID))
+				ids = append(ids, alertContactIDToString(ac.AlertContactID))
 			}
 			g.Expect(ids).To(ContainElement(currentIntegrationID),
 				"Monitor.AssignedAlertContacts should reference the Slack integration ID (got %v)", ids)

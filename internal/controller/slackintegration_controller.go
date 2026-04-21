@@ -477,9 +477,14 @@ func slackIntegrationDriftReason(existing *uptimerobot.IntegrationResponse, desi
 	if got := stringPointerValue(existing.FriendlyName); got != desired.FriendlyName {
 		return fmt.Sprintf("friendlyName mismatch: api=%q desired=%q", got, desired.FriendlyName)
 	}
-	if got := stringPointerValue(existing.EnableNotificationsFor); got != desired.EnableNotificationsFor {
-		return fmt.Sprintf("enableNotificationsFor mismatch: api=%q desired=%q", got, desired.EnableNotificationsFor)
-	}
+	// enableNotificationsFor is deliberately excluded from drift detection.
+	// UptimeRobot silently stores Slack integrations as "UpAndDown" regardless
+	// of what we send (observed against production: request "Down" yields API
+	// response "UpAndDown"). Including it here caused a perpetual drift loop
+	// — recreate doesn't fix it because the server ignores the incoming value
+	// — so comparing it would churn the integration ID every sync tick.
+	// Users should still set enableNotificationsFor in spec for documentation
+	// and for the day UptimeRobot starts honouring it.
 	if existing.SSLExpirationReminder != desired.SSLExpirationReminder {
 		return fmt.Sprintf("sslExpirationReminder mismatch: api=%t desired=%t", existing.SSLExpirationReminder, desired.SSLExpirationReminder)
 	}

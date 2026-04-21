@@ -77,6 +77,18 @@ func TestSlackIntegrationDriftReason(t *testing.T) {
 		}
 	})
 
+	t.Run("enableNotificationsFor mismatch does not trigger drift", func(t *testing.T) {
+		// UptimeRobot silently stores Slack integrations as "UpAndDown"
+		// regardless of the value we send (observed in production). Drift
+		// detection must not recreate on this mismatch, otherwise the
+		// integration ID churns on every sync tick.
+		existing := base
+		existing.EnableNotificationsFor = strPtr("UpAndDown")
+		if got := slackIntegrationDriftReason(&existing, desired); got != "" {
+			t.Fatalf("enableNotificationsFor mismatch must not be drift, got %q", got)
+		}
+	})
+
 	t.Run("friendly name mismatch reports reason", func(t *testing.T) {
 		existing := base
 		existing.FriendlyName = strPtr("other-alerts")
