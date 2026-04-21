@@ -90,7 +90,7 @@ test-e2e: manifests generate fmt vet ## Run the e2e tests. Expected an isolated 
 	@$(MAKE) cert-manager-install
 	@echo "Using Kind cluster: $(KIND_CLUSTER). Ensure kubectl context is set: kubectl config use-context kind-$(KIND_CLUSTER)"
 	@echo "NOTE: Skipping real API tests (monitor, maintenancewindow, account, contact, monitorgroup, slackintegration, integration). Use 'make test-e2e-real' to run with real UptimeRobot API."
-	KIND_CLUSTER=$(KIND_CLUSTER) go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="!monitor && !maintenancewindow && !account && !contact && !monitorgroup && !slackintegration && !integration"
+	KIND_CLUSTER=$(KIND_CLUSTER) go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="!monitor && !maintenancewindow && !account && !contact && !monitorgroup && !slackintegration && !slackcontact && !integration"
 
 # Run e2e tests with real UptimeRobot API (requires UPTIME_ROBOT_API_KEY env var)
 .PHONY: test-e2e-real
@@ -111,7 +111,7 @@ test-e2e-real: manifests generate fmt vet ## Run e2e tests against real UptimeRo
 		echo "UPTIME_ROBOT_API_KEY is not set. Please set it to run real API tests."; \
 		exit 1; \
 	}
-	KIND_CLUSTER=$(KIND_CLUSTER) go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="monitor || maintenancewindow || account || contact || monitorgroup || slackintegration || integration" -timeout 60m
+	KIND_CLUSTER=$(KIND_CLUSTER) go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="monitor || maintenancewindow || account || contact || monitorgroup || slackintegration || slackcontact || integration" -timeout 60m
 
 # Run all e2e tests (basic + real API)
 .PHONY: test-e2e-all

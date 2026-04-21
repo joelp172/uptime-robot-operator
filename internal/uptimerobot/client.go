@@ -40,8 +40,8 @@ import (
 
 const apiMonitorType = "API"
 
-// slackIntegrationType is the API-side string identifying a Slack integration.
-const slackIntegrationType = "Slack"
+// SlackIntegrationType is the API-side string identifying a Slack integration.
+const SlackIntegrationType = "Slack"
 
 const (
 	// DefaultRateLimit is the default maximum number of API requests per second.
@@ -200,6 +200,7 @@ var (
 	ErrResponse            = errors.New("received fail from Uptime Robot API")
 	ErrMonitorNotFound     = errors.New("monitor not found")
 	ErrContactNotFound     = errors.New("contact not found")
+	ErrContactAmbiguous    = errors.New("contact lookup is ambiguous")
 	ErrIntegrationNotFound = errors.New("integration not found")
 	ErrNotFound            = errors.New("resource not found")
 )
@@ -603,6 +604,9 @@ func (c Client) buildUpdateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 
 // contactsToV3Format converts MonitorContacts to v3 API format.
 // Note: v3 API uses assignedAlertContacts with alertContactId (string), threshold, and recurrence.
+// The UptimeRobot v3 API accepts both /user/alert-contacts IDs and /integrations IDs in
+// alertContactId; the operator surfaces Slack integration IDs through the same field, so
+// no per-source routing is required here.
 func contactsToV3Format(contacts uptimerobotv1.MonitorContacts) []AssignedAlertContactRequest {
 	result := make([]AssignedAlertContactRequest, 0, len(contacts))
 	for _, c := range contacts {
@@ -769,7 +773,7 @@ func selectDuplicateSlackIntegrationCandidate(existing []IntegrationResponse, de
 	candidates := make([]IntegrationResponse, 0, 1)
 	for i := range existing {
 		integration := existing[i]
-		if integration.Type == nil || *integration.Type != slackIntegrationType {
+		if integration.Type == nil || *integration.Type != SlackIntegrationType {
 			continue
 		}
 		if strings.TrimSpace(integration.Value) != targetWebhook {
@@ -986,21 +990,94 @@ func (c Client) GetAlertContacts(ctx context.Context) ([]AlertContactResponse, e
 }
 
 // FindContactID finds an alert contact ID by friendly name using the v3 API.
-// GET /user/alert-contacts
+// It searches both /user/alert-contacts and /integrations (for any type in
+// BridgedIntegrationTypes). If the friendly name matches in more than one
+// place across either source, it returns ErrContactAmbiguous so callers
+// do not silently mis-route alerts.
+// GET /user/alert-contacts, GET /integrations
 func (c Client) FindContactID(ctx context.Context, friendlyName string) (string, error) {
 	contacts, err := c.GetAlertContacts(ctx)
 	if err != nil {
 		return "", err
 	}
 
+	// Track matches by (type, id) so a single underlying contact that appears
+	// in both /user/alert-contacts and /integrations (same type + same id)
+	// doesn't trigger a false-positive ambiguity error.
+	type contactKey struct {
+		contactType string
+		id          string
+	}
+	seen := make(map[contactKey]struct{})
+	order := make([]contactKey, 0)
+	addMatch := func(t, id string) {
+		k := contactKey{contactType: t, id: id}
+		if _, exists := seen[k]; exists {
+			return
+		}
+		seen[k] = struct{}{}
+		order = append(order, k)
+	}
+
 	for _, contact := range contacts {
 		// FriendlyName can be null in the API response
 		if contact.FriendlyName != nil && *contact.FriendlyName == friendlyName {
-			return strconv.Itoa(contact.ID), nil
+			addMatch(contact.Type, strconv.Itoa(contact.ID))
 		}
 	}
 
-	return "", ErrContactNotFound
+	// Short-circuit: if /user/alert-contacts already yielded more than one
+	// distinct (type, id) match, the lookup is ambiguous no matter what
+	// /integrations returns — dedupe can only collapse keys, never expand
+	// the ambiguity back to a single answer. Skip the extra API call.
+	if len(order) > 1 {
+		return "", fmt.Errorf("%w: friendly name %q matches %d alert contacts; use spec.contact.id to disambiguate", ErrContactAmbiguous, friendlyName, len(order))
+	}
+
+	integrationMatches, err := c.findBridgedIntegrationIDsByFriendlyName(ctx, friendlyName)
+	if err != nil {
+		return "", err
+	}
+	for _, m := range integrationMatches {
+		addMatch(m.Type, m.ID)
+	}
+
+	switch len(order) {
+	case 0:
+		return "", ErrContactNotFound
+	case 1:
+		return order[0].id, nil
+	default:
+		return "", fmt.Errorf("%w: friendly name %q matches %d alert contacts/integrations; use spec.contact.id to disambiguate", ErrContactAmbiguous, friendlyName, len(order))
+	}
+}
+
+type bridgedIntegrationMatch struct {
+	Type string
+	ID   string
+}
+
+func (c Client) findBridgedIntegrationIDsByFriendlyName(ctx context.Context, friendlyName string) ([]bridgedIntegrationMatch, error) {
+	integrations, err := c.ListIntegrations(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	matches := make([]bridgedIntegrationMatch, 0, len(integrations))
+	for i := range integrations {
+		integration := integrations[i]
+		if integration.Type == nil || !IsBridgedIntegrationType(*integration.Type) {
+			continue
+		}
+		if integration.FriendlyName == nil || *integration.FriendlyName != friendlyName {
+			continue
+		}
+		matches = append(matches, bridgedIntegrationMatch{
+			Type: *integration.Type,
+			ID:   strconv.Itoa(integration.ID),
+		})
+	}
+	return matches, nil
 }
 
 // GetAccountDetails retrieves account details using the v3 API.
@@ -1124,7 +1201,7 @@ func parseAPIAssertionTarget(operator urtypes.AssertionOperator, value string) i
 func (c Client) CreateSlackIntegration(ctx context.Context, data SlackIntegrationData) (IntegrationResponse, error) {
 	var result IntegrationResponse
 	req := CreateSlackIntegrationRequest{
-		Type: slackIntegrationType,
+		Type: SlackIntegrationType,
 		Data: data,
 	}
 	err := c.doJSON(ctx, http.MethodPost, "integrations", req, &result)

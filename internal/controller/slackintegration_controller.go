@@ -287,7 +287,18 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 			}
 		}
 
-		if existing == nil || !slackIntegrationMatchesDesired(existing, createData) {
+		driftReason := ""
+		if existing == nil {
+			driftReason = fmt.Sprintf("integration %d not found in UptimeRobot", id)
+		} else {
+			driftReason = slackIntegrationDriftReason(existing, createData)
+		}
+		if driftReason != "" {
+			log.FromContext(ctx).Info("Recreating Slack integration due to drift",
+				"slackintegration", resource.Name,
+				"namespace", resource.Namespace,
+				"reason", driftReason,
+				"oldID", id)
 			if err := r.recreateSlackIntegration(ctx, urclient, resource, createData, id); err != nil {
 				metrics.ReconciliationErrorsTotal.WithLabelValues("slackintegration", "api_error").Inc()
 				resource.Status.Ready = false
@@ -413,7 +424,7 @@ func (r *SlackIntegrationReconciler) recreateSlackIntegration(
 	}
 	resource.Status.Ready = true
 	resource.Status.ID = strconv.Itoa(created.ID)
-	resource.Status.Type = "Slack"
+	resource.Status.Type = uptimerobot.SlackIntegrationType
 
 	if r.Recorder != nil {
 		if isUpdate {
@@ -442,28 +453,67 @@ func normalizeSlackIntegrationData(data uptimerobot.SlackIntegrationData) uptime
 }
 
 func slackIntegrationMatchesDesired(existing *uptimerobot.IntegrationResponse, desired uptimerobot.SlackIntegrationData) bool {
+	return slackIntegrationDriftReason(existing, desired) == ""
+}
+
+// slackIntegrationDriftReason returns "" when the existing integration matches
+// the desired spec, or a short human-readable description of the first
+// mismatching field. This powers both drift gating (matches when empty) and
+// reconciler logging (so operators can see *why* a recreate was triggered).
+//
+// Webhook URL comparison is deliberately tolerant of masked or empty values
+// returned by GET /integrations. UptimeRobot may redact the webhook URL in
+// list responses (returning "" or a "***"-masked form); comparing our
+// plain-text desired value against a masked response would produce a
+// perpetual drift loop and churn the integration ID every sync tick. The
+// webhook URL is only re-checked here for plainly-different unmasked values.
+func slackIntegrationDriftReason(existing *uptimerobot.IntegrationResponse, desired uptimerobot.SlackIntegrationData) string {
 	if existing == nil {
-		return false
+		return "existing integration is nil"
 	}
-	if stringPointerValue(existing.Type) != "Slack" {
-		return false
+	if t := stringPointerValue(existing.Type); t != uptimerobot.SlackIntegrationType {
+		return fmt.Sprintf("type mismatch: api=%q desired=%q", t, uptimerobot.SlackIntegrationType)
 	}
-	if stringPointerValue(existing.FriendlyName) != desired.FriendlyName {
-		return false
+	if got := stringPointerValue(existing.FriendlyName); got != desired.FriendlyName {
+		return fmt.Sprintf("friendlyName mismatch: api=%q desired=%q", got, desired.FriendlyName)
 	}
-	if stringPointerValue(existing.EnableNotificationsFor) != desired.EnableNotificationsFor {
-		return false
-	}
+	// enableNotificationsFor is deliberately excluded from drift detection.
+	// UptimeRobot silently stores Slack integrations as "UpAndDown" regardless
+	// of what we send (observed against production: request "Down" yields API
+	// response "UpAndDown"). Including it here caused a perpetual drift loop
+	// — recreate doesn't fix it because the server ignores the incoming value
+	// — so comparing it would churn the integration ID every sync tick.
+	// Users should still set enableNotificationsFor in spec for documentation
+	// and for the day UptimeRobot starts honouring it.
 	if existing.SSLExpirationReminder != desired.SSLExpirationReminder {
-		return false
+		return fmt.Sprintf("sslExpirationReminder mismatch: api=%t desired=%t", existing.SSLExpirationReminder, desired.SSLExpirationReminder)
 	}
-	if existing.Value != desired.WebhookURL {
-		return false
+	if isWebhookURLMeaningfullyDifferent(existing.Value, desired.WebhookURL) {
+		return "webhookURL mismatch (unmasked)"
 	}
 	if existing.CustomValue != desired.CustomValue {
+		return fmt.Sprintf("customValue mismatch: api=%q desired=%q", existing.CustomValue, desired.CustomValue)
+	}
+	return ""
+}
+
+// isWebhookURLMeaningfullyDifferent reports whether the webhook URL returned
+// by UptimeRobot is plainly different from what we intend to sync. An empty
+// or masked response value is treated as "same" because we have no way to
+// verify equality against a redacted server value, and assuming drift would
+// force a delete+create on every sync tick.
+func isWebhookURLMeaningfullyDifferent(apiValue, desired string) bool {
+	apiValue = strings.TrimSpace(apiValue)
+	if apiValue == "" {
 		return false
 	}
-	return true
+	// Heuristic: UptimeRobot commonly masks sensitive URL tail segments with
+	// a run of asterisks. Any "*" in the response means we can't compare
+	// reliably — trust the CR's desired value.
+	if strings.ContainsRune(apiValue, '*') {
+		return false
+	}
+	return apiValue != strings.TrimSpace(desired)
 }
 
 func stringPointerValue(value *string) string {

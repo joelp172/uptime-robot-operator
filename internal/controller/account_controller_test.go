@@ -297,12 +297,105 @@ var _ = Describe("Account Controller", func() {
 
 			Expect(k8sClient.Get(ctx, namespacedName, account)).To(Succeed())
 			Expect(account.Status.Ready).To(BeTrue())
-			Expect(account.Status.AlertContacts).To(BeEmpty())
+			Expect(account.Status.AlertContacts).To(HaveLen(1))
+			Expect(account.Status.AlertContacts[0].FriendlyName).To(Equal("Mock Slack"))
+			Expect(account.Status.AlertContacts[0].ID).To(Equal("101"))
 
 			ready := findCondition(account.Status.Conditions, TypeReady)
 			Expect(ready).NotTo(BeNil())
 			Expect(ready.Status).To(Equal(metav1.ConditionTrue))
-			Expect(ready.Reason).To(Equal(ReasonReconcileSuccess))
+			Expect(ready.Reason).To(Equal(ReasonReconcileDegraded))
+			Expect(ready.Message).To(ContainSubstring("alert contacts"))
+		})
+
+		It("should reconcile with Degraded reason when integrations fetch fails", func() {
+			serverState.SetIntegrationsHTTPStatus(http.StatusInternalServerError)
+			defer serverState.SetIntegrationsHTTPStatus(0)
+
+			recorder := record.NewFakeRecorder(10)
+			controllerReconciler := &AccountReconciler{
+				Client:   k8sClient,
+				Scheme:   k8sClient.Scheme(),
+				Recorder: recorder,
+			}
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, namespacedName, account)).To(Succeed())
+			Expect(account.Status.Ready).To(BeTrue())
+			// Alert contacts fixture populates 3 entries; with integrations list
+			// failing, Slack-integration-backed entries are omitted.
+			Expect(account.Status.AlertContacts).To(HaveLen(3))
+			// Integrations fetch failed, so the Slack integration (Mock Slack, id 101)
+			// must not appear; the Slack-type alert contact from the fixture may still.
+			for _, ac := range account.Status.AlertContacts {
+				Expect(ac.ID).NotTo(Equal("101"))
+			}
+
+			ready := findCondition(account.Status.Conditions, TypeReady)
+			Expect(ready).NotTo(BeNil())
+			Expect(ready.Status).To(Equal(metav1.ConditionTrue))
+			Expect(ready.Reason).To(Equal(ReasonReconcileDegraded))
+			Expect(ready.Message).To(ContainSubstring("integrations"))
+
+			Eventually(recorder.Events).Should(Receive(ContainSubstring("ReconcileDegraded")))
+		})
+
+		It("should dedupe AlertContacts on (type, id) within the same source type", func() {
+			// Seed a Slack integration whose numeric ID matches the Slack
+			// alert-contact from the fixture (2104569). Same (type, id) must
+			// dedupe. A second integration with a distinct ID must survive.
+			serverState.SetSlackIntegrations([]map[string]any{
+				{
+					"id":           2104569,
+					"friendlyName": "Slack Alerts",
+					"type":         "Slack",
+					"status":       "Active",
+					"value":        "https://hooks.slack.com/services/xxx",
+				},
+				{
+					"id":           888,
+					"friendlyName": "Distinct Slack",
+					"type":         "Slack",
+					"status":       "Active",
+					"value":        "https://hooks.slack.com/services/distinct",
+				},
+			})
+			defer serverState.Reset()
+
+			ReconcileAccount(ctx, account)
+
+			slackCountByID := map[string]int{}
+			for _, e := range account.Status.AlertContacts {
+				if e.Type == "Slack" {
+					slackCountByID[e.ID]++
+				}
+			}
+			Expect(slackCountByID["2104569"]).To(Equal(1), "duplicate Slack (type,id) must dedupe")
+			Expect(slackCountByID["888"]).To(Equal(1), "distinct Slack integration must be kept")
+		})
+
+		It("should not include non-Slack integrations in AlertContacts", func() {
+			serverState.SetSlackIntegrations([]map[string]any{
+				{
+					"id":           555,
+					"friendlyName": "Teams channel",
+					"type":         "MSTeams",
+					"status":       "Active",
+					"value":        "https://example.invalid/teams",
+				},
+			})
+			defer serverState.Reset()
+
+			ReconcileAccount(ctx, account)
+
+			for _, ac := range account.Status.AlertContacts {
+				Expect(ac.Type).NotTo(Equal("MSTeams"))
+				Expect(ac.ID).NotTo(Equal("555"))
+			}
 		})
 
 		It("should populate status fields correctly from API response", func() {
@@ -310,7 +403,7 @@ var _ = Describe("Account Controller", func() {
 			ReconcileAccount(ctx, account)
 
 			Expect(account.Status.Email).To(Equal("test@example.com"))
-			Expect(account.Status.AlertContacts).To(HaveLen(3))
+			Expect(account.Status.AlertContacts).To(HaveLen(4))
 
 			var johnDoe *uptimerobotv1.AlertContactInfo
 			for i := range account.Status.AlertContacts {
@@ -322,6 +415,17 @@ var _ = Describe("Account Controller", func() {
 			Expect(johnDoe).NotTo(BeNil())
 			Expect(johnDoe.ID).To(Equal("993765"))
 			Expect(johnDoe.Type).To(Equal("Email"))
+
+			var mockSlack *uptimerobotv1.AlertContactInfo
+			for i := range account.Status.AlertContacts {
+				if account.Status.AlertContacts[i].FriendlyName == "Mock Slack" {
+					mockSlack = &account.Status.AlertContacts[i]
+					break
+				}
+			}
+			Expect(mockSlack).NotTo(BeNil())
+			Expect(mockSlack.ID).To(Equal("101"))
+			Expect(mockSlack.Type).To(Equal("Slack"))
 		})
 	})
 })

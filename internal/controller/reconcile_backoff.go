@@ -126,7 +126,7 @@ func IsPermanentError(err error) bool {
 	}
 
 	// Check for specific uptimerobot errors
-	if uptimerobot.IsNotFound(err) {
+	if uptimerobot.IsNotFound(err) || errors.Is(err, uptimerobot.ErrContactAmbiguous) {
 		return true
 	}
 

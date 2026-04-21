@@ -3,13 +3,18 @@ package uptimerobot
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 )
 
-const integrationsPath = "/integrations"
+const (
+	integrationsPath  = "/integrations"
+	alertContactsPath = "/user/alert-contacts"
+)
 
 func TestCreateSlackIntegration(t *testing.T) {
 	t.Parallel()
@@ -53,7 +58,7 @@ func TestCreateSlackIntegration(t *testing.T) {
 		t.Fatalf("CreateSlackIntegration returned error: %v", err)
 	}
 
-	if gotReq.Type != slackIntegrationType {
+	if gotReq.Type != SlackIntegrationType {
 		t.Fatalf("expected request type Slack, got %s", gotReq.Type)
 	}
 	if gotReq.Data.FriendlyName != "Slack from unit test" {
@@ -72,7 +77,7 @@ func TestCreateSlackIntegration(t *testing.T) {
 	if resp.ID != 12345 {
 		t.Fatalf("expected id 12345, got %d", resp.ID)
 	}
-	if resp.Type == nil || *resp.Type != slackIntegrationType {
+	if resp.Type == nil || *resp.Type != SlackIntegrationType {
 		t.Fatalf("expected response type Slack, got %#v", resp.Type)
 	}
 }
@@ -124,7 +129,7 @@ func TestCreateSlackIntegration_AdoptsExistingOnDuplicateWebhookConflict(t *test
 	if resp.ID != 77 {
 		t.Fatalf("expected adopted integration id 77, got %d", resp.ID)
 	}
-	if resp.Type == nil || *resp.Type != slackIntegrationType {
+	if resp.Type == nil || *resp.Type != SlackIntegrationType {
 		t.Fatalf("expected response type Slack, got %#v", resp.Type)
 	}
 }
@@ -253,7 +258,7 @@ func TestIsSlackIntegrationAlreadyExists409(t *testing.T) {
 func TestSelectDuplicateSlackIntegrationCandidate_RefusesWhenFriendlyNameEmpty(t *testing.T) {
 	t.Parallel()
 
-	slack := slackIntegrationType
+	slack := SlackIntegrationType
 	existing := []IntegrationResponse{
 		{ID: 1, Type: &slack, FriendlyName: stringPtr("X"), Value: "https://hooks.slack.com/services/SHARED"},
 	}
@@ -460,5 +465,215 @@ func TestListAndDeleteIntegrations(t *testing.T) {
 	}
 	if !deleteCalled {
 		t.Fatal("expected delete endpoint to be called")
+	}
+}
+
+func TestFindContactID_FallsBackToSlackIntegration(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == alertContactsPath:
+			_, _ = w.Write([]byte(`[{"id":1,"friendlyName":"Email Contact","type":"Email","status":"Active","value":"test@example.com"}]`))
+		case r.Method == http.MethodGet && r.URL.Path == integrationsPath:
+			_, _ = w.Write([]byte(`{
+				"nextLink": null,
+				"data": [
+					{"id": 44, "friendlyName": "platform-alerts", "type": "Slack", "status": "Active", "value": "https://hooks.slack.com/services/PLATFORM"}
+				]
+			}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := Client{url: server.URL, apiKey: "test-key"}
+	id, err := client.FindContactID(context.Background(), "platform-alerts")
+	if err != nil {
+		t.Fatalf("FindContactID returned error: %v", err)
+	}
+	if id != "44" {
+		t.Fatalf("expected integration-backed id 44, got %q", id)
+	}
+}
+
+func TestFindContactID_AmbiguousSlackIntegrationNameReturnsError(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == alertContactsPath:
+			_, _ = w.Write([]byte(`[]`))
+		case r.Method == http.MethodGet && r.URL.Path == integrationsPath:
+			_, _ = w.Write([]byte(`{
+				"nextLink": null,
+				"data": [
+					{"id": 44, "friendlyName": "platform-alerts", "type": "Slack", "status": "Active", "value": "https://hooks.slack.com/services/PLATFORM"},
+					{"id": 45, "friendlyName": "platform-alerts", "type": "Slack", "status": "Active", "value": "https://hooks.slack.com/services/PLATFORM2"}
+				]
+			}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := Client{url: server.URL, apiKey: "test-key"}
+	_, err := client.FindContactID(context.Background(), "platform-alerts")
+	if err == nil {
+		t.Fatal("expected ambiguous integration lookup to fail")
+	}
+	if !errors.Is(err, ErrContactAmbiguous) {
+		t.Fatalf("expected ErrContactAmbiguous, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "platform-alerts") {
+		t.Fatalf("expected ambiguity error mentioning friendly name, got: %v", err)
+	}
+}
+
+func TestFindContactID_AmbiguousAcrossAlertContactAndIntegrationReturnsError(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == alertContactsPath:
+			_, _ = w.Write([]byte(`[{"id":77,"friendlyName":"platform-alerts","type":"Email","status":"Active","value":"alerts@example.com"}]`))
+		case r.Method == http.MethodGet && r.URL.Path == integrationsPath:
+			_, _ = w.Write([]byte(`{
+				"nextLink": null,
+				"data": [
+					{"id": 44, "friendlyName": "platform-alerts", "type": "Slack", "status": "Active", "value": "https://hooks.slack.com/services/PLATFORM"}
+				]
+			}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := Client{url: server.URL, apiKey: "test-key"}
+	_, err := client.FindContactID(context.Background(), "platform-alerts")
+	if err == nil {
+		t.Fatal("expected cross-source ambiguity to fail")
+	}
+	if !errors.Is(err, ErrContactAmbiguous) {
+		t.Fatalf("expected ErrContactAmbiguous, got: %v", err)
+	}
+}
+
+func TestFindContactID_ShortCircuitsWhenAlertContactsAlreadyAmbiguous(t *testing.T) {
+	t.Parallel()
+
+	var integrationsCalled int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == alertContactsPath:
+			_, _ = w.Write([]byte(`[
+				{"id":1,"friendlyName":"platform-alerts","type":"Email","status":"Active","value":"a@example.com"},
+				{"id":2,"friendlyName":"platform-alerts","type":"Email","status":"Active","value":"b@example.com"}
+			]`))
+		case r.Method == http.MethodGet && r.URL.Path == integrationsPath:
+			atomic.AddInt32(&integrationsCalled, 1)
+			_, _ = w.Write([]byte(`{"nextLink":null,"data":[]}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := Client{url: server.URL, apiKey: "test-key"}
+	_, err := client.FindContactID(context.Background(), "platform-alerts")
+	if !errors.Is(err, ErrContactAmbiguous) {
+		t.Fatalf("expected ErrContactAmbiguous, got: %v", err)
+	}
+	if got := atomic.LoadInt32(&integrationsCalled); got != 0 {
+		t.Fatalf("expected /integrations not to be called when already ambiguous; called %d times", got)
+	}
+}
+
+func TestFindContactID_DedupesSameSlackContactAcrossSources(t *testing.T) {
+	t.Parallel()
+
+	// UptimeRobot can surface the same underlying Slack entry via both
+	// /user/alert-contacts and /integrations (identical type + id). That is
+	// one contact, not an ambiguity — FindContactID should return it.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == alertContactsPath:
+			_, _ = w.Write([]byte(`[{"id":44,"friendlyName":"platform-alerts","type":"Slack","status":"Active","value":"https://hooks.slack.com/services/PLATFORM"}]`))
+		case r.Method == http.MethodGet && r.URL.Path == integrationsPath:
+			_, _ = w.Write([]byte(`{
+				"nextLink": null,
+				"data": [
+					{"id": 44, "friendlyName": "platform-alerts", "type": "Slack", "status": "Active", "value": "https://hooks.slack.com/services/PLATFORM"}
+				]
+			}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := Client{url: server.URL, apiKey: "test-key"}
+	id, err := client.FindContactID(context.Background(), "platform-alerts")
+	if err != nil {
+		t.Fatalf("expected cross-source dedupe to resolve cleanly, got: %v", err)
+	}
+	if id != "44" {
+		t.Fatalf("expected deduplicated id 44, got %q", id)
+	}
+}
+
+func TestFindContactID_IgnoresNonSlackIntegrationWithMatchingName(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == alertContactsPath:
+			_, _ = w.Write([]byte(`[]`))
+		case r.Method == http.MethodGet && r.URL.Path == integrationsPath:
+			_, _ = w.Write([]byte(`{
+				"nextLink": null,
+				"data": [
+					{"id": 88, "friendlyName": "platform-alerts", "type": "MSTeams", "status": "Active", "value": "https://example.invalid/webhook"}
+				]
+			}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := Client{url: server.URL, apiKey: "test-key"}
+	_, err := client.FindContactID(context.Background(), "platform-alerts")
+	if !errors.Is(err, ErrContactNotFound) {
+		t.Fatalf("expected ErrContactNotFound for non-Slack integration, got: %v", err)
+	}
+}
+
+func TestFindContactID_PropagatesIntegrationFetchErrors(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == alertContactsPath:
+			_, _ = w.Write([]byte(`[]`))
+		case r.Method == http.MethodGet && r.URL.Path == integrationsPath:
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"error":"boom"}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := Client{url: server.URL, apiKey: "test-key"}
+	_, err := client.FindContactID(context.Background(), "platform-alerts")
+	if err == nil {
+		t.Fatal("expected integrations fetch failure to propagate")
+	}
+	if errors.Is(err, ErrContactNotFound) {
+		t.Fatalf("expected upstream error, not ErrContactNotFound: %v", err)
 	}
 }

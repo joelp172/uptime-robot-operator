@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -57,6 +58,7 @@ var (
 //+kubebuilder:rbac:groups=uptimerobot.com,resources=accounts,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=uptimerobot.com,resources=accounts/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=uptimerobot.com,resources=accounts/finalizers,verbs=update
+//+kubebuilder:rbac:groups=uptimerobot.com,resources=slackintegrations,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
@@ -130,18 +132,33 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return HandleReconcileError(err, retryCount)
 	}
 
-	// Fetch alert contacts
+	// Fetch alert contacts. A failure here is non-fatal: we still surface the
+	// account itself, but we track the degraded state below so users see why
+	// their contact discovery surface is missing entries.
+	var degradedReasons []string
 	contacts, err := urclient.GetAlertContacts(ctx)
 	if err != nil {
-		log.FromContext(ctx).Error(err, "failed to fetch alert contacts")
-		// Don't fail the reconciliation if we can't get contacts
+		log.FromContext(ctx).Error(err, "failed to fetch alert contacts",
+			"account", account.Name, "namespace", account.Namespace)
+		degradedReasons = append(degradedReasons, fmt.Sprintf("alert contacts: %v", err))
+	}
+	integrations, err := urclient.ListIntegrations(ctx)
+	if err != nil {
+		log.FromContext(ctx).Error(err, "failed to fetch integrations",
+			"account", account.Name, "namespace", account.Namespace)
+		degradedReasons = append(degradedReasons, fmt.Sprintf("integrations: %v", err))
 	}
 
-	// Convert to status format
-	alertContacts := make([]uptimerobotv1.AlertContactInfo, 0, len(contacts))
+	// Convert to status format. Alert-contact IDs and integration IDs come
+	// from independent upstream namespaces, so dedupe on (type, id) rather
+	// than id alone to avoid silently dropping a Slack integration that
+	// happens to share a numeric ID with an unrelated alert contact.
+	alertContacts := make([]uptimerobotv1.AlertContactInfo, 0, len(contacts)+len(integrations))
+	seen := make(map[string]struct{}, len(contacts)+len(integrations))
+	dedupeKey := func(contactType, id string) string { return contactType + ":" + id }
 	for _, c := range contacts {
 		info := uptimerobotv1.AlertContactInfo{
-			ID:    fmt.Sprintf("%d", c.ID),
+			ID:    strconv.Itoa(c.ID),
 			Type:  c.Type,
 			Value: c.Value,
 		}
@@ -149,16 +166,55 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			info.FriendlyName = *c.FriendlyName
 		}
 		alertContacts = append(alertContacts, info)
+		seen[dedupeKey(info.Type, info.ID)] = struct{}{}
+	}
+	for _, integration := range integrations {
+		if integration.Type == nil || !uptimerobot.IsBridgedIntegrationType(*integration.Type) {
+			continue
+		}
+
+		id := strconv.Itoa(integration.ID)
+		if _, exists := seen[dedupeKey(*integration.Type, id)]; exists {
+			continue
+		}
+
+		info := uptimerobotv1.AlertContactInfo{
+			ID:    id,
+			Type:  *integration.Type,
+			Value: integration.Value,
+		}
+		if integration.FriendlyName != nil {
+			info.FriendlyName = *integration.FriendlyName
+		}
+		alertContacts = append(alertContacts, info)
+		seen[dedupeKey(info.Type, info.ID)] = struct{}{}
 	}
 
 	account.Status.Ready = true
 	account.Status.Email = email
 	account.Status.AlertContacts = alertContacts
-	SetReadyCondition(&account.Status.Conditions, true, ReasonReconcileSuccess, "Account reconciled successfully", account.Generation)
-	SetSyncedCondition(&account.Status.Conditions, true, ReasonSyncSuccess, "Successfully synced with UptimeRobot", account.Generation)
-	SetErrorCondition(&account.Status.Conditions, false, ReasonReconcileSuccess, "", account.Generation)
-	if r.Recorder != nil {
-		r.Recorder.Event(account, "Normal", "Synced", "Account reconciled successfully")
+	if len(degradedReasons) > 0 {
+		msg := fmt.Sprintf("Reconciled with partial contact discovery: %s", strings.Join(degradedReasons, "; "))
+		// Ready reflects the degraded reconcile; Synced stays "success" to
+		// match the semantics used by other controllers (Synced=true means
+		// the last UptimeRobot write/sync completed without error — partial
+		// *reads* during discovery don't invalidate that).
+		SetReadyCondition(&account.Status.Conditions, true, ReasonReconcileDegraded, msg, account.Generation)
+		SetSyncedCondition(&account.Status.Conditions, true, ReasonSyncSuccess, "Successfully synced with UptimeRobot", account.Generation)
+		// Error stays false with ReasonReconcileSuccess to match the
+		// convention used by the other controllers; the degraded signal
+		// lives solely on Ready.
+		SetErrorCondition(&account.Status.Conditions, false, ReasonReconcileSuccess, "", account.Generation)
+		if r.Recorder != nil {
+			r.Recorder.Event(account, "Warning", "ReconcileDegraded", msg)
+		}
+	} else {
+		SetReadyCondition(&account.Status.Conditions, true, ReasonReconcileSuccess, "Account reconciled successfully", account.Generation)
+		SetSyncedCondition(&account.Status.Conditions, true, ReasonSyncSuccess, "Successfully synced with UptimeRobot", account.Generation)
+		SetErrorCondition(&account.Status.Conditions, false, ReasonReconcileSuccess, "", account.Generation)
+		if r.Recorder != nil {
+			r.Recorder.Event(account, "Normal", "Synced", "Account reconciled successfully")
+		}
 	}
 	if err := r.Status().Update(ctx, account); err != nil {
 		return ctrl.Result{}, err
@@ -182,8 +238,50 @@ func (r *AccountReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&uptimerobotv1.Account{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.mapSecretToAccounts)).
+		// Integration CRDs that bridge into Account.status.alertContacts are
+		// watched here so Account discoverability refreshes as soon as an
+		// integration is created, updated, or deleted. Add a new line for
+		// each new bridged integration CRD.
+		//
+		// GenerationChangedPredicate filters out status-only updates so the
+		// SlackIntegration reconciler's periodic Status().Update calls
+		// (every syncInterval) don't trigger needless Account reconciles
+		// — and with them, extra GetAlertContacts/ListIntegrations calls
+		// against UptimeRobot. Create and Delete events still fire.
+		Watches(
+			&uptimerobotv1.SlackIntegration{},
+			handler.EnqueueRequestsFromMapFunc(r.mapIntegrationToAccount),
+			builder.WithPredicates(predicate.GenerationChangedPredicate{}),
+		).
 		Named("account").
 		Complete(r)
+}
+
+// mapIntegrationToAccount enqueues the Account referenced by an integration
+// CRD's spec.account. Any object implementing IntegrationAccountReferencer
+// works — no Slack-specific logic here. When the integration omits
+// spec.account.name, the default Account is enqueued (same resolution rule
+// GetAccount uses at reconcile time).
+func (r *AccountReconciler) mapIntegrationToAccount(ctx context.Context, obj client.Object) []reconcile.Request {
+	ref, ok := obj.(IntegrationAccountReferencer)
+	if !ok {
+		return nil
+	}
+	if name := ref.GetAccountRef().Name; name != "" {
+		return []reconcile.Request{{NamespacedName: client.ObjectKey{Name: name}}}
+	}
+
+	defaults := &uptimerobotv1.AccountList{}
+	if err := r.List(ctx, defaults, &client.ListOptions{
+		FieldSelector: fields.OneTermEqualSelector("spec.isDefault", "true"),
+	}); err != nil {
+		return nil
+	}
+	requests := make([]reconcile.Request, 0, len(defaults.Items))
+	for _, account := range defaults.Items {
+		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKey{Name: account.Name}})
+	}
+	return requests
 }
 
 func (r *AccountReconciler) mapSecretToAccounts(ctx context.Context, obj client.Object) []reconcile.Request {
