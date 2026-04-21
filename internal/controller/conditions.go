@@ -108,6 +108,18 @@ func SetSyncedCondition(conditions *[]metav1.Condition, synced bool, reason, mes
 	SetCondition(conditions, TypeSynced, status, reason, message, observedGeneration)
 }
 
+// conditionMatches reports whether a condition with the given type already has
+// the exact status/reason/message. Used to skip redundant status writes on
+// tight-requeue paths where the same condition would be rewritten every tick.
+func conditionMatches(conditions []metav1.Condition, conditionType string, status metav1.ConditionStatus, reason, message string) bool {
+	for _, c := range conditions {
+		if c.Type == conditionType {
+			return c.Status == status && c.Reason == reason && c.Message == message
+		}
+	}
+	return false
+}
+
 // SetErrorCondition sets the Error condition
 func SetErrorCondition(conditions *[]metav1.Condition, hasError bool, reason, message string, observedGeneration int64) {
 	status := metav1.ConditionTrue
