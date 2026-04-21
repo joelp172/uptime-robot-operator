@@ -253,6 +253,128 @@ var _ = Describe("Contact Controller", func() {
 			Expect(errCond.Status).To(Equal(metav1.ConditionFalse))
 		})
 
+		It("should re-resolve contact id when spec.contact.name changes", func() {
+			name := fmt.Sprintf("test-name-change-%d", time.Now().UnixNano())
+			contactByName := &uptimerobotv1.Contact{
+				ObjectMeta: metav1.ObjectMeta{Name: name},
+				Spec: uptimerobotv1.ContactSpec{
+					Account: corev1.LocalObjectReference{Name: account.Name},
+					Contact: uptimerobotv1.ContactValues{
+						Name: "John Doe",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, contactByName)).To(Succeed())
+			defer CleanupContact(ctx, contactByName)
+
+			controllerReconciler := &ContactReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: name},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name}, contactByName)).To(Succeed())
+			Expect(contactByName.Status.ID).To(Equal("993765"))
+
+			contactByName.Spec.Contact.Name = "Mock Slack"
+			Expect(k8sClient.Update(ctx, contactByName)).To(Succeed())
+
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: name},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name}, contactByName)).To(Succeed())
+			Expect(contactByName.Status.ID).To(Equal("101"))
+		})
+
+		It("should re-resolve contact id after generation change when upstream id changes for same friendly name", func() {
+			name := fmt.Sprintf("test-generation-reresolve-%d", time.Now().UnixNano())
+			contactByName := &uptimerobotv1.Contact{
+				ObjectMeta: metav1.ObjectMeta{Name: name},
+				Spec: uptimerobotv1.ContactSpec{
+					Account: corev1.LocalObjectReference{Name: account.Name},
+					Contact: uptimerobotv1.ContactValues{
+						Name: "Mock Slack",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, contactByName)).To(Succeed())
+			defer CleanupContact(ctx, contactByName)
+
+			controllerReconciler := &ContactReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: name},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name}, contactByName)).To(Succeed())
+			Expect(contactByName.Status.ID).To(Equal("101"))
+
+			serverState.SetSlackIntegrations([]map[string]any{
+				{
+					"id":           845,
+					"friendlyName": "Mock Slack",
+				},
+			})
+
+			contactByName.Spec.IsDefault = !contactByName.Spec.IsDefault
+			Expect(k8sClient.Update(ctx, contactByName)).To(Succeed())
+
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: name},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name}, contactByName)).To(Succeed())
+			Expect(contactByName.Status.ID).To(Equal("845"))
+		})
+
+		It("should not re-resolve contact id when generation is unchanged", func() {
+			name := fmt.Sprintf("test-generation-unchanged-%d", time.Now().UnixNano())
+			contactByName := &uptimerobotv1.Contact{
+				ObjectMeta: metav1.ObjectMeta{Name: name},
+				Spec: uptimerobotv1.ContactSpec{
+					Account: corev1.LocalObjectReference{Name: account.Name},
+					Contact: uptimerobotv1.ContactValues{
+						Name: "Mock Slack",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, contactByName)).To(Succeed())
+			defer CleanupContact(ctx, contactByName)
+
+			controllerReconciler := &ContactReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: name},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name}, contactByName)).To(Succeed())
+			Expect(contactByName.Status.ID).To(Equal("101"))
+
+			serverState.SetSlackIntegrations([]map[string]any{
+				{
+					"id":           999,
+					"friendlyName": "Mock Slack",
+				},
+			})
+
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: name},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name}, contactByName)).To(Succeed())
+			Expect(contactByName.Status.ID).To(Equal("101"))
+		})
+
 		It("should set failure conditions when contact name is not found in UptimeRobot", func() {
 			name := fmt.Sprintf("test-not-found-%d", time.Now().UnixNano())
 			contactNotFound := &uptimerobotv1.Contact{

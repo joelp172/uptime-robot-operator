@@ -66,6 +66,7 @@ func (r *ContactReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if err := r.Get(ctx, req.NamespacedName, contact); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+	shouldResolveContactReference := contact.Status.ID == "" || contact.Status.ObservedGeneration < contact.Generation
 	contact.Status.ObservedGeneration = contact.Generation
 
 	account := &uptimerobotv1.Account{}
@@ -104,7 +105,7 @@ func (r *ContactReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	urclient := uptimerobot.NewClient(apiKey)
 
-	if contact.Status.ID == "" {
+	if shouldResolveContactReference {
 		var id string
 		validated := false
 
