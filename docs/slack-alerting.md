@@ -13,7 +13,8 @@ Set up Slack notifications in UptimeRobot and attach them to monitors managed by
 - `SlackIntegration` manages the Slack webhook integration in UptimeRobot.
 - `Monitor` resources do not reference `SlackIntegration` directly.
 - `Monitor` resources send alerts through `Contact` resources in `spec.contacts`.
-- `Contact` lookup by `spec.contact.name` first checks account alert contacts, then falls back to matching Slack integrations by friendly name.
+- `Contact` lookup by `spec.contact.name` searches both account alert contacts and Slack integrations. If the friendly name matches more than one entry across either source, lookup fails with an ambiguity error; use `spec.contact.id` to disambiguate.
+- Alert-contact IDs and Slack integration IDs come from independent upstream ID spaces, so the `id` of a Slack-integration-backed contact in `Account.status.alertContacts` is only unique within `type: Slack`. When scripting, key on `(type, id)` rather than `id` alone.
 
 Use this flow:
 

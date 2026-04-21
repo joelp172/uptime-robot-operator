@@ -11,7 +11,10 @@ import (
 	"testing"
 )
 
-const integrationsPath = "/integrations"
+const (
+	integrationsPath  = "/integrations"
+	alertContactsPath = "/user/alert-contacts"
+)
 
 func TestCreateSlackIntegration(t *testing.T) {
 	t.Parallel()
@@ -470,7 +473,7 @@ func TestFindContactID_FallsBackToSlackIntegration(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case r.Method == http.MethodGet && r.URL.Path == "/user/alert-contacts":
+		case r.Method == http.MethodGet && r.URL.Path == alertContactsPath:
 			_, _ = w.Write([]byte(`[{"id":1,"friendlyName":"Email Contact","type":"Email","status":"Active","value":"test@example.com"}]`))
 		case r.Method == http.MethodGet && r.URL.Path == integrationsPath:
 			_, _ = w.Write([]byte(`{
@@ -500,7 +503,7 @@ func TestFindContactID_AmbiguousSlackIntegrationNameReturnsError(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case r.Method == http.MethodGet && r.URL.Path == "/user/alert-contacts":
+		case r.Method == http.MethodGet && r.URL.Path == alertContactsPath:
 			_, _ = w.Write([]byte(`[]`))
 		case r.Method == http.MethodGet && r.URL.Path == integrationsPath:
 			_, _ = w.Write([]byte(`{
@@ -524,7 +527,90 @@ func TestFindContactID_AmbiguousSlackIntegrationNameReturnsError(t *testing.T) {
 	if !errors.Is(err, ErrContactAmbiguous) {
 		t.Fatalf("expected ErrContactAmbiguous, got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "multiple Slack integrations found") {
-		t.Fatalf("expected ambiguity error, got: %v", err)
+	if !strings.Contains(err.Error(), "platform-alerts") {
+		t.Fatalf("expected ambiguity error mentioning friendly name, got: %v", err)
+	}
+}
+
+func TestFindContactID_AmbiguousAcrossAlertContactAndIntegrationReturnsError(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == alertContactsPath:
+			_, _ = w.Write([]byte(`[{"id":77,"friendlyName":"platform-alerts","type":"Email","status":"Active","value":"alerts@example.com"}]`))
+		case r.Method == http.MethodGet && r.URL.Path == integrationsPath:
+			_, _ = w.Write([]byte(`{
+				"nextLink": null,
+				"data": [
+					{"id": 44, "friendlyName": "platform-alerts", "type": "Slack", "status": "Active", "value": "https://hooks.slack.com/services/PLATFORM"}
+				]
+			}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := Client{url: server.URL, apiKey: "test-key"}
+	_, err := client.FindContactID(context.Background(), "platform-alerts")
+	if err == nil {
+		t.Fatal("expected cross-source ambiguity to fail")
+	}
+	if !errors.Is(err, ErrContactAmbiguous) {
+		t.Fatalf("expected ErrContactAmbiguous, got: %v", err)
+	}
+}
+
+func TestFindContactID_IgnoresNonSlackIntegrationWithMatchingName(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == alertContactsPath:
+			_, _ = w.Write([]byte(`[]`))
+		case r.Method == http.MethodGet && r.URL.Path == integrationsPath:
+			_, _ = w.Write([]byte(`{
+				"nextLink": null,
+				"data": [
+					{"id": 88, "friendlyName": "platform-alerts", "type": "MSTeams", "status": "Active", "value": "https://example.invalid/webhook"}
+				]
+			}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := Client{url: server.URL, apiKey: "test-key"}
+	_, err := client.FindContactID(context.Background(), "platform-alerts")
+	if !errors.Is(err, ErrContactNotFound) {
+		t.Fatalf("expected ErrContactNotFound for non-Slack integration, got: %v", err)
+	}
+}
+
+func TestFindContactID_PropagatesIntegrationFetchErrors(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == alertContactsPath:
+			_, _ = w.Write([]byte(`[]`))
+		case r.Method == http.MethodGet && r.URL.Path == integrationsPath:
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"error":"boom"}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := Client{url: server.URL, apiKey: "test-key"}
+	_, err := client.FindContactID(context.Background(), "platform-alerts")
+	if err == nil {
+		t.Fatal("expected integrations fetch failure to propagate")
+	}
+	if errors.Is(err, ErrContactNotFound) {
+		t.Fatalf("expected upstream error, not ErrContactNotFound: %v", err)
 	}
 }

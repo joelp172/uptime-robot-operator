@@ -133,24 +133,33 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return HandleReconcileError(err, retryCount)
 	}
 
-	// Fetch alert contacts
+	// Fetch alert contacts. A failure here is non-fatal: we still surface the
+	// account itself, but we track the degraded state below so users see why
+	// their contact discovery surface is missing entries.
+	var degradedReasons []string
 	contacts, err := urclient.GetAlertContacts(ctx)
 	if err != nil {
-		log.FromContext(ctx).Error(err, "failed to fetch alert contacts")
-		// Don't fail the reconciliation if we can't get contacts
+		log.FromContext(ctx).Error(err, "failed to fetch alert contacts",
+			"account", account.Name, "namespace", account.Namespace)
+		degradedReasons = append(degradedReasons, fmt.Sprintf("alert contacts: %v", err))
 	}
 	integrations, err := urclient.ListIntegrations(ctx)
 	if err != nil {
-		log.FromContext(ctx).Error(err, "failed to fetch integrations")
-		// Don't fail the reconciliation if we can't get integrations
+		log.FromContext(ctx).Error(err, "failed to fetch integrations",
+			"account", account.Name, "namespace", account.Namespace)
+		degradedReasons = append(degradedReasons, fmt.Sprintf("integrations: %v", err))
 	}
 
-	// Convert to status format
-	alertContacts := make([]uptimerobotv1.AlertContactInfo, 0, len(contacts))
-	alertContactIDs := make(map[string]struct{}, len(contacts)+len(integrations))
+	// Convert to status format. Alert-contact IDs and integration IDs come
+	// from independent upstream namespaces, so dedupe on (type, id) rather
+	// than id alone to avoid silently dropping a Slack integration that
+	// happens to share a numeric ID with an unrelated alert contact.
+	alertContacts := make([]uptimerobotv1.AlertContactInfo, 0, len(contacts)+len(integrations))
+	seen := make(map[string]struct{}, len(contacts)+len(integrations))
+	dedupeKey := func(contactType, id string) string { return contactType + ":" + id }
 	for _, c := range contacts {
 		info := uptimerobotv1.AlertContactInfo{
-			ID:    fmt.Sprintf("%d", c.ID),
+			ID:    strconv.Itoa(c.ID),
 			Type:  c.Type,
 			Value: c.Value,
 		}
@@ -158,7 +167,7 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			info.FriendlyName = *c.FriendlyName
 		}
 		alertContacts = append(alertContacts, info)
-		alertContactIDs[info.ID] = struct{}{}
+		seen[dedupeKey(info.Type, info.ID)] = struct{}{}
 	}
 	for _, integration := range integrations {
 		if integration.Type == nil || *integration.Type != slackIntegrationType {
@@ -166,7 +175,7 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 
 		id := strconv.Itoa(integration.ID)
-		if _, exists := alertContactIDs[id]; exists {
+		if _, exists := seen[dedupeKey(*integration.Type, id)]; exists {
 			continue
 		}
 
@@ -179,16 +188,27 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			info.FriendlyName = *integration.FriendlyName
 		}
 		alertContacts = append(alertContacts, info)
+		seen[dedupeKey(info.Type, info.ID)] = struct{}{}
 	}
 
 	account.Status.Ready = true
 	account.Status.Email = email
 	account.Status.AlertContacts = alertContacts
-	SetReadyCondition(&account.Status.Conditions, true, ReasonReconcileSuccess, "Account reconciled successfully", account.Generation)
-	SetSyncedCondition(&account.Status.Conditions, true, ReasonSyncSuccess, "Successfully synced with UptimeRobot", account.Generation)
-	SetErrorCondition(&account.Status.Conditions, false, ReasonReconcileSuccess, "", account.Generation)
-	if r.Recorder != nil {
-		r.Recorder.Event(account, "Normal", "Synced", "Account reconciled successfully")
+	if len(degradedReasons) > 0 {
+		msg := fmt.Sprintf("Reconciled with partial contact discovery: %s", strings.Join(degradedReasons, "; "))
+		SetReadyCondition(&account.Status.Conditions, true, ReasonReconcileDegraded, msg, account.Generation)
+		SetSyncedCondition(&account.Status.Conditions, true, ReasonReconcileDegraded, msg, account.Generation)
+		SetErrorCondition(&account.Status.Conditions, false, ReasonReconcileDegraded, "", account.Generation)
+		if r.Recorder != nil {
+			r.Recorder.Event(account, "Warning", "ReconcileDegraded", msg)
+		}
+	} else {
+		SetReadyCondition(&account.Status.Conditions, true, ReasonReconcileSuccess, "Account reconciled successfully", account.Generation)
+		SetSyncedCondition(&account.Status.Conditions, true, ReasonSyncSuccess, "Successfully synced with UptimeRobot", account.Generation)
+		SetErrorCondition(&account.Status.Conditions, false, ReasonReconcileSuccess, "", account.Generation)
+		if r.Recorder != nil {
+			r.Recorder.Event(account, "Normal", "Synced", "Account reconciled successfully")
+		}
 	}
 	if err := r.Status().Update(ctx, account); err != nil {
 		return ctrl.Result{}, err

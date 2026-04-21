@@ -39,6 +39,7 @@ type ServerState struct {
 	// Force specific HTTP status codes for certain endpoints (0 = normal behavior).
 	forceUserMeHTTPStatus        int
 	forceAlertContactsHTTPStatus int
+	forceIntegrationsHTTPStatus  int
 	// forceGlobalHTTPStatus overrides ALL endpoints when non-zero.
 	forceGlobalHTTPStatus int
 	// intermittentFailStatus / intermittentFailCount simulate transient failures:
@@ -109,6 +110,7 @@ func (s *ServerState) Reset() {
 	s.nextIntegration = next
 	s.forceUserMeHTTPStatus = 0
 	s.forceAlertContactsHTTPStatus = 0
+	s.forceIntegrationsHTTPStatus = 0
 	s.forceGlobalHTTPStatus = 0
 	s.intermittentFailStatus = 0
 	s.intermittentFailCount = 0
@@ -202,6 +204,14 @@ func (s *ServerState) SetAlertContactsHTTPStatus(code int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.forceAlertContactsHTTPStatus = code
+}
+
+// SetIntegrationsHTTPStatus forces the GET /integrations endpoint to return the given HTTP status code.
+// Set to 0 to restore normal behavior.
+func (s *ServerState) SetIntegrationsHTTPStatus(code int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.forceIntegrationsHTTPStatus = code
 }
 
 // SetSlackIntegrations replaces in-memory integrations with the provided set.
@@ -551,6 +561,14 @@ func handleDeleteMonitorGroup(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleGetIntegrations(w http.ResponseWriter, state *ServerState) {
+	state.mu.RLock()
+	forced := state.forceIntegrationsHTTPStatus
+	state.mu.RUnlock()
+	if forced != 0 {
+		w.WriteHeader(forced)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "forced"})
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"nextLink": nil,

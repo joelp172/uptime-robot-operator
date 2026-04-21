@@ -604,6 +604,9 @@ func (c Client) buildUpdateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 
 // contactsToV3Format converts MonitorContacts to v3 API format.
 // Note: v3 API uses assignedAlertContacts with alertContactId (string), threshold, and recurrence.
+// The UptimeRobot v3 API accepts both /user/alert-contacts IDs and /integrations IDs in
+// alertContactId; the operator surfaces Slack integration IDs through the same field, so
+// no per-source routing is required here.
 func contactsToV3Format(contacts uptimerobotv1.MonitorContacts) []AssignedAlertContactRequest {
 	result := make([]AssignedAlertContactRequest, 0, len(contacts))
 	for _, c := range contacts {
@@ -987,38 +990,47 @@ func (c Client) GetAlertContacts(ctx context.Context) ([]AlertContactResponse, e
 }
 
 // FindContactID finds an alert contact ID by friendly name using the v3 API.
-// GET /user/alert-contacts
+// It searches both /user/alert-contacts and /integrations (Slack type). If the
+// friendly name matches in more than one place across either source, it
+// returns ErrContactAmbiguous so callers do not silently mis-route alerts.
+// GET /user/alert-contacts, GET /integrations
 func (c Client) FindContactID(ctx context.Context, friendlyName string) (string, error) {
 	contacts, err := c.GetAlertContacts(ctx)
 	if err != nil {
 		return "", err
 	}
 
+	var matches []string
 	for _, contact := range contacts {
 		// FriendlyName can be null in the API response
 		if contact.FriendlyName != nil && *contact.FriendlyName == friendlyName {
-			return strconv.Itoa(contact.ID), nil
+			matches = append(matches, strconv.Itoa(contact.ID))
 		}
 	}
 
-	integrationID, err := c.findSlackIntegrationIDByFriendlyName(ctx, friendlyName)
-	if err == nil {
-		return integrationID, nil
-	}
-	if !errors.Is(err, ErrIntegrationNotFound) {
-		return "", err
-	}
-
-	return "", ErrContactNotFound
-}
-
-func (c Client) findSlackIntegrationIDByFriendlyName(ctx context.Context, friendlyName string) (string, error) {
-	integrations, err := c.ListIntegrations(ctx)
+	integrationMatches, err := c.findSlackIntegrationIDsByFriendlyName(ctx, friendlyName)
 	if err != nil {
 		return "", err
 	}
+	matches = append(matches, integrationMatches...)
 
-	matches := make([]IntegrationResponse, 0, 1)
+	switch len(matches) {
+	case 0:
+		return "", ErrContactNotFound
+	case 1:
+		return matches[0], nil
+	default:
+		return "", fmt.Errorf("%w: friendly name %q matches %d alert contacts/Slack integrations; use spec.contact.id to disambiguate", ErrContactAmbiguous, friendlyName, len(matches))
+	}
+}
+
+func (c Client) findSlackIntegrationIDsByFriendlyName(ctx context.Context, friendlyName string) ([]string, error) {
+	integrations, err := c.ListIntegrations(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var matches []string
 	for i := range integrations {
 		integration := integrations[i]
 		if integration.Type == nil || *integration.Type != slackIntegrationType {
@@ -1027,17 +1039,9 @@ func (c Client) findSlackIntegrationIDByFriendlyName(ctx context.Context, friend
 		if integration.FriendlyName == nil || *integration.FriendlyName != friendlyName {
 			continue
 		}
-		matches = append(matches, integration)
+		matches = append(matches, strconv.Itoa(integration.ID))
 	}
-
-	switch len(matches) {
-	case 0:
-		return "", ErrIntegrationNotFound
-	case 1:
-		return strconv.Itoa(matches[0].ID), nil
-	default:
-		return "", fmt.Errorf("%w: multiple Slack integrations found with friendly name %q", ErrContactAmbiguous, friendlyName)
-	}
+	return matches, nil
 }
 
 // GetAccountDetails retrieves account details using the v3 API.
