@@ -340,7 +340,7 @@ var _ = Describe("Monitor Controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			origBreaker := DefaultCircuitBreaker
-			const cooldown = time.Hour
+			const cooldown = 10 * time.Second
 			DefaultCircuitBreaker = NewCircuitBreaker(1, cooldown)
 			DeferCleanup(func() {
 				DefaultCircuitBreaker = origBreaker
@@ -370,12 +370,14 @@ var _ = Describe("Monitor Controller", func() {
 			Expect(synced.Status).To(Equal(metav1.ConditionFalse))
 			Expect(synced.Reason).To(Equal(ReasonCircuitBreakerOpen))
 			Expect(synced.Message).To(Equal(msg))
+			firstSyncedTransition := synced.LastTransitionTime
 
 			errCond := findCondition(monitor.Status.Conditions, TypeError)
 			Expect(errCond).NotTo(BeNil())
 			Expect(errCond.Status).To(Equal(metav1.ConditionTrue))
 			Expect(errCond.Reason).To(Equal(ReasonCircuitBreakerOpen))
 			Expect(errCond.Message).To(Equal(msg))
+			firstErrorTransition := errCond.LastTransitionTime
 
 			Eventually(recorder.Events, 2*time.Second, 50*time.Millisecond).Should(Receive(
 				And(ContainSubstring("CircuitBreakerOpen"), ContainSubstring(accountKey)),
@@ -390,6 +392,14 @@ var _ = Describe("Monitor Controller", func() {
 			ready = findCondition(monitor.Status.Conditions, TypeReady)
 			Expect(ready).NotTo(BeNil())
 			Expect(ready.LastTransitionTime).To(Equal(firstReadyTransition))
+			synced = findCondition(monitor.Status.Conditions, TypeSynced)
+			Expect(synced).NotTo(BeNil())
+			Expect(synced.LastTransitionTime).To(Equal(firstSyncedTransition))
+			errCond = findCondition(monitor.Status.Conditions, TypeError)
+			Expect(errCond).NotTo(BeNil())
+			Expect(errCond.LastTransitionTime).To(Equal(firstErrorTransition))
+			// Use a short window to prove we don't emit repeat warning events on
+			// tight requeue loops while the circuit remains open.
 			Consistently(recorder.Events, 200*time.Millisecond, 50*time.Millisecond).ShouldNot(Receive())
 
 			Expect(DefaultCircuitBreaker.RecordSuccess(accountKey)).To(BeTrue())
