@@ -251,18 +251,19 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// Circuit breaker: skip API calls when the circuit is not allowing traffic.
 	if !DefaultCircuitBreaker.Allow(accountKey) {
 		logger := log.FromContext(ctx)
-		logger.Info("Circuit breaker blocking API call", "account", accountKey, "state", DefaultCircuitBreaker.State(accountKey))
+		state := DefaultCircuitBreaker.State(accountKey)
+		logger.Info("Circuit breaker blocking API call", "account", accountKey, "state", state)
 		cooldown := DefaultCircuitBreaker.CooldownPeriod()
-		msg := fmt.Sprintf("Circuit breaker open for account %s; reconciliation paused for %s", accountKey, cooldown)
-		alreadyBlocked := conditionMatches(monitor.Status.Conditions, TypeSynced, metav1.ConditionFalse, ReasonCircuitBreakerOpen, msg) &&
-			conditionMatches(monitor.Status.Conditions, TypeReady, metav1.ConditionFalse, ReasonCircuitBreakerOpen, msg) &&
-			conditionMatches(monitor.Status.Conditions, TypeError, metav1.ConditionTrue, ReasonCircuitBreakerOpen, msg)
+		reason, eventReason, msg := circuitBreakerBlockDetails(accountKey, state, cooldown)
+		alreadyBlocked := conditionMatches(monitor.Status.Conditions, TypeSynced, metav1.ConditionFalse, reason, msg) &&
+			conditionMatches(monitor.Status.Conditions, TypeReady, metav1.ConditionFalse, reason, msg) &&
+			conditionMatches(monitor.Status.Conditions, TypeError, metav1.ConditionTrue, reason, msg)
 		if !alreadyBlocked {
-			SetReadyCondition(&monitor.Status.Conditions, false, ReasonCircuitBreakerOpen, msg, monitor.Generation)
-			SetSyncedCondition(&monitor.Status.Conditions, false, ReasonCircuitBreakerOpen, msg, monitor.Generation)
-			SetErrorCondition(&monitor.Status.Conditions, true, ReasonCircuitBreakerOpen, msg, monitor.Generation)
+			SetReadyCondition(&monitor.Status.Conditions, false, reason, msg, monitor.Generation)
+			SetSyncedCondition(&monitor.Status.Conditions, false, reason, msg, monitor.Generation)
+			SetErrorCondition(&monitor.Status.Conditions, true, reason, msg, monitor.Generation)
 			if r.Recorder != nil {
-				r.Recorder.Event(monitor, "Warning", "CircuitBreakerOpen", msg)
+				r.Recorder.Event(monitor, "Warning", eventReason, msg)
 			}
 			if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
 				return ctrl.Result{}, updateErr

@@ -172,18 +172,19 @@ func (r *SlackIntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	// Circuit breaker: skip API calls when the circuit is not allowing traffic.
 	if !DefaultCircuitBreaker.Allow(accountKey) {
 		logger := log.FromContext(ctx)
-		logger.Info("Circuit breaker blocking API call", "account", accountKey, "state", DefaultCircuitBreaker.State(accountKey))
+		state := DefaultCircuitBreaker.State(accountKey)
+		logger.Info("Circuit breaker blocking API call", "account", accountKey, "state", state)
 		cooldown := DefaultCircuitBreaker.CooldownPeriod()
-		msg := fmt.Sprintf("Circuit breaker open for account %s; reconciliation paused for %s", accountKey, cooldown)
-		alreadyBlocked := conditionMatches(resource.Status.Conditions, TypeSynced, metav1.ConditionFalse, ReasonCircuitBreakerOpen, msg) &&
-			conditionMatches(resource.Status.Conditions, TypeReady, metav1.ConditionFalse, ReasonCircuitBreakerOpen, msg) &&
-			conditionMatches(resource.Status.Conditions, TypeError, metav1.ConditionTrue, ReasonCircuitBreakerOpen, msg)
+		reason, eventReason, msg := circuitBreakerBlockDetails(accountKey, state, cooldown)
+		alreadyBlocked := conditionMatches(resource.Status.Conditions, TypeSynced, metav1.ConditionFalse, reason, msg) &&
+			conditionMatches(resource.Status.Conditions, TypeReady, metav1.ConditionFalse, reason, msg) &&
+			conditionMatches(resource.Status.Conditions, TypeError, metav1.ConditionTrue, reason, msg)
 		if !alreadyBlocked {
-			SetReadyCondition(&resource.Status.Conditions, false, ReasonCircuitBreakerOpen, msg, resource.Generation)
-			SetSyncedCondition(&resource.Status.Conditions, false, ReasonCircuitBreakerOpen, msg, resource.Generation)
-			SetErrorCondition(&resource.Status.Conditions, true, ReasonCircuitBreakerOpen, msg, resource.Generation)
+			SetReadyCondition(&resource.Status.Conditions, false, reason, msg, resource.Generation)
+			SetSyncedCondition(&resource.Status.Conditions, false, reason, msg, resource.Generation)
+			SetErrorCondition(&resource.Status.Conditions, true, reason, msg, resource.Generation)
 			if r.Recorder != nil {
-				r.Recorder.Event(resource, "Warning", "CircuitBreakerOpen", msg)
+				r.Recorder.Event(resource, "Warning", eventReason, msg)
 			}
 			if updateErr := r.updateSlackIntegrationStatus(ctx, resource); updateErr != nil {
 				return ctrl.Result{}, updateErr

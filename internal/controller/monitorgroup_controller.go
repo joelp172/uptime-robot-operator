@@ -185,19 +185,19 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	// Circuit breaker: skip API calls when the circuit is not allowing traffic.
 	if !DefaultCircuitBreaker.Allow(accountKey) {
-		logger := log.FromContext(ctx)
-		logger.Info("Circuit breaker blocking API call", "account", accountKey, "state", DefaultCircuitBreaker.State(accountKey))
+		state := DefaultCircuitBreaker.State(accountKey)
+		logger.Info("Circuit breaker blocking API call", "account", accountKey, "state", state)
 		cooldown := DefaultCircuitBreaker.CooldownPeriod()
-		msg := fmt.Sprintf("Circuit breaker open for account %s; reconciliation paused for %s", accountKey, cooldown)
-		alreadyBlocked := conditionMatches(groupResource.Status.Conditions, TypeSynced, metav1.ConditionFalse, ReasonCircuitBreakerOpen, msg) &&
-			conditionMatches(groupResource.Status.Conditions, TypeReady, metav1.ConditionFalse, ReasonCircuitBreakerOpen, msg) &&
-			conditionMatches(groupResource.Status.Conditions, TypeError, metav1.ConditionTrue, ReasonCircuitBreakerOpen, msg)
+		reason, eventReason, msg := circuitBreakerBlockDetails(accountKey, state, cooldown)
+		alreadyBlocked := conditionMatches(groupResource.Status.Conditions, TypeSynced, metav1.ConditionFalse, reason, msg) &&
+			conditionMatches(groupResource.Status.Conditions, TypeReady, metav1.ConditionFalse, reason, msg) &&
+			conditionMatches(groupResource.Status.Conditions, TypeError, metav1.ConditionTrue, reason, msg)
 		if !alreadyBlocked {
-			SetReadyCondition(&groupResource.Status.Conditions, false, ReasonCircuitBreakerOpen, msg, groupResource.Generation)
-			SetSyncedCondition(&groupResource.Status.Conditions, false, ReasonCircuitBreakerOpen, msg, groupResource.Generation)
-			SetErrorCondition(&groupResource.Status.Conditions, true, ReasonCircuitBreakerOpen, msg, groupResource.Generation)
+			SetReadyCondition(&groupResource.Status.Conditions, false, reason, msg, groupResource.Generation)
+			SetSyncedCondition(&groupResource.Status.Conditions, false, reason, msg, groupResource.Generation)
+			SetErrorCondition(&groupResource.Status.Conditions, true, reason, msg, groupResource.Generation)
 			if r.Recorder != nil {
-				r.Recorder.Event(groupResource, "Warning", "CircuitBreakerOpen", msg)
+				r.Recorder.Event(groupResource, "Warning", eventReason, msg)
 			}
 			if updateErr := r.updateMonitorGroupStatus(ctx, groupResource); updateErr != nil {
 				return ctrl.Result{}, updateErr
