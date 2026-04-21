@@ -614,8 +614,11 @@ func contactsToV3Format(contacts uptimerobotv1.MonitorContacts) []AssignedAlertC
 		if c.ID == "" {
 			continue
 		}
-		// Calculate threshold in seconds (per-contact wait time before alerting)
-		threshold := int(c.Threshold.Seconds())
+		// Per-contact wait time before alerting. UptimeRobot v3 expects this
+		// in MINUTES (same as recurrence). Previously converted to seconds,
+		// which the API silently treated as minutes — turning a 1m spec
+		// default into a 60-minute (1 hour) effective delay in the UI.
+		threshold := int(c.Threshold.Round(time.Minute).Minutes())
 		if threshold < 0 {
 			threshold = 0
 		}
