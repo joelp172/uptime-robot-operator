@@ -283,14 +283,21 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 
 		if contact.Status.ID == "" {
-			// Contact hasn't been reconciled yet - requeue without error
+			// Contact hasn't been reconciled yet - requeue without error. Only the
+			// Ready/Synced/Error *conditions* are flipped; status.Ready (the summary
+			// bool) is left alone so prior successful reconciles keep the monitor
+			// reachable while this transient dependency is being resolved.
 			msg := fmt.Sprintf("Contact %s not ready yet", ref.Name)
-			log.FromContext(ctx).Info("Contact not ready yet, requeuing", "contact", ref.Name)
+			logger := log.FromContext(ctx)
+			logger.Info("Contact not ready yet, requeuing", "contact", ref.Name)
+			SetReadyCondition(&monitor.Status.Conditions, false, ReasonDependencyNotReady, msg, monitor.Generation)
 			SetSyncedCondition(&monitor.Status.Conditions, false, ReasonDependencyNotReady, msg, monitor.Generation)
+			SetErrorCondition(&monitor.Status.Conditions, true, ReasonDependencyNotReady, msg, monitor.Generation)
 			if r.Recorder != nil {
 				r.Recorder.Event(monitor, "Warning", "DependencyNotReady", msg)
 			}
 			if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
+				logger.Error(updateErr, "failed to persist DependencyNotReady condition", "contact", ref.Name)
 				return ctrl.Result{}, updateErr
 			}
 			return ctrl.Result{RequeueAfter: 2 * time.Second}, nil

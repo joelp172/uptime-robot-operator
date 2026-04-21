@@ -130,7 +130,7 @@ Design, API, and contributor-focused documentation.
 
 ## Argo CD health checks for CRDs
 
-Argo CD treats unknown CRDs as `Healthy` by default. To reflect `Contact` and `Monitor` reconciliation state in Argo CD health, add the following to `argocd-cm` (`data` section):
+Argo CD treats unknown CRDs as `Healthy` by default. To reflect `Contact` and `Monitor` reconciliation state in Argo CD health, add the following to `argocd-cm` (`data` section). The two snippets below are intentionally identical — `argocd-cm` requires a separate `resource.customizations.health.<group>_<kind>` key per CRD, so the same logic is repeated once per kind:
 
 ```yaml
 resource.customizations.health.uptimerobot.com_Contact: |
