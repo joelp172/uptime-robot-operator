@@ -250,8 +250,25 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	// Circuit breaker: skip API calls when the circuit is not allowing traffic.
 	if !DefaultCircuitBreaker.Allow(accountKey) {
-		log.FromContext(ctx).Info("Circuit breaker blocking API call", "account", accountKey, "state", DefaultCircuitBreaker.State(accountKey))
-		return ctrl.Result{RequeueAfter: DefaultCircuitBreaker.CooldownPeriod()}, nil
+		logger := log.FromContext(ctx)
+		logger.Info("Circuit breaker blocking API call", "account", accountKey, "state", DefaultCircuitBreaker.State(accountKey))
+		cooldown := DefaultCircuitBreaker.CooldownPeriod()
+		msg := fmt.Sprintf("Circuit breaker open for account %s; reconciliation paused for %s", accountKey, cooldown)
+		alreadyBlocked := conditionMatches(monitor.Status.Conditions, TypeSynced, metav1.ConditionFalse, ReasonCircuitBreakerOpen, msg) &&
+			conditionMatches(monitor.Status.Conditions, TypeReady, metav1.ConditionFalse, ReasonCircuitBreakerOpen, msg) &&
+			conditionMatches(monitor.Status.Conditions, TypeError, metav1.ConditionTrue, ReasonCircuitBreakerOpen, msg)
+		if !alreadyBlocked {
+			SetReadyCondition(&monitor.Status.Conditions, false, ReasonCircuitBreakerOpen, msg, monitor.Generation)
+			SetSyncedCondition(&monitor.Status.Conditions, false, ReasonCircuitBreakerOpen, msg, monitor.Generation)
+			SetErrorCondition(&monitor.Status.Conditions, true, ReasonCircuitBreakerOpen, msg, monitor.Generation)
+			if r.Recorder != nil {
+				r.Recorder.Event(monitor, "Warning", "CircuitBreakerOpen", msg)
+			}
+			if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
+				return ctrl.Result{}, updateErr
+			}
+		}
+		return ctrl.Result{RequeueAfter: cooldown}, nil
 	}
 
 	if !controllerutil.ContainsFinalizer(monitor, myFinalizerName) {

@@ -185,8 +185,25 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	// Circuit breaker: skip API calls when the circuit is not allowing traffic.
 	if !DefaultCircuitBreaker.Allow(accountKey) {
-		log.FromContext(ctx).Info("Circuit breaker blocking API call", "account", accountKey, "state", DefaultCircuitBreaker.State(accountKey))
-		return ctrl.Result{RequeueAfter: DefaultCircuitBreaker.CooldownPeriod()}, nil
+		logger := log.FromContext(ctx)
+		logger.Info("Circuit breaker blocking API call", "account", accountKey, "state", DefaultCircuitBreaker.State(accountKey))
+		cooldown := DefaultCircuitBreaker.CooldownPeriod()
+		msg := fmt.Sprintf("Circuit breaker open for account %s; reconciliation paused for %s", accountKey, cooldown)
+		alreadyBlocked := conditionMatches(groupResource.Status.Conditions, TypeSynced, metav1.ConditionFalse, ReasonCircuitBreakerOpen, msg) &&
+			conditionMatches(groupResource.Status.Conditions, TypeReady, metav1.ConditionFalse, ReasonCircuitBreakerOpen, msg) &&
+			conditionMatches(groupResource.Status.Conditions, TypeError, metav1.ConditionTrue, ReasonCircuitBreakerOpen, msg)
+		if !alreadyBlocked {
+			SetReadyCondition(&groupResource.Status.Conditions, false, ReasonCircuitBreakerOpen, msg, groupResource.Generation)
+			SetSyncedCondition(&groupResource.Status.Conditions, false, ReasonCircuitBreakerOpen, msg, groupResource.Generation)
+			SetErrorCondition(&groupResource.Status.Conditions, true, ReasonCircuitBreakerOpen, msg, groupResource.Generation)
+			if r.Recorder != nil {
+				r.Recorder.Event(groupResource, "Warning", "CircuitBreakerOpen", msg)
+			}
+			if updateErr := r.updateMonitorGroupStatus(ctx, groupResource); updateErr != nil {
+				return ctrl.Result{}, updateErr
+			}
+		}
+		return ctrl.Result{RequeueAfter: cooldown}, nil
 	}
 
 	// Step 5: Attach finalizer for cleanup tracking

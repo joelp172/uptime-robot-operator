@@ -24,6 +24,7 @@ import (
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
@@ -180,8 +181,25 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 
 	// Circuit breaker: skip API calls when the circuit is not allowing traffic.
 	if !DefaultCircuitBreaker.Allow(accountKey) {
-		log.FromContext(ctx).Info("Circuit breaker blocking API call", "account", accountKey, "state", DefaultCircuitBreaker.State(accountKey))
-		return ctrl.Result{RequeueAfter: DefaultCircuitBreaker.CooldownPeriod()}, nil
+		logger := log.FromContext(ctx)
+		logger.Info("Circuit breaker blocking API call", "account", accountKey, "state", DefaultCircuitBreaker.State(accountKey))
+		cooldown := DefaultCircuitBreaker.CooldownPeriod()
+		msg := fmt.Sprintf("Circuit breaker open for account %s; reconciliation paused for %s", accountKey, cooldown)
+		alreadyBlocked := conditionMatches(mw.Status.Conditions, TypeSynced, metav1.ConditionFalse, ReasonCircuitBreakerOpen, msg) &&
+			conditionMatches(mw.Status.Conditions, TypeReady, metav1.ConditionFalse, ReasonCircuitBreakerOpen, msg) &&
+			conditionMatches(mw.Status.Conditions, TypeError, metav1.ConditionTrue, ReasonCircuitBreakerOpen, msg)
+		if !alreadyBlocked {
+			SetReadyCondition(&mw.Status.Conditions, false, ReasonCircuitBreakerOpen, msg, mw.Generation)
+			SetSyncedCondition(&mw.Status.Conditions, false, ReasonCircuitBreakerOpen, msg, mw.Generation)
+			SetErrorCondition(&mw.Status.Conditions, true, ReasonCircuitBreakerOpen, msg, mw.Generation)
+			if r.Recorder != nil {
+				r.Recorder.Event(mw, "Warning", "CircuitBreakerOpen", msg)
+			}
+			if updateErr := r.updateMaintenanceWindowStatus(ctx, mw); updateErr != nil {
+				return ctrl.Result{}, updateErr
+			}
+		}
+		return ctrl.Result{RequeueAfter: cooldown}, nil
 	}
 
 	// Add finalizer before creating external resource to prevent orphaning

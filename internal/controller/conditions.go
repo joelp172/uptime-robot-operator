@@ -53,6 +53,9 @@ const (
 	ReasonSecretNotFound = "SecretNotFound"
 	// ReasonDependencyNotReady indicates a referenced dependency is not ready yet
 	ReasonDependencyNotReady = "DependencyNotReady"
+	// ReasonCircuitBreakerOpen indicates reconciliation is paused while the API
+	// circuit breaker is open.
+	ReasonCircuitBreakerOpen = "CircuitBreakerOpen"
 )
 
 // SetCondition sets or updates a condition in the conditions list
