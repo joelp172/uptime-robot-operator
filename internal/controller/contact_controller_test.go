@@ -102,7 +102,7 @@ var _ = Describe("Contact Controller", func() {
 
 			Expect(k8sClient.Get(ctx, namespacedName, contact)).To(Succeed())
 			Expect(contact.Status.Ready).To(BeFalse())
-			Expect(contact.Status.ObservedGeneration).To(Equal(contact.Generation))
+			Expect(contact.Status.ObservedGeneration).To(BeNumerically("<", contact.Generation))
 
 			ready := findCondition(contact.Status.Conditions, TypeReady)
 			Expect(ready).NotTo(BeNil())
@@ -279,8 +279,11 @@ var _ = Describe("Contact Controller", func() {
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name}, contactByName)).To(Succeed())
 			Expect(contactByName.Status.ID).To(Equal("993765"))
 
+			originalGeneration := contactByName.Generation
 			contactByName.Spec.Contact.Name = "Mock Slack"
 			Expect(k8sClient.Update(ctx, contactByName)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name}, contactByName)).To(Succeed())
+			Expect(contactByName.Generation).To(BeNumerically(">", originalGeneration))
 
 			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: types.NamespacedName{Name: name},
@@ -323,8 +326,13 @@ var _ = Describe("Contact Controller", func() {
 				},
 			})
 
+			// Bump generation without changing spec.contact.name so reconciliation
+			// re-evaluates the existing name against upstream data.
+			originalGeneration := contactByName.Generation
 			contactByName.Spec.IsDefault = !contactByName.Spec.IsDefault
 			Expect(k8sClient.Update(ctx, contactByName)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name}, contactByName)).To(Succeed())
+			Expect(contactByName.Generation).To(BeNumerically(">", originalGeneration))
 
 			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: types.NamespacedName{Name: name},
