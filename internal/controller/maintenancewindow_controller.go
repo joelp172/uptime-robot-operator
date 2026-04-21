@@ -24,7 +24,6 @@ import (
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
@@ -184,14 +183,8 @@ func (r *MaintenanceWindowReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		state := DefaultCircuitBreaker.State(accountKey)
 		logger.Info("Circuit breaker blocking API call", "account", accountKey, "state", state)
 		cooldown := DefaultCircuitBreaker.CooldownPeriod()
-		reason, eventReason, msg := circuitBreakerBlockDetails(accountKey, state, cooldown)
-		alreadyBlocked := conditionMatches(mw.Status.Conditions, TypeSynced, metav1.ConditionFalse, reason, msg) &&
-			conditionMatches(mw.Status.Conditions, TypeReady, metav1.ConditionFalse, reason, msg) &&
-			conditionMatches(mw.Status.Conditions, TypeError, metav1.ConditionTrue, reason, msg)
-		if !alreadyBlocked {
-			SetReadyCondition(&mw.Status.Conditions, false, reason, msg, mw.Generation)
-			SetSyncedCondition(&mw.Status.Conditions, false, reason, msg, mw.Generation)
-			SetErrorCondition(&mw.Status.Conditions, true, reason, msg, mw.Generation)
+		eventReason, msg, changed := applyCircuitBreakerBlockedConditions(&mw.Status.Conditions, mw.Generation, accountKey, state, cooldown)
+		if changed {
 			if r.Recorder != nil {
 				r.Recorder.Event(mw, "Warning", eventReason, msg)
 			}

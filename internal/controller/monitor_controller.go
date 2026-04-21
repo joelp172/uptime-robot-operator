@@ -254,14 +254,8 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		state := DefaultCircuitBreaker.State(accountKey)
 		logger.Info("Circuit breaker blocking API call", "account", accountKey, "state", state)
 		cooldown := DefaultCircuitBreaker.CooldownPeriod()
-		reason, eventReason, msg := circuitBreakerBlockDetails(accountKey, state, cooldown)
-		alreadyBlocked := conditionMatches(monitor.Status.Conditions, TypeSynced, metav1.ConditionFalse, reason, msg) &&
-			conditionMatches(monitor.Status.Conditions, TypeReady, metav1.ConditionFalse, reason, msg) &&
-			conditionMatches(monitor.Status.Conditions, TypeError, metav1.ConditionTrue, reason, msg)
-		if !alreadyBlocked {
-			SetReadyCondition(&monitor.Status.Conditions, false, reason, msg, monitor.Generation)
-			SetSyncedCondition(&monitor.Status.Conditions, false, reason, msg, monitor.Generation)
-			SetErrorCondition(&monitor.Status.Conditions, true, reason, msg, monitor.Generation)
+		eventReason, msg, changed := applyCircuitBreakerBlockedConditions(&monitor.Status.Conditions, monitor.Generation, accountKey, state, cooldown)
+		if changed {
 			if r.Recorder != nil {
 				r.Recorder.Event(monitor, "Warning", eventReason, msg)
 			}
