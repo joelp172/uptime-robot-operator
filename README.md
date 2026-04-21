@@ -128,6 +128,86 @@ Design, API, and contributor-focused documentation.
 | [Development](docs/development.md) | Local development and testing |
 | [Security](SECURITY.md) | Image verification and deployment security practices |
 
+## Argo CD health checks for CRDs
+
+Argo CD treats unknown CRDs as `Healthy` by default. To reflect `Contact` and `Monitor` reconciliation state in Argo CD health, add the following to `argocd-cm` (`data` section). The two snippets below are intentionally identical — `argocd-cm` requires a separate `resource.customizations.health.<group>_<kind>` key per CRD, so the same logic is repeated once per kind:
+
+```yaml
+resource.customizations.health.uptimerobot.com_Contact: |
+  hs = {}
+  if obj.status == nil or obj.status.conditions == nil then
+    hs.status = "Progressing"
+    hs.message = "Waiting for reconciliation"
+    return hs
+  end
+
+  local ready = nil
+  local synced = nil
+  for _, c in ipairs(obj.status.conditions) do
+    if c.type == "Ready" then ready = c end
+    if c.type == "Synced" then synced = c end
+  end
+
+  if ready ~= nil and ready.status == "False" then
+    hs.status = "Degraded"
+    hs.message = ready.message or "Ready=False"
+    return hs
+  end
+
+  if synced ~= nil and synced.status == "False" then
+    hs.status = "Degraded"
+    hs.message = synced.message or "Synced=False"
+    return hs
+  end
+
+  if ready ~= nil and ready.status == "True" then
+    hs.status = "Healthy"
+    hs.message = ready.message or "Ready=True"
+    return hs
+  end
+
+  hs.status = "Progressing"
+  hs.message = "Waiting for reconciliation"
+  return hs
+
+resource.customizations.health.uptimerobot.com_Monitor: |
+  hs = {}
+  if obj.status == nil or obj.status.conditions == nil then
+    hs.status = "Progressing"
+    hs.message = "Waiting for reconciliation"
+    return hs
+  end
+
+  local ready = nil
+  local synced = nil
+  for _, c in ipairs(obj.status.conditions) do
+    if c.type == "Ready" then ready = c end
+    if c.type == "Synced" then synced = c end
+  end
+
+  if ready ~= nil and ready.status == "False" then
+    hs.status = "Degraded"
+    hs.message = ready.message or "Ready=False"
+    return hs
+  end
+
+  if synced ~= nil and synced.status == "False" then
+    hs.status = "Degraded"
+    hs.message = synced.message or "Synced=False"
+    return hs
+  end
+
+  if ready ~= nil and ready.status == "True" then
+    hs.status = "Healthy"
+    hs.message = ready.message or "Ready=True"
+    return hs
+  end
+
+  hs.status = "Progressing"
+  hs.message = "Waiting for reconciliation"
+  return hs
+```
+
 ## Monitor Types
 
 | Type | Use Case |

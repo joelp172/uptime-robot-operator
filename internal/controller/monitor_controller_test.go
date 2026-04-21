@@ -247,6 +247,85 @@ var _ = Describe("Monitor Controller", func() {
 			Expect(errCond.Reason).To(Equal(ReasonAPIError))
 		})
 
+		It("should flag Ready/Synced/Error when referenced contact is not ready and recover when it becomes ready", func() {
+			recorder := record.NewFakeRecorder(10)
+			controllerReconciler := &MonitorReconciler{
+				Client:   k8sClient,
+				Scheme:   k8sClient.Scheme(),
+				Recorder: recorder,
+			}
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: contact.Name}, contact)).To(Succeed())
+			readyContactID := contact.Status.ID
+			Expect(readyContactID).NotTo(BeEmpty())
+			contact.Status.ID = ""
+			Expect(k8sClient.Status().Update(ctx, contact)).To(Succeed())
+
+			result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(Equal(2 * time.Second))
+
+			Expect(k8sClient.Get(ctx, namespacedName, monitor)).To(Succeed())
+
+			synced := findCondition(monitor.Status.Conditions, TypeSynced)
+			Expect(synced).NotTo(BeNil())
+			Expect(synced.Status).To(Equal(metav1.ConditionFalse))
+			Expect(synced.Reason).To(Equal(ReasonDependencyNotReady))
+			Expect(synced.Message).To(ContainSubstring(contact.Name))
+
+			ready := findCondition(monitor.Status.Conditions, TypeReady)
+			Expect(ready).NotTo(BeNil())
+			Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+			Expect(ready.Reason).To(Equal(ReasonDependencyNotReady))
+
+			errCond := findCondition(monitor.Status.Conditions, TypeError)
+			Expect(errCond).NotTo(BeNil())
+			Expect(errCond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(errCond.Reason).To(Equal(ReasonDependencyNotReady))
+
+			By("expecting a DependencyNotReady Warning event")
+			Eventually(recorder.Events, 2*time.Second, 50*time.Millisecond).Should(Receive(
+				And(ContainSubstring("DependencyNotReady"), ContainSubstring(contact.Name)),
+			))
+
+			By("reconciling again with the dependency still not ready and expecting no repeat event/write")
+			result, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(Equal(2 * time.Second))
+			Consistently(recorder.Events, 200*time.Millisecond, 50*time.Millisecond).ShouldNot(Receive())
+
+			By("restoring the Contact's status.ID and reconciling again")
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: contact.Name}, contact)).To(Succeed())
+			contact.Status.ID = readyContactID
+			Expect(k8sClient.Status().Update(ctx, contact)).To(Succeed())
+
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, namespacedName, monitor)).To(Succeed())
+			Expect(monitor.Status.Ready).To(BeTrue())
+			synced = findCondition(monitor.Status.Conditions, TypeSynced)
+			Expect(synced).NotTo(BeNil())
+			Expect(synced.Status).To(Equal(metav1.ConditionTrue))
+			ready = findCondition(monitor.Status.Conditions, TypeReady)
+			Expect(ready).NotTo(BeNil())
+			Expect(ready.Status).To(Equal(metav1.ConditionTrue))
+			errCond = findCondition(monitor.Status.Conditions, TypeError)
+			Expect(errCond).NotTo(BeNil())
+			Expect(errCond.Status).To(Equal(metav1.ConditionFalse))
+		})
+
 		It("should preserve status.ready when type-change delete fails", func() {
 			controllerReconciler := &MonitorReconciler{
 				Client: k8sClient,
