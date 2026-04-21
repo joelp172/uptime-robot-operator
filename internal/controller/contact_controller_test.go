@@ -34,6 +34,8 @@ import (
 	uptimerobotv1 "github.com/joelp172/uptime-robot-operator/api/v1alpha1"
 )
 
+const mockSlackName = "Mock Slack"
+
 var _ = Describe("Contact Controller", func() {
 	Context("When reconciling a resource", func() {
 		ctx := context.Background()
@@ -278,9 +280,10 @@ var _ = Describe("Contact Controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name}, contactByName)).To(Succeed())
 			Expect(contactByName.Status.ID).To(Equal("993765"))
+			Expect(contactByName.Status.ObservedGeneration).To(Equal(contactByName.Generation))
 
 			originalGeneration := contactByName.Generation
-			contactByName.Spec.Contact.Name = "Mock Slack"
+			contactByName.Spec.Contact.Name = mockSlackName
 			Expect(k8sClient.Update(ctx, contactByName)).To(Succeed())
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name}, contactByName)).To(Succeed())
 			Expect(contactByName.Generation).To(BeNumerically(">", originalGeneration))
@@ -291,6 +294,7 @@ var _ = Describe("Contact Controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name}, contactByName)).To(Succeed())
 			Expect(contactByName.Status.ID).To(Equal("101"))
+			Expect(contactByName.Status.ObservedGeneration).To(Equal(contactByName.Generation))
 		})
 
 		It("should re-resolve contact id after generation change when upstream id changes for same friendly name", func() {
@@ -300,7 +304,7 @@ var _ = Describe("Contact Controller", func() {
 				Spec: uptimerobotv1.ContactSpec{
 					Account: corev1.LocalObjectReference{Name: account.Name},
 					Contact: uptimerobotv1.ContactValues{
-						Name: "Mock Slack",
+						Name: mockSlackName,
 					},
 				},
 			}
@@ -318,11 +322,12 @@ var _ = Describe("Contact Controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name}, contactByName)).To(Succeed())
 			Expect(contactByName.Status.ID).To(Equal("101"))
+			Expect(contactByName.Status.ObservedGeneration).To(Equal(contactByName.Generation))
 
 			serverState.SetSlackIntegrations([]map[string]any{
 				{
 					"id":           845,
-					"friendlyName": "Mock Slack",
+					"friendlyName": mockSlackName,
 				},
 			})
 
@@ -340,6 +345,7 @@ var _ = Describe("Contact Controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name}, contactByName)).To(Succeed())
 			Expect(contactByName.Status.ID).To(Equal("845"))
+			Expect(contactByName.Status.ObservedGeneration).To(Equal(contactByName.Generation))
 		})
 
 		It("should not re-resolve contact id when generation is unchanged", func() {
@@ -349,7 +355,7 @@ var _ = Describe("Contact Controller", func() {
 				Spec: uptimerobotv1.ContactSpec{
 					Account: corev1.LocalObjectReference{Name: account.Name},
 					Contact: uptimerobotv1.ContactValues{
-						Name: "Mock Slack",
+						Name: mockSlackName,
 					},
 				},
 			}
@@ -367,11 +373,13 @@ var _ = Describe("Contact Controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name}, contactByName)).To(Succeed())
 			Expect(contactByName.Status.ID).To(Equal("101"))
+			Expect(contactByName.Status.ObservedGeneration).To(Equal(contactByName.Generation))
+			observedAfterFirst := contactByName.Status.ObservedGeneration
 
 			serverState.SetSlackIntegrations([]map[string]any{
 				{
 					"id":           999,
-					"friendlyName": "Mock Slack",
+					"friendlyName": mockSlackName,
 				},
 			})
 
@@ -381,6 +389,54 @@ var _ = Describe("Contact Controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name}, contactByName)).To(Succeed())
 			Expect(contactByName.Status.ID).To(Equal("101"))
+			Expect(contactByName.Status.ObservedGeneration).To(Equal(observedAfterFirst))
+			Expect(contactByName.Status.ObservedGeneration).To(Equal(contactByName.Generation))
+		})
+
+		It("should not advance observedGeneration when re-resolution fails after prior success", func() {
+			name := fmt.Sprintf("test-reresolve-failure-%d", time.Now().UnixNano())
+			contactByName := &uptimerobotv1.Contact{
+				ObjectMeta: metav1.ObjectMeta{Name: name},
+				Spec: uptimerobotv1.ContactSpec{
+					Account: corev1.LocalObjectReference{Name: account.Name},
+					Contact: uptimerobotv1.ContactValues{
+						Name: mockSlackName,
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, contactByName)).To(Succeed())
+			defer CleanupContact(ctx, contactByName)
+
+			controllerReconciler := &ContactReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: name},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name}, contactByName)).To(Succeed())
+			Expect(contactByName.Status.ID).To(Equal("101"))
+			Expect(contactByName.Status.ObservedGeneration).To(Equal(contactByName.Generation))
+			successfulID := contactByName.Status.ID
+
+			contactByName.Spec.Contact.Name = "Unknown Person Not In System"
+			Expect(k8sClient.Update(ctx, contactByName)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name}, contactByName)).To(Succeed())
+			newGeneration := contactByName.Generation
+
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: name},
+			})
+			Expect(err).To(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name}, contactByName)).To(Succeed())
+			// Prior status.id remains; observedGeneration must NOT advance so the
+			// next reconcile retries the new generation.
+			Expect(contactByName.Status.ID).To(Equal(successfulID))
+			Expect(contactByName.Status.ObservedGeneration).To(BeNumerically("<", newGeneration))
+			Expect(contactByName.Status.Ready).To(BeFalse())
 		})
 
 		It("should set failure conditions when contact name is not found in UptimeRobot", func() {
@@ -437,7 +493,7 @@ var _ = Describe("Contact Controller", func() {
 				Spec: uptimerobotv1.ContactSpec{
 					Account: corev1.LocalObjectReference{Name: account.Name},
 					Contact: uptimerobotv1.ContactValues{
-						Name: "Mock Slack",
+						Name: mockSlackName,
 					},
 				},
 			}
@@ -463,14 +519,14 @@ var _ = Describe("Contact Controller", func() {
 			serverState.SetSlackIntegrations([]map[string]any{
 				{
 					"id":           501,
-					"friendlyName": "Mock Slack",
+					"friendlyName": mockSlackName,
 					"type":         "Slack",
 					"status":       "Active",
 					"value":        "https://hooks.slack.com/services/T000/B000/ONE",
 				},
 				{
 					"id":           502,
-					"friendlyName": "Mock Slack",
+					"friendlyName": mockSlackName,
 					"type":         "Slack",
 					"status":       "Active",
 					"value":        "https://hooks.slack.com/services/T000/B000/TWO",
@@ -483,7 +539,7 @@ var _ = Describe("Contact Controller", func() {
 				Spec: uptimerobotv1.ContactSpec{
 					Account: corev1.LocalObjectReference{Name: account.Name},
 					Contact: uptimerobotv1.ContactValues{
-						Name: "Mock Slack",
+						Name: mockSlackName,
 					},
 				},
 			}
@@ -510,7 +566,7 @@ var _ = Describe("Contact Controller", func() {
 			Expect(ready).NotTo(BeNil())
 			Expect(ready.Status).To(Equal(metav1.ConditionFalse))
 			Expect(ready.Message).To(ContainSubstring("ambiguous"))
-			Expect(ready.Message).To(ContainSubstring("Mock Slack"))
+			Expect(ready.Message).To(ContainSubstring(mockSlackName))
 
 			synced := findCondition(contactFromAmbiguousIntegration.Status.Conditions, TypeSynced)
 			Expect(synced).NotTo(BeNil())
@@ -521,7 +577,7 @@ var _ = Describe("Contact Controller", func() {
 			Expect(errCond).NotTo(BeNil())
 			Expect(errCond.Status).To(Equal(metav1.ConditionTrue))
 			Expect(errCond.Message).To(ContainSubstring("ambiguous"))
-			Expect(errCond.Message).To(ContainSubstring("Mock Slack"))
+			Expect(errCond.Message).To(ContainSubstring(mockSlackName))
 
 			Eventually(recorder.Events).Should(Receive(And(ContainSubstring("SyncFailed"), ContainSubstring("ambiguous"))))
 		})

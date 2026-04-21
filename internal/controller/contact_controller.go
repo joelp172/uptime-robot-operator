@@ -66,6 +66,11 @@ func (r *ContactReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if err := r.Get(ctx, req.NamespacedName, contact); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+	// ObservedGeneration is intentionally written only on successful resolution/skip
+	// paths below (not hoisted here as in other controllers). This lets a failed
+	// resolution be retried against the same generation, and lets a spec edit
+	// (e.g. spec.contact.name) trigger fresh FindContactID resolution even when
+	// status.id is already populated from a prior reconcile.
 	shouldResolveContactReference := contact.Status.ID == "" || contact.Status.ObservedGeneration < contact.Generation
 
 	account := &uptimerobotv1.Account{}
