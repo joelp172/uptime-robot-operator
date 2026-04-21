@@ -40,8 +40,8 @@ import (
 
 const apiMonitorType = "API"
 
-// slackIntegrationType is the API-side string identifying a Slack integration.
-const slackIntegrationType = "Slack"
+// SlackIntegrationType is the API-side string identifying a Slack integration.
+const SlackIntegrationType = "Slack"
 
 const (
 	// DefaultRateLimit is the default maximum number of API requests per second.
@@ -773,7 +773,7 @@ func selectDuplicateSlackIntegrationCandidate(existing []IntegrationResponse, de
 	candidates := make([]IntegrationResponse, 0, 1)
 	for i := range existing {
 		integration := existing[i]
-		if integration.Type == nil || *integration.Type != slackIntegrationType {
+		if integration.Type == nil || *integration.Type != SlackIntegrationType {
 			continue
 		}
 		if strings.TrimSpace(integration.Value) != targetWebhook {
@@ -990,9 +990,10 @@ func (c Client) GetAlertContacts(ctx context.Context) ([]AlertContactResponse, e
 }
 
 // FindContactID finds an alert contact ID by friendly name using the v3 API.
-// It searches both /user/alert-contacts and /integrations (Slack type). If the
-// friendly name matches in more than one place across either source, it
-// returns ErrContactAmbiguous so callers do not silently mis-route alerts.
+// It searches both /user/alert-contacts and /integrations (for any type in
+// BridgedIntegrationTypes). If the friendly name matches in more than one
+// place across either source, it returns ErrContactAmbiguous so callers
+// do not silently mis-route alerts.
 // GET /user/alert-contacts, GET /integrations
 func (c Client) FindContactID(ctx context.Context, friendlyName string) (string, error) {
 	contacts, err := c.GetAlertContacts(ctx)
@@ -1008,7 +1009,7 @@ func (c Client) FindContactID(ctx context.Context, friendlyName string) (string,
 		}
 	}
 
-	integrationMatches, err := c.findSlackIntegrationIDsByFriendlyName(ctx, friendlyName)
+	integrationMatches, err := c.findBridgedIntegrationIDsByFriendlyName(ctx, friendlyName)
 	if err != nil {
 		return "", err
 	}
@@ -1020,20 +1021,20 @@ func (c Client) FindContactID(ctx context.Context, friendlyName string) (string,
 	case 1:
 		return matches[0], nil
 	default:
-		return "", fmt.Errorf("%w: friendly name %q matches %d alert contacts/Slack integrations; use spec.contact.id to disambiguate", ErrContactAmbiguous, friendlyName, len(matches))
+		return "", fmt.Errorf("%w: friendly name %q matches %d alert contacts/integrations; use spec.contact.id to disambiguate", ErrContactAmbiguous, friendlyName, len(matches))
 	}
 }
 
-func (c Client) findSlackIntegrationIDsByFriendlyName(ctx context.Context, friendlyName string) ([]string, error) {
+func (c Client) findBridgedIntegrationIDsByFriendlyName(ctx context.Context, friendlyName string) ([]string, error) {
 	integrations, err := c.ListIntegrations(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	var matches []string
+	matches := make([]string, 0, len(integrations))
 	for i := range integrations {
 		integration := integrations[i]
-		if integration.Type == nil || *integration.Type != slackIntegrationType {
+		if integration.Type == nil || !IsBridgedIntegrationType(*integration.Type) {
 			continue
 		}
 		if integration.FriendlyName == nil || *integration.FriendlyName != friendlyName {
@@ -1165,7 +1166,7 @@ func parseAPIAssertionTarget(operator urtypes.AssertionOperator, value string) i
 func (c Client) CreateSlackIntegration(ctx context.Context, data SlackIntegrationData) (IntegrationResponse, error) {
 	var result IntegrationResponse
 	req := CreateSlackIntegrationRequest{
-		Type: slackIntegrationType,
+		Type: SlackIntegrationType,
 		Data: data,
 	}
 	err := c.doJSON(ctx, http.MethodPost, "integrations", req, &result)

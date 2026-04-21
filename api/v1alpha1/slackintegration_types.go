@@ -103,6 +103,13 @@ type SlackIntegration struct {
 	Status SlackIntegrationStatus `json:"status,omitempty"`
 }
 
+// GetAccountRef returns the Account reference. Satisfies the
+// IntegrationAccountReferencer interface defined in internal/controller so
+// Account reconciliation can be re-queued when this integration changes.
+func (r *SlackIntegration) GetAccountRef() corev1.LocalObjectReference {
+	return r.Spec.Account
+}
+
 //+kubebuilder:object:root=true
 
 // SlackIntegrationList contains a list of SlackIntegration.

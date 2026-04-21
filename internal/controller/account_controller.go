@@ -43,8 +43,6 @@ import (
 
 var ClusterResourceNamespace = "uptime-robot-system"
 
-const slackIntegrationType = "Slack"
-
 // AccountReconciler reconciles a Account object
 type AccountReconciler struct {
 	client.Client
@@ -170,7 +168,7 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		seen[dedupeKey(info.Type, info.ID)] = struct{}{}
 	}
 	for _, integration := range integrations {
-		if integration.Type == nil || *integration.Type != slackIntegrationType {
+		if integration.Type == nil || !uptimerobot.IsBridgedIntegrationType(*integration.Type) {
 			continue
 		}
 
@@ -232,8 +230,40 @@ func (r *AccountReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&uptimerobotv1.Account{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.mapSecretToAccounts)).
+		// Integration CRDs that bridge into Account.status.alertContacts are
+		// watched here so Account discoverability refreshes as soon as an
+		// integration is created, updated, or deleted. Add a new line for
+		// each new bridged integration CRD.
+		Watches(&uptimerobotv1.SlackIntegration{}, handler.EnqueueRequestsFromMapFunc(r.mapIntegrationToAccount)).
 		Named("account").
 		Complete(r)
+}
+
+// mapIntegrationToAccount enqueues the Account referenced by an integration
+// CRD's spec.account. Any object implementing IntegrationAccountReferencer
+// works — no Slack-specific logic here. When the integration omits
+// spec.account.name, the default Account is enqueued (same resolution rule
+// GetAccount uses at reconcile time).
+func (r *AccountReconciler) mapIntegrationToAccount(ctx context.Context, obj client.Object) []reconcile.Request {
+	ref, ok := obj.(IntegrationAccountReferencer)
+	if !ok {
+		return nil
+	}
+	if name := ref.GetAccountRef().Name; name != "" {
+		return []reconcile.Request{{NamespacedName: client.ObjectKey{Name: name}}}
+	}
+
+	defaults := &uptimerobotv1.AccountList{}
+	if err := r.List(ctx, defaults, &client.ListOptions{
+		FieldSelector: fields.OneTermEqualSelector("spec.isDefault", "true"),
+	}); err != nil {
+		return nil
+	}
+	requests := make([]reconcile.Request, 0, len(defaults.Items))
+	for _, account := range defaults.Items {
+		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKey{Name: account.Name}})
+	}
+	return requests
 }
 
 func (r *AccountReconciler) mapSecretToAccounts(ctx context.Context, obj client.Object) []reconcile.Request {

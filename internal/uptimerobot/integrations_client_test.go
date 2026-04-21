@@ -58,7 +58,7 @@ func TestCreateSlackIntegration(t *testing.T) {
 		t.Fatalf("CreateSlackIntegration returned error: %v", err)
 	}
 
-	if gotReq.Type != slackIntegrationType {
+	if gotReq.Type != SlackIntegrationType {
 		t.Fatalf("expected request type Slack, got %s", gotReq.Type)
 	}
 	if gotReq.Data.FriendlyName != "Slack from unit test" {
@@ -77,7 +77,7 @@ func TestCreateSlackIntegration(t *testing.T) {
 	if resp.ID != 12345 {
 		t.Fatalf("expected id 12345, got %d", resp.ID)
 	}
-	if resp.Type == nil || *resp.Type != slackIntegrationType {
+	if resp.Type == nil || *resp.Type != SlackIntegrationType {
 		t.Fatalf("expected response type Slack, got %#v", resp.Type)
 	}
 }
@@ -129,7 +129,7 @@ func TestCreateSlackIntegration_AdoptsExistingOnDuplicateWebhookConflict(t *test
 	if resp.ID != 77 {
 		t.Fatalf("expected adopted integration id 77, got %d", resp.ID)
 	}
-	if resp.Type == nil || *resp.Type != slackIntegrationType {
+	if resp.Type == nil || *resp.Type != SlackIntegrationType {
 		t.Fatalf("expected response type Slack, got %#v", resp.Type)
 	}
 }
@@ -258,7 +258,7 @@ func TestIsSlackIntegrationAlreadyExists409(t *testing.T) {
 func TestSelectDuplicateSlackIntegrationCandidate_RefusesWhenFriendlyNameEmpty(t *testing.T) {
 	t.Parallel()
 
-	slack := slackIntegrationType
+	slack := SlackIntegrationType
 	existing := []IntegrationResponse{
 		{ID: 1, Type: &slack, FriendlyName: stringPtr("X"), Value: "https://hooks.slack.com/services/SHARED"},
 	}

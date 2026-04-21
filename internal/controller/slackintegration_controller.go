@@ -413,7 +413,7 @@ func (r *SlackIntegrationReconciler) recreateSlackIntegration(
 	}
 	resource.Status.Ready = true
 	resource.Status.ID = strconv.Itoa(created.ID)
-	resource.Status.Type = slackIntegrationType
+	resource.Status.Type = uptimerobot.SlackIntegrationType
 
 	if r.Recorder != nil {
 		if isUpdate {
@@ -445,7 +445,7 @@ func slackIntegrationMatchesDesired(existing *uptimerobot.IntegrationResponse, d
 	if existing == nil {
 		return false
 	}
-	if stringPointerValue(existing.Type) != slackIntegrationType {
+	if stringPointerValue(existing.Type) != uptimerobot.SlackIntegrationType {
 		return false
 	}
 	if stringPointerValue(existing.FriendlyName) != desired.FriendlyName {
