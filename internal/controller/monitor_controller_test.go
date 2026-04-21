@@ -247,6 +247,35 @@ var _ = Describe("Monitor Controller", func() {
 			Expect(errCond.Reason).To(Equal(ReasonAPIError))
 		})
 
+		It("should set Synced=False when referenced contact is not ready", func() {
+			controllerReconciler := &MonitorReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: contact.Name}, contact)).To(Succeed())
+			contact.Status.ID = ""
+			Expect(k8sClient.Status().Update(ctx, contact)).To(Succeed())
+
+			result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(Equal(2 * time.Second))
+
+			Expect(k8sClient.Get(ctx, namespacedName, monitor)).To(Succeed())
+			synced := findCondition(monitor.Status.Conditions, TypeSynced)
+			Expect(synced).NotTo(BeNil())
+			Expect(synced.Status).To(Equal(metav1.ConditionFalse))
+			Expect(synced.Reason).To(Equal(ReasonDependencyNotReady))
+			Expect(synced.Message).To(ContainSubstring(contact.Name))
+		})
+
 		It("should preserve status.ready when type-change delete fails", func() {
 			controllerReconciler := &MonitorReconciler{
 				Client: k8sClient,

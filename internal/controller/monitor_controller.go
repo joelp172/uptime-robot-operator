@@ -284,9 +284,14 @@ func (r *MonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 		if contact.Status.ID == "" {
 			// Contact hasn't been reconciled yet - requeue without error
+			msg := fmt.Sprintf("Contact %s not ready yet", ref.Name)
 			log.FromContext(ctx).Info("Contact not ready yet, requeuing", "contact", ref.Name)
+			SetSyncedCondition(&monitor.Status.Conditions, false, ReasonDependencyNotReady, msg, monitor.Generation)
 			if r.Recorder != nil {
-				r.Recorder.Event(monitor, "Warning", "DependencyNotReady", fmt.Sprintf("Contact %s not ready yet", ref.Name))
+				r.Recorder.Event(monitor, "Warning", "DependencyNotReady", msg)
+			}
+			if updateErr := r.updateMonitorStatus(ctx, monitor); updateErr != nil {
+				return ctrl.Result{}, updateErr
 			}
 			return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
 		}

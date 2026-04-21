@@ -51,6 +51,8 @@ const (
 	ReasonAPIError = "APIError"
 	// ReasonSecretNotFound indicates secret not found
 	ReasonSecretNotFound = "SecretNotFound"
+	// ReasonDependencyNotReady indicates a referenced dependency is not ready yet
+	ReasonDependencyNotReady = "DependencyNotReady"
 )
 
 // SetCondition sets or updates a condition in the conditions list
