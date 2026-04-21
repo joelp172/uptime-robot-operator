@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"time"
 
@@ -118,8 +119,9 @@ var _ = Describe("MonitorGroup Controller", func() {
 
 			accountKey := account.Name
 			Expect(DefaultCircuitBreaker.RecordFailure(accountKey)).To(BeTrue())
-			state := DefaultCircuitBreaker.State(accountKey)
-			reason, eventReason, msg := circuitBreakerBlockDetails(accountKey, state, cooldown)
+			reason := ReasonCircuitBreakerOpen
+			eventReason := ReasonCircuitBreakerOpen
+			msg := fmt.Sprintf("Circuit breaker open for account %s; reconciliation paused for %s", accountKey, cooldown)
 
 			result, err := reconciler.Reconcile(ctx, req)
 			Expect(err).NotTo(HaveOccurred())

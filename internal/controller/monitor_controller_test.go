@@ -426,6 +426,56 @@ var _ = Describe("Monitor Controller", func() {
 			Expect(errCond.Reason).To(Equal(ReasonReconcileSuccess))
 		})
 
+		It("should refresh ObservedGeneration on blocked conditions when spec changes while circuit is open", func() {
+			recorder := record.NewFakeRecorder(10)
+			controllerReconciler := &MonitorReconciler{
+				Client:   k8sClient,
+				Scheme:   k8sClient.Scheme(),
+				Recorder: recorder,
+			}
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			origBreaker := DefaultCircuitBreaker
+			const cooldown = 10 * time.Second
+			DefaultCircuitBreaker = NewCircuitBreaker(1, cooldown)
+			DeferCleanup(func() { DefaultCircuitBreaker = origBreaker })
+
+			accountKey := account.Name
+			Expect(DefaultCircuitBreaker.RecordFailure(accountKey)).To(BeTrue())
+
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(k8sClient.Get(ctx, namespacedName, monitor)).To(Succeed())
+			gen1 := monitor.Generation
+			ready := findCondition(monitor.Status.Conditions, TypeReady)
+			Expect(ready).NotTo(BeNil())
+			Expect(ready.ObservedGeneration).To(Equal(gen1))
+			firstTransition := ready.LastTransitionTime
+
+			By("mutating the monitor spec so generation advances while the breaker is still open")
+			Expect(k8sClient.Get(ctx, namespacedName, monitor)).To(Succeed())
+			monitor.Spec.Monitor.Name = "renamed-while-blocked"
+			Expect(k8sClient.Update(ctx, monitor)).To(Succeed())
+			Expect(k8sClient.Get(ctx, namespacedName, monitor)).To(Succeed())
+			gen2 := monitor.Generation
+			Expect(gen2).To(BeNumerically(">", gen1))
+
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(k8sClient.Get(ctx, namespacedName, monitor)).To(Succeed())
+
+			for _, t := range []string{TypeReady, TypeSynced, TypeError} {
+				c := findCondition(monitor.Status.Conditions, t)
+				Expect(c).NotTo(BeNil())
+				Expect(c.ObservedGeneration).To(Equal(gen2), "ObservedGeneration must advance with spec generation even while blocked (type=%s)", t)
+			}
+			// Reason/message unchanged -> LastTransitionTime must NOT bump.
+			ready = findCondition(monitor.Status.Conditions, TypeReady)
+			Expect(ready.LastTransitionTime).To(Equal(firstTransition))
+		})
+
 		It("should preserve status.ready when type-change delete fails", func() {
 			controllerReconciler := &MonitorReconciler{
 				Client: k8sClient,
