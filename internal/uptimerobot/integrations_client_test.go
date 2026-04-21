@@ -562,6 +562,39 @@ func TestFindContactID_AmbiguousAcrossAlertContactAndIntegrationReturnsError(t *
 	}
 }
 
+func TestFindContactID_DedupesSameSlackContactAcrossSources(t *testing.T) {
+	t.Parallel()
+
+	// UptimeRobot can surface the same underlying Slack entry via both
+	// /user/alert-contacts and /integrations (identical type + id). That is
+	// one contact, not an ambiguity — FindContactID should return it.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == alertContactsPath:
+			_, _ = w.Write([]byte(`[{"id":44,"friendlyName":"platform-alerts","type":"Slack","status":"Active","value":"https://hooks.slack.com/services/PLATFORM"}]`))
+		case r.Method == http.MethodGet && r.URL.Path == integrationsPath:
+			_, _ = w.Write([]byte(`{
+				"nextLink": null,
+				"data": [
+					{"id": 44, "friendlyName": "platform-alerts", "type": "Slack", "status": "Active", "value": "https://hooks.slack.com/services/PLATFORM"}
+				]
+			}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := Client{url: server.URL, apiKey: "test-key"}
+	id, err := client.FindContactID(context.Background(), "platform-alerts")
+	if err != nil {
+		t.Fatalf("expected cross-source dedupe to resolve cleanly, got: %v", err)
+	}
+	if id != "44" {
+		t.Fatalf("expected deduplicated id 44, got %q", id)
+	}
+}
+
 func TestFindContactID_IgnoresNonSlackIntegrationWithMatchingName(t *testing.T) {
 	t.Parallel()
 

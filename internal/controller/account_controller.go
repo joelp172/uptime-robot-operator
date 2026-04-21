@@ -194,8 +194,12 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	account.Status.AlertContacts = alertContacts
 	if len(degradedReasons) > 0 {
 		msg := fmt.Sprintf("Reconciled with partial contact discovery: %s", strings.Join(degradedReasons, "; "))
+		// Ready reflects the degraded reconcile; Synced stays "success" to
+		// match the semantics used by other controllers (Synced=true means
+		// the last UptimeRobot write/sync completed without error — partial
+		// *reads* during discovery don't invalidate that).
 		SetReadyCondition(&account.Status.Conditions, true, ReasonReconcileDegraded, msg, account.Generation)
-		SetSyncedCondition(&account.Status.Conditions, true, ReasonReconcileDegraded, msg, account.Generation)
+		SetSyncedCondition(&account.Status.Conditions, true, ReasonSyncSuccess, "Successfully synced with UptimeRobot", account.Generation)
 		SetErrorCondition(&account.Status.Conditions, false, ReasonReconcileDegraded, "", account.Generation)
 		if r.Recorder != nil {
 			r.Recorder.Event(account, "Warning", "ReconcileDegraded", msg)

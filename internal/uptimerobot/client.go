@@ -1001,11 +1001,28 @@ func (c Client) FindContactID(ctx context.Context, friendlyName string) (string,
 		return "", err
 	}
 
-	var matches []string
+	// Track matches by (type, id) so a single underlying contact that appears
+	// in both /user/alert-contacts and /integrations (same type + same id)
+	// doesn't trigger a false-positive ambiguity error.
+	type contactKey struct {
+		contactType string
+		id          string
+	}
+	seen := make(map[contactKey]struct{})
+	order := make([]contactKey, 0)
+	addMatch := func(t, id string) {
+		k := contactKey{contactType: t, id: id}
+		if _, exists := seen[k]; exists {
+			return
+		}
+		seen[k] = struct{}{}
+		order = append(order, k)
+	}
+
 	for _, contact := range contacts {
 		// FriendlyName can be null in the API response
 		if contact.FriendlyName != nil && *contact.FriendlyName == friendlyName {
-			matches = append(matches, strconv.Itoa(contact.ID))
+			addMatch(contact.Type, strconv.Itoa(contact.ID))
 		}
 	}
 
@@ -1013,25 +1030,32 @@ func (c Client) FindContactID(ctx context.Context, friendlyName string) (string,
 	if err != nil {
 		return "", err
 	}
-	matches = append(matches, integrationMatches...)
+	for _, m := range integrationMatches {
+		addMatch(m.Type, m.ID)
+	}
 
-	switch len(matches) {
+	switch len(order) {
 	case 0:
 		return "", ErrContactNotFound
 	case 1:
-		return matches[0], nil
+		return order[0].id, nil
 	default:
-		return "", fmt.Errorf("%w: friendly name %q matches %d alert contacts/integrations; use spec.contact.id to disambiguate", ErrContactAmbiguous, friendlyName, len(matches))
+		return "", fmt.Errorf("%w: friendly name %q matches %d alert contacts/integrations; use spec.contact.id to disambiguate", ErrContactAmbiguous, friendlyName, len(order))
 	}
 }
 
-func (c Client) findBridgedIntegrationIDsByFriendlyName(ctx context.Context, friendlyName string) ([]string, error) {
+type bridgedIntegrationMatch struct {
+	Type string
+	ID   string
+}
+
+func (c Client) findBridgedIntegrationIDsByFriendlyName(ctx context.Context, friendlyName string) ([]bridgedIntegrationMatch, error) {
 	integrations, err := c.ListIntegrations(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	matches := make([]string, 0, len(integrations))
+	matches := make([]bridgedIntegrationMatch, 0, len(integrations))
 	for i := range integrations {
 		integration := integrations[i]
 		if integration.Type == nil || !IsBridgedIntegrationType(*integration.Type) {
@@ -1040,7 +1064,10 @@ func (c Client) findBridgedIntegrationIDsByFriendlyName(ctx context.Context, fri
 		if integration.FriendlyName == nil || *integration.FriendlyName != friendlyName {
 			continue
 		}
-		matches = append(matches, strconv.Itoa(integration.ID))
+		matches = append(matches, bridgedIntegrationMatch{
+			Type: *integration.Type,
+			ID:   strconv.Itoa(integration.ID),
+		})
 	}
 	return matches, nil
 }
