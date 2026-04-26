@@ -38,7 +38,7 @@ jobs:
           go-version-file: go.mod
           cache: false
       - name: Lint
-        uses: golangci/golangci-lint-action@v7
+        uses: golangci/golangci-lint-action@v9
         with:
           version: v2.0.2
           install-mode: goinstall
