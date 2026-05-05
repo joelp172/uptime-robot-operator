@@ -242,6 +242,25 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	// Step 7: Execute creation or update logic
 	if groupResource.Status.ID == "" {
+		// Treat an empty FriendlyName as a terminal spec error rather than calling
+		// the backend with name="". The CRD validating webhook should already make
+		// this unreachable, so we just surface it loudly instead of attempting any
+		// API work.
+		if groupResource.Spec.FriendlyName == "" {
+			groupResource.Status.Ready = false
+			msg := "MonitorGroup spec.friendlyName must not be empty"
+			SetReadyCondition(&groupResource.Status.Conditions, false, ReasonValidationFailed, msg, groupResource.Generation)
+			SetErrorCondition(&groupResource.Status.Conditions, true, ReasonValidationFailed, msg, groupResource.Generation)
+			if r.Recorder != nil {
+				r.Recorder.Event(groupResource, "Warning", "ValidationFailed", msg)
+			}
+			logger.Error(nil, msg, "monitorgroup", req.NamespacedName)
+			if updateErr := r.updateMonitorGroupStatus(ctx, groupResource); updateErr != nil {
+				return ctrl.Result{}, fmt.Errorf("status write after validation failure: %w", updateErr)
+			}
+			return ctrl.Result{}, nil
+		}
+
 		// Adopt an existing backend group with the same FriendlyName before creating: a
 		// previous reconcile may have created the group but lost the Status.ID write
 		// (non-conflict status-write failure, pod restart, network blip). Without
@@ -265,17 +284,6 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			return ctrl.Result{}, fmt.Errorf("group adoption lookup failed: %w", listErr)
 		}
 
-		// Release the circuit-breaker probe slot before any status write so a HalfOpen
-		// probe is not left in flight if the status update below fails.
-		onAPISuccess(accountKey, r.Recorder, groupResource)
-
-		if groupResource.Spec.FriendlyName == "" {
-			// Should be unreachable: the CRD validating webhook enforces a non-empty
-			// FriendlyName. Surface loudly rather than silently posting a nameless group.
-			logger.Error(nil, "MonitorGroup reached create branch with empty FriendlyName; skipping adoption lookup",
-				"monitorgroup", req.NamespacedName)
-		}
-
 		adopted, matchCount := findAdoptableGroup(existingGroups, groupResource.Spec.FriendlyName)
 		if matchCount > 1 {
 			logger.Info("Multiple backend groups share this FriendlyName; adopting lowest ID",
@@ -286,6 +294,11 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			}
 		}
 		if matchCount > 0 {
+			// Adoption: the list call is the only backend call in this branch, so this
+			// is the last API call and the right place to release the circuit-breaker
+			// probe slot. Done before the status write so a HalfOpen probe is freed
+			// even if K8s rejects the update.
+			onAPISuccess(accountKey, r.Recorder, groupResource)
 			groupResource.Status.ID = strconv.Itoa(adopted.ID)
 			logger.Info("Adopting existing backend group with matching FriendlyName",
 				"name", groupResource.Spec.FriendlyName, "id", groupResource.Status.ID)
@@ -378,7 +391,6 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 					}
 					return ctrl.Result{}, fmt.Errorf("group adoption lookup failed: %w", listErr)
 				}
-				onAPISuccess(accountKey, r.Recorder, groupResource)
 
 				adopted, matchCount := findAdoptableGroup(existingGroups, groupResource.Spec.FriendlyName)
 				if matchCount > 1 {

@@ -36,9 +36,10 @@ type ServerState struct {
 	createMonitorID int
 	integrations    map[int]map[string]any
 	nextIntegration int
-	// Stateful monitor-group backing so adoption-by-name and POST-then-GET tests are
-	// observable. Seeded with the legacy fixture (id=12345 "Test Monitor Group") for
-	// backward compatibility with existing fixture-driven tests.
+	// Stateful monitor-group backing for adoption-by-name lookups and the POST
+	// create-counter. Affects the list endpoint only — GET /monitor-groups/{id}
+	// still serves the legacy single-group fixture. Seeded with the legacy list
+	// fixture (id=12345 "Test Monitor Group") for backward compatibility.
 	monitorGroups              []map[string]any
 	nextMonitorGroupID         int
 	monitorGroupCreateCount    int

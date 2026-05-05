@@ -60,6 +60,9 @@ const (
 	// circuit breaker is blocking calls in a non-open state (for example,
 	// half-open while a probe is already in flight).
 	ReasonCircuitBreakerBlocked = "CircuitBreakerBlocked"
+	// ReasonValidationFailed indicates the resource spec failed a controller-side
+	// validation check that should normally be caught by the CRD validating webhook.
+	ReasonValidationFailed = "ValidationFailed"
 )
 
 // SetCondition sets or updates a condition in the conditions list
