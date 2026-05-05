@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -283,6 +284,47 @@ var _ = Describe("MonitorGroup Controller", func() {
 
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace}, mg)).To(Succeed())
 			Expect(mg.Status.ID).To(Equal(createdID))
+		})
+
+		It("should adopt an existing backend group with matching FriendlyName instead of creating a duplicate", func() {
+			// Simulates a previous reconcile that successfully created the backend group
+			// but lost the Status.ID write (non-conflict failure, pod restart, etc.). The
+			// CR sees Status.ID == "" but a backend group with the same FriendlyName
+			// already exists and must be adopted rather than recreated.
+			//
+			// The fake UR backend's GET /monitor-groups fixture lists a group named
+			// "Test Monitor Group" with ID 12345. Using that FriendlyName here makes the
+			// list-and-adopt path observable.
+			mg := CreateMonitorGroup(ctx, "test-adopt-existing-mg", account.Name, uptimerobotv1.MonitorGroupSpec{
+				FriendlyName: "Test Monitor Group",
+			})
+			defer CleanupMonitorGroup(ctx, mg)
+
+			recorder := record.NewFakeRecorder(100)
+			reconciler := &MonitorGroupReconciler{
+				Client:   k8sClient,
+				Scheme:   k8sClient.Scheme(),
+				Recorder: recorder,
+			}
+
+			result, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.Requeue).To(BeTrue())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace}, mg)).To(Succeed())
+			Expect(mg.Status.ID).To(Equal("12345"))
+
+			close(recorder.Events)
+			sawAdopted := false
+			for event := range recorder.Events {
+				Expect(event).NotTo(ContainSubstring("Created"))
+				if strings.Contains(event, "Adopted") {
+					sawAdopted = true
+				}
+			}
+			Expect(sawAdopted).To(BeTrue(), "expected an Adopted event recording the adopted backend group ID")
 		})
 
 		It("should surface non-conflict status update errors", func() {

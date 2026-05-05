@@ -242,7 +242,43 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	// Step 7: Execute creation or update logic
 	if groupResource.Status.ID == "" {
-		// Creation pathway
+		// Adopt an existing backend group with the same FriendlyName before creating, so a
+		// previous reconcile that successfully created the group but failed to persist
+		// Status.ID (non-conflict status-write failure, pod restart, network blip) does not
+		// produce a duplicate.
+		existingGroups, listErr := backendClient.EnumerateGroupsFromBackend(ctx)
+		if listErr != nil {
+			metrics.ReconciliationErrorsTotal.WithLabelValues("monitorgroup", "api_error").Inc()
+			groupResource.Status.Ready = false
+			msg := fmt.Sprintf("Group adoption lookup failed: %v", listErr)
+			SetReadyCondition(&groupResource.Status.Conditions, false, ReasonAPIError, msg, groupResource.Generation)
+			SetSyncedCondition(&groupResource.Status.Conditions, false, ReasonSyncError, msg, groupResource.Generation)
+			SetErrorCondition(&groupResource.Status.Conditions, true, ReasonAPIError, msg, groupResource.Generation)
+			if r.Recorder != nil {
+				r.Recorder.Event(groupResource, "Warning", "SyncFailed", msg)
+			}
+			onAPIFailure(accountKey, listErr, r.Recorder, groupResource)
+			if updateErr := r.updateMonitorGroupStatus(ctx, groupResource); updateErr != nil {
+				return ctrl.Result{}, updateErr
+			}
+			return ctrl.Result{}, fmt.Errorf("group adoption lookup failed: %w", listErr)
+		}
+
+		if adopted, found := findAdoptableGroup(existingGroups, groupResource.Spec.FriendlyName); found {
+			groupResource.Status.ID = strconv.Itoa(adopted.ID)
+			logger.Info("Adopting existing backend group with matching FriendlyName",
+				"name", groupResource.Spec.FriendlyName, "id", groupResource.Status.ID)
+			if r.Recorder != nil {
+				r.Recorder.Event(groupResource, "Normal", "Adopted",
+					fmt.Sprintf("Adopted existing monitor group with ID %s", groupResource.Status.ID))
+			}
+			if statusErr := r.updateMonitorGroupStatus(ctx, groupResource); statusErr != nil {
+				return ctrl.Result{}, statusErr
+			}
+			// Requeue so the next reconcile runs the update path with the adopted ID.
+			return ctrl.Result{Requeue: true}, nil
+		}
+
 		creationPayload := uptimerobot.GroupCreationWireFormat{
 			Name:       groupResource.Spec.FriendlyName,
 			MonitorIDs: aggregatedMonitorIDs,
@@ -276,14 +312,18 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		SetSyncedCondition(&groupResource.Status.Conditions, true, ReasonSyncSuccess, "Successfully synced with UptimeRobot", groupResource.Generation)
 		SetErrorCondition(&groupResource.Status.Conditions, false, ReasonReconcileSuccess, "", groupResource.Generation)
 
+		// Persist Status.ID before recording the event so a failed status write does not
+		// produce a misleading "Created" event for a backend group that the next reconcile
+		// will adopt rather than recreate.
+		if statusErr := r.updateMonitorGroupStatus(ctx, groupResource); statusErr != nil {
+			return ctrl.Result{}, statusErr
+		}
+
 		if r.Recorder != nil {
 			r.Recorder.Event(groupResource, "Normal", "Created", fmt.Sprintf("Monitor group created with ID %s", groupResource.Status.ID))
 		}
 
 		onAPISuccess(accountKey, r.Recorder, groupResource)
-		if statusErr := r.updateMonitorGroupStatus(ctx, groupResource); statusErr != nil {
-			return ctrl.Result{}, statusErr
-		}
 	} else {
 		// Update pathway
 		updatePayload := uptimerobot.GroupUpdateWireFormat{
@@ -373,6 +413,29 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	return ctrl.Result{RequeueAfter: AddSyncJitter(groupResource.Spec.SyncInterval.Duration)}, nil
+}
+
+// findAdoptableGroup returns the lowest-ID backend group whose Name matches friendlyName,
+// so a CR whose previous create succeeded in the backend but whose Status.ID was never
+// persisted can adopt the existing group instead of creating a duplicate. The lowest ID
+// is preferred so adoption is deterministic and clusters that already accumulated
+// duplicates from this bug converge on the oldest group.
+func findAdoptableGroup(groups []uptimerobot.GroupWireFormat, friendlyName string) (uptimerobot.GroupWireFormat, bool) {
+	if friendlyName == "" {
+		return uptimerobot.GroupWireFormat{}, false
+	}
+	var match uptimerobot.GroupWireFormat
+	found := false
+	for _, g := range groups {
+		if g.Name != friendlyName {
+			continue
+		}
+		if !found || g.ID < match.ID {
+			match = g
+			found = true
+		}
+	}
+	return match, found
 }
 
 // updateMonitorGroupStatus writes status and retries on conflict by refetching
