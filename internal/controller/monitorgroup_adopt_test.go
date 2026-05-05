@@ -28,56 +28,64 @@ func TestFindAdoptableGroup(t *testing.T) {
 		{ID: 3, Name: "beta"},
 		{ID: 9, Name: "beta"},
 		{ID: 7, Name: "gamma"},
+		{ID: 0, Name: "zero"},
 	}
 
 	tests := []struct {
-		name         string
-		friendlyName string
-		groups       []uptimerobot.GroupWireFormat
-		wantID       int
-		wantFound    bool
+		name           string
+		friendlyName   string
+		groups         []uptimerobot.GroupWireFormat
+		wantID         int
+		wantMatchCount int
 	}{
 		{
-			name:         "empty friendly name never matches",
-			friendlyName: "",
-			groups:       groups,
-			wantFound:    false,
+			name:           "empty friendly name never matches",
+			friendlyName:   "",
+			groups:         groups,
+			wantMatchCount: 0,
 		},
 		{
-			name:         "no matching name",
-			friendlyName: "delta",
-			groups:       groups,
-			wantFound:    false,
+			name:           "no matching name",
+			friendlyName:   "delta",
+			groups:         groups,
+			wantMatchCount: 0,
 		},
 		{
-			name:         "single match returns that group",
-			friendlyName: "alpha",
-			groups:       groups,
-			wantID:       5,
-			wantFound:    true,
+			name:           "single match returns that group",
+			friendlyName:   "alpha",
+			groups:         groups,
+			wantID:         5,
+			wantMatchCount: 1,
 		},
 		{
-			name:         "multiple matches return lowest ID for deterministic adoption",
-			friendlyName: "beta",
-			groups:       groups,
-			wantID:       3,
-			wantFound:    true,
+			name:           "multiple matches return lowest ID for deterministic adoption",
+			friendlyName:   "beta",
+			groups:         groups,
+			wantID:         3,
+			wantMatchCount: 2,
 		},
 		{
-			name:         "empty group list does not match",
-			friendlyName: "alpha",
-			groups:       nil,
-			wantFound:    false,
+			name:           "zero-ID group is treated as a real match (no zero-value sentinel collision)",
+			friendlyName:   "zero",
+			groups:         groups,
+			wantID:         0,
+			wantMatchCount: 1,
+		},
+		{
+			name:           "empty group list does not match",
+			friendlyName:   "alpha",
+			groups:         nil,
+			wantMatchCount: 0,
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, found := findAdoptableGroup(tc.groups, tc.friendlyName)
-			if found != tc.wantFound {
-				t.Fatalf("found = %v, want %v", found, tc.wantFound)
+			got, matchCount := findAdoptableGroup(tc.groups, tc.friendlyName)
+			if matchCount != tc.wantMatchCount {
+				t.Fatalf("matchCount = %d, want %d", matchCount, tc.wantMatchCount)
 			}
-			if found && got.ID != tc.wantID {
+			if matchCount > 0 && got.ID != tc.wantID {
 				t.Fatalf("got ID %d, want %d", got.ID, tc.wantID)
 			}
 		})

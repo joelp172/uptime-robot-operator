@@ -242,10 +242,11 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	// Step 7: Execute creation or update logic
 	if groupResource.Status.ID == "" {
-		// Adopt an existing backend group with the same FriendlyName before creating, so a
-		// previous reconcile that successfully created the group but failed to persist
-		// Status.ID (non-conflict status-write failure, pod restart, network blip) does not
-		// produce a duplicate.
+		// Adopt an existing backend group with the same FriendlyName before creating: a
+		// previous reconcile may have created the group but lost the Status.ID write
+		// (non-conflict status-write failure, pod restart, network blip). Without
+		// adoption the next reconcile sees Status.ID == "" and posts a duplicate, which
+		// UptimeRobot accepts because POST /monitor-groups does not 409 on name reuse.
 		existingGroups, listErr := backendClient.EnumerateGroupsFromBackend(ctx)
 		if listErr != nil {
 			metrics.ReconciliationErrorsTotal.WithLabelValues("monitorgroup", "api_error").Inc()
@@ -255,26 +256,41 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			SetSyncedCondition(&groupResource.Status.Conditions, false, ReasonSyncError, msg, groupResource.Generation)
 			SetErrorCondition(&groupResource.Status.Conditions, true, ReasonAPIError, msg, groupResource.Generation)
 			if r.Recorder != nil {
-				r.Recorder.Event(groupResource, "Warning", "SyncFailed", msg)
+				r.Recorder.Event(groupResource, "Warning", "AdoptionLookupFailed", msg)
 			}
 			onAPIFailure(accountKey, listErr, r.Recorder, groupResource)
 			if updateErr := r.updateMonitorGroupStatus(ctx, groupResource); updateErr != nil {
-				return ctrl.Result{}, updateErr
+				return ctrl.Result{}, fmt.Errorf("status write after adoption lookup failure: %w", updateErr)
 			}
 			return ctrl.Result{}, fmt.Errorf("group adoption lookup failed: %w", listErr)
 		}
 
-		// Record API success for the list call now so the circuit breaker probe slot is
-		// released even if the status write below fails — otherwise a HalfOpen probe stays
-		// in-flight and blocks subsequent calls for this account.
+		// Release the circuit-breaker probe slot before any status write so a HalfOpen
+		// probe is not left in flight if the status update below fails.
 		onAPISuccess(accountKey, r.Recorder, groupResource)
 
-		if adopted, found := findAdoptableGroup(existingGroups, groupResource.Spec.FriendlyName); found {
+		if groupResource.Spec.FriendlyName == "" {
+			// Should be unreachable: the CRD validating webhook enforces a non-empty
+			// FriendlyName. Surface loudly rather than silently posting a nameless group.
+			logger.Error(nil, "MonitorGroup reached create branch with empty FriendlyName; skipping adoption lookup",
+				"monitorgroup", req.NamespacedName)
+		}
+
+		adopted, matchCount := findAdoptableGroup(existingGroups, groupResource.Spec.FriendlyName)
+		if matchCount > 1 {
+			logger.Info("Multiple backend groups share this FriendlyName; adopting lowest ID",
+				"name", groupResource.Spec.FriendlyName, "matchCount", matchCount, "adoptedID", adopted.ID)
+			if r.Recorder != nil {
+				r.Recorder.Event(groupResource, "Warning", "AdoptionNameCollision",
+					fmt.Sprintf("%d backend groups named %q exist; adopting lowest ID %d", matchCount, groupResource.Spec.FriendlyName, adopted.ID))
+			}
+		}
+		if matchCount > 0 {
 			groupResource.Status.ID = strconv.Itoa(adopted.ID)
 			logger.Info("Adopting existing backend group with matching FriendlyName",
 				"name", groupResource.Spec.FriendlyName, "id", groupResource.Status.ID)
 			if statusErr := r.updateMonitorGroupStatus(ctx, groupResource); statusErr != nil {
-				return ctrl.Result{}, statusErr
+				return ctrl.Result{}, fmt.Errorf("status write after adoption: %w", statusErr)
 			}
 			if r.Recorder != nil {
 				r.Recorder.Event(groupResource, "Normal", "Adopted",
@@ -317,18 +333,15 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		SetSyncedCondition(&groupResource.Status.Conditions, true, ReasonSyncSuccess, "Successfully synced with UptimeRobot", groupResource.Generation)
 		SetErrorCondition(&groupResource.Status.Conditions, false, ReasonReconcileSuccess, "", groupResource.Generation)
 
-		// Record API success before the status write so the circuit breaker probe slot is
-		// released even if the K8s status write fails — otherwise a HalfOpen probe stays
-		// in-flight and blocks subsequent calls for this account.
+		// Order matters: release the circuit-breaker probe before the status write (so a
+		// HalfOpen probe is freed even if K8s rejects the update), then persist Status.ID,
+		// then emit the Created event last so a failed status write does not surface a
+		// misleading event for a backend group the next reconcile will adopt rather than
+		// recreate.
 		onAPISuccess(accountKey, r.Recorder, groupResource)
-
-		// Persist Status.ID before recording the event so a failed status write does not
-		// produce a misleading "Created" event for a backend group that the next reconcile
-		// will adopt rather than recreate.
 		if statusErr := r.updateMonitorGroupStatus(ctx, groupResource); statusErr != nil {
-			return ctrl.Result{}, statusErr
+			return ctrl.Result{}, fmt.Errorf("status write after backend create: %w", statusErr)
 		}
-
 		if r.Recorder != nil {
 			r.Recorder.Event(groupResource, "Normal", "Created", fmt.Sprintf("Monitor group created with ID %s", groupResource.Status.ID))
 		}
@@ -344,33 +357,75 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		if updateErr != nil {
 			// Handle out-of-band deletion
 			if uptimerobot.IsNotFound(updateErr) {
-				logger.Info("Group missing from backend, recreating", "id", groupResource.Status.ID)
+				logger.Info("Group missing from backend, attempting adoption before recreate", "id", groupResource.Status.ID)
 
-				creationPayload := uptimerobot.GroupCreationWireFormat{
-					Name:       groupResource.Spec.FriendlyName,
-					MonitorIDs: aggregatedMonitorIDs,
-					GroupIDs:   groupResource.Spec.PullFromGroups,
-				}
-
-				backendResponse, recreationErr := backendClient.SpawnGroupInBackend(ctx, creationPayload)
-				if recreationErr != nil {
+				// List existing groups before recreating so we don't re-introduce the
+				// duplicate-create race when an earlier reconcile created the new group
+				// but lost the Status.ID write.
+				existingGroups, listErr := backendClient.EnumerateGroupsFromBackend(ctx)
+				if listErr != nil {
 					metrics.ReconciliationErrorsTotal.WithLabelValues("monitorgroup", "api_error").Inc()
-					groupResource.Status.Ready = false
-					msg := fmt.Sprintf("Group recreation failed: %v", recreationErr)
+					msg := fmt.Sprintf("Group adoption lookup failed: %v", listErr)
 					SetReadyCondition(&groupResource.Status.Conditions, false, ReasonAPIError, msg, groupResource.Generation)
-					SetSyncedCondition(&groupResource.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to recreate group in UptimeRobot: %v", recreationErr), groupResource.Generation)
+					SetSyncedCondition(&groupResource.Status.Conditions, false, ReasonSyncError, msg, groupResource.Generation)
 					SetErrorCondition(&groupResource.Status.Conditions, true, ReasonAPIError, msg, groupResource.Generation)
 					if r.Recorder != nil {
-						r.Recorder.Event(groupResource, "Warning", "SyncFailed", msg)
+						r.Recorder.Event(groupResource, "Warning", "AdoptionLookupFailed", msg)
 					}
-					onAPIFailure(accountKey, recreationErr, r.Recorder, groupResource)
-					if updateErr := r.updateMonitorGroupStatus(ctx, groupResource); updateErr != nil {
-						return ctrl.Result{}, updateErr
+					onAPIFailure(accountKey, listErr, r.Recorder, groupResource)
+					if statusUpdateErr := r.updateMonitorGroupStatus(ctx, groupResource); statusUpdateErr != nil {
+						return ctrl.Result{}, fmt.Errorf("status write after adoption lookup failure: %w", statusUpdateErr)
 					}
-					return ctrl.Result{}, fmt.Errorf("group recreation failed: %w", recreationErr)
+					return ctrl.Result{}, fmt.Errorf("group adoption lookup failed: %w", listErr)
+				}
+				onAPISuccess(accountKey, r.Recorder, groupResource)
+
+				adopted, matchCount := findAdoptableGroup(existingGroups, groupResource.Spec.FriendlyName)
+				if matchCount > 1 {
+					logger.Info("Multiple backend groups share this FriendlyName; adopting lowest ID",
+						"name", groupResource.Spec.FriendlyName, "matchCount", matchCount, "adoptedID", adopted.ID)
+					if r.Recorder != nil {
+						r.Recorder.Event(groupResource, "Warning", "AdoptionNameCollision",
+							fmt.Sprintf("%d backend groups named %q exist; adopting lowest ID %d", matchCount, groupResource.Spec.FriendlyName, adopted.ID))
+					}
 				}
 
-				groupResource.Status.ID = strconv.Itoa(backendResponse.ID)
+				var newID int
+				eventReason := "Recreated"
+				eventMsg := ""
+				if matchCount > 0 {
+					newID = adopted.ID
+					eventReason = "Adopted"
+					eventMsg = fmt.Sprintf("Adopted existing monitor group with ID %d after backend 404", newID)
+				} else {
+					creationPayload := uptimerobot.GroupCreationWireFormat{
+						Name:       groupResource.Spec.FriendlyName,
+						MonitorIDs: aggregatedMonitorIDs,
+						GroupIDs:   groupResource.Spec.PullFromGroups,
+					}
+					backendResponse, recreationErr := backendClient.SpawnGroupInBackend(ctx, creationPayload)
+					if recreationErr != nil {
+						metrics.ReconciliationErrorsTotal.WithLabelValues("monitorgroup", "api_error").Inc()
+						groupResource.Status.Ready = false
+						msg := fmt.Sprintf("Group recreation failed: %v", recreationErr)
+						SetReadyCondition(&groupResource.Status.Conditions, false, ReasonAPIError, msg, groupResource.Generation)
+						SetSyncedCondition(&groupResource.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to recreate group in UptimeRobot: %v", recreationErr), groupResource.Generation)
+						SetErrorCondition(&groupResource.Status.Conditions, true, ReasonAPIError, msg, groupResource.Generation)
+						if r.Recorder != nil {
+							r.Recorder.Event(groupResource, "Warning", "SyncFailed", msg)
+						}
+						onAPIFailure(accountKey, recreationErr, r.Recorder, groupResource)
+						if statusUpdateErr := r.updateMonitorGroupStatus(ctx, groupResource); statusUpdateErr != nil {
+							return ctrl.Result{}, fmt.Errorf("status write after recreation failure: %w", statusUpdateErr)
+						}
+						return ctrl.Result{}, fmt.Errorf("group recreation failed: %w", recreationErr)
+					}
+					newID = backendResponse.ID
+					eventMsg = fmt.Sprintf("Monitor group recreated with ID %d", newID)
+				}
+
+				groupResource.Status.ID = strconv.Itoa(newID)
+				groupResource.Status.Ready = true
 				groupResource.Status.MonitorCount = len(aggregatedMonitorIDs)
 				nowTimestamp := metav1.Now()
 				groupResource.Status.LastReconciled = &nowTimestamp
@@ -378,13 +433,13 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				SetSyncedCondition(&groupResource.Status.Conditions, true, ReasonSyncSuccess, "Successfully synced with UptimeRobot", groupResource.Generation)
 				SetErrorCondition(&groupResource.Status.Conditions, false, ReasonReconcileSuccess, "", groupResource.Generation)
 
-				if r.Recorder != nil {
-					r.Recorder.Event(groupResource, "Normal", "Recreated", fmt.Sprintf("Monitor group recreated with ID %s", groupResource.Status.ID))
-				}
-
+				// Same ordering as the create path: success signal, then status, then event.
 				onAPISuccess(accountKey, r.Recorder, groupResource)
 				if statusErr := r.updateMonitorGroupStatus(ctx, groupResource); statusErr != nil {
-					return ctrl.Result{}, statusErr
+					return ctrl.Result{}, fmt.Errorf("status write after backend recreate/adopt: %w", statusErr)
+				}
+				if r.Recorder != nil {
+					r.Recorder.Event(groupResource, "Normal", eventReason, eventMsg)
 				}
 				return ctrl.Result{RequeueAfter: AddSyncJitter(groupResource.Spec.SyncInterval.Duration)}, nil
 			}
@@ -398,7 +453,7 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			}
 			onAPIFailure(accountKey, updateErr, r.Recorder, groupResource)
 			if statusUpdateErr := r.updateMonitorGroupStatus(ctx, groupResource); statusUpdateErr != nil {
-				return ctrl.Result{}, statusUpdateErr
+				return ctrl.Result{}, fmt.Errorf("status write after backend update failure: %w", statusUpdateErr)
 			}
 			return ctrl.Result{}, fmt.Errorf("group update failed: %w", updateErr)
 		}
@@ -416,34 +471,30 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 		onAPISuccess(accountKey, r.Recorder, groupResource)
 		if statusErr := r.updateMonitorGroupStatus(ctx, groupResource); statusErr != nil {
-			return ctrl.Result{}, statusErr
+			return ctrl.Result{}, fmt.Errorf("status write after backend update: %w", statusErr)
 		}
 	}
 
 	return ctrl.Result{RequeueAfter: AddSyncJitter(groupResource.Spec.SyncInterval.Duration)}, nil
 }
 
-// findAdoptableGroup returns the lowest-ID backend group whose Name matches friendlyName,
-// so a CR whose previous create succeeded in the backend but whose Status.ID was never
-// persisted can adopt the existing group instead of creating a duplicate. The lowest ID
-// is preferred so adoption is deterministic and clusters that already accumulated
-// duplicates from this bug converge on the oldest group.
-func findAdoptableGroup(groups []uptimerobot.GroupWireFormat, friendlyName string) (uptimerobot.GroupWireFormat, bool) {
+// findAdoptableGroup returns the lowest-ID backend group matching friendlyName along
+// with the total match count. Lowest-ID wins so adoption is deterministic. matchCount
+// > 1 signals a FriendlyName collision the caller should log.
+func findAdoptableGroup(groups []uptimerobot.GroupWireFormat, friendlyName string) (group uptimerobot.GroupWireFormat, matchCount int) {
 	if friendlyName == "" {
-		return uptimerobot.GroupWireFormat{}, false
+		return uptimerobot.GroupWireFormat{}, 0
 	}
-	var match uptimerobot.GroupWireFormat
-	found := false
 	for _, g := range groups {
 		if g.Name != friendlyName {
 			continue
 		}
-		if !found || g.ID < match.ID {
-			match = g
-			found = true
+		matchCount++
+		if matchCount == 1 || g.ID < group.ID {
+			group = g
 		}
 	}
-	return match, found
+	return group, matchCount
 }
 
 // updateMonitorGroupStatus writes status and retries on conflict by refetching
