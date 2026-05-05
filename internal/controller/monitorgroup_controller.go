@@ -264,16 +264,21 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			return ctrl.Result{}, fmt.Errorf("group adoption lookup failed: %w", listErr)
 		}
 
+		// Record API success for the list call now so the circuit breaker probe slot is
+		// released even if the status write below fails — otherwise a HalfOpen probe stays
+		// in-flight and blocks subsequent calls for this account.
+		onAPISuccess(accountKey, r.Recorder, groupResource)
+
 		if adopted, found := findAdoptableGroup(existingGroups, groupResource.Spec.FriendlyName); found {
 			groupResource.Status.ID = strconv.Itoa(adopted.ID)
 			logger.Info("Adopting existing backend group with matching FriendlyName",
 				"name", groupResource.Spec.FriendlyName, "id", groupResource.Status.ID)
+			if statusErr := r.updateMonitorGroupStatus(ctx, groupResource); statusErr != nil {
+				return ctrl.Result{}, statusErr
+			}
 			if r.Recorder != nil {
 				r.Recorder.Event(groupResource, "Normal", "Adopted",
 					fmt.Sprintf("Adopted existing monitor group with ID %s", groupResource.Status.ID))
-			}
-			if statusErr := r.updateMonitorGroupStatus(ctx, groupResource); statusErr != nil {
-				return ctrl.Result{}, statusErr
 			}
 			// Requeue so the next reconcile runs the update path with the adopted ID.
 			return ctrl.Result{Requeue: true}, nil
@@ -312,6 +317,11 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		SetSyncedCondition(&groupResource.Status.Conditions, true, ReasonSyncSuccess, "Successfully synced with UptimeRobot", groupResource.Generation)
 		SetErrorCondition(&groupResource.Status.Conditions, false, ReasonReconcileSuccess, "", groupResource.Generation)
 
+		// Record API success before the status write so the circuit breaker probe slot is
+		// released even if the K8s status write fails — otherwise a HalfOpen probe stays
+		// in-flight and blocks subsequent calls for this account.
+		onAPISuccess(accountKey, r.Recorder, groupResource)
+
 		// Persist Status.ID before recording the event so a failed status write does not
 		// produce a misleading "Created" event for a backend group that the next reconcile
 		// will adopt rather than recreate.
@@ -322,8 +332,6 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		if r.Recorder != nil {
 			r.Recorder.Event(groupResource, "Normal", "Created", fmt.Sprintf("Monitor group created with ID %s", groupResource.Status.ID))
 		}
-
-		onAPISuccess(accountKey, r.Recorder, groupResource)
 	} else {
 		// Update pathway
 		updatePayload := uptimerobot.GroupUpdateWireFormat{
