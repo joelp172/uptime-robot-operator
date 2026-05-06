@@ -183,6 +183,26 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	backendClient := uptimerobot.NewClient(apiToken)
 	accountKey := credentialVault.Name
 
+	// Spec validation: run before the circuit breaker so a no-API-call short-circuit
+	// does not take a HalfOpen probe slot. Empty FriendlyName is unreachable through
+	// the typed CRD API (MinLength=1) but kept as defense-in-depth in case validation
+	// is ever bypassed.
+	if groupResource.Status.ID == "" && groupResource.Spec.FriendlyName == "" {
+		groupResource.Status.Ready = false
+		msg := "MonitorGroup spec.friendlyName must not be empty"
+		SetReadyCondition(&groupResource.Status.Conditions, false, ReasonValidationFailed, msg, groupResource.Generation)
+		SetSyncedCondition(&groupResource.Status.Conditions, false, ReasonValidationFailed, msg, groupResource.Generation)
+		SetErrorCondition(&groupResource.Status.Conditions, true, ReasonValidationFailed, msg, groupResource.Generation)
+		if r.Recorder != nil {
+			r.Recorder.Event(groupResource, "Warning", "ValidationFailed", msg)
+		}
+		logger.Info(msg, "monitorgroup", req.NamespacedName)
+		if updateErr := r.updateMonitorGroupStatus(ctx, groupResource); updateErr != nil {
+			return ctrl.Result{}, fmt.Errorf("status write after validation failure: %w", updateErr)
+		}
+		return ctrl.Result{}, nil
+	}
+
 	// Circuit breaker: skip API calls when the circuit is not allowing traffic.
 	if !DefaultCircuitBreaker.Allow(accountKey) {
 		state := DefaultCircuitBreaker.State(accountKey)
@@ -242,25 +262,6 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	// Step 7: Execute creation or update logic
 	if groupResource.Status.ID == "" {
-		// Treat an empty FriendlyName as a terminal spec error rather than calling
-		// the backend with name="". The CRD validating webhook should already make
-		// this unreachable, so we just surface it loudly instead of attempting any
-		// API work.
-		if groupResource.Spec.FriendlyName == "" {
-			groupResource.Status.Ready = false
-			msg := "MonitorGroup spec.friendlyName must not be empty"
-			SetReadyCondition(&groupResource.Status.Conditions, false, ReasonValidationFailed, msg, groupResource.Generation)
-			SetErrorCondition(&groupResource.Status.Conditions, true, ReasonValidationFailed, msg, groupResource.Generation)
-			if r.Recorder != nil {
-				r.Recorder.Event(groupResource, "Warning", "ValidationFailed", msg)
-			}
-			logger.Info(msg, "monitorgroup", req.NamespacedName)
-			if updateErr := r.updateMonitorGroupStatus(ctx, groupResource); updateErr != nil {
-				return ctrl.Result{}, fmt.Errorf("status write after validation failure: %w", updateErr)
-			}
-			return ctrl.Result{}, nil
-		}
-
 		// Adopt an existing backend group with the same FriendlyName before creating: a
 		// previous reconcile may have created the group but lost the Status.ID write
 		// (non-conflict status-write failure, pod restart, network blip). Without
@@ -297,9 +298,16 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			// Adoption: the list call is the only backend call in this branch, so this
 			// is the last API call and the right place to release the circuit-breaker
 			// probe slot. Done before the status write so a HalfOpen probe is freed
-			// even if K8s rejects the update.
+			// even if K8s rejects the update. Conditions explicitly mark Synced=false
+			// because we have not yet pushed the desired Spec to the adopted group;
+			// the immediate requeue runs the update path next reconcile.
 			onAPISuccess(accountKey, r.Recorder, groupResource)
 			groupResource.Status.ID = strconv.Itoa(adopted.ID)
+			groupResource.Status.Ready = false
+			adoptMsg := fmt.Sprintf("Adopted existing monitor group with ID %s; pending sync", groupResource.Status.ID)
+			SetReadyCondition(&groupResource.Status.Conditions, false, ReasonReconcileDegraded, adoptMsg, groupResource.Generation)
+			SetSyncedCondition(&groupResource.Status.Conditions, false, ReasonSyncSkipped, "Adopted backend group; spec not yet applied", groupResource.Generation)
+			SetErrorCondition(&groupResource.Status.Conditions, false, ReasonReconcileDegraded, "", groupResource.Generation)
 			logger.Info("Adopting existing backend group with matching FriendlyName",
 				"name", groupResource.Spec.FriendlyName, "id", groupResource.Status.ID)
 			if statusErr := r.updateMonitorGroupStatus(ctx, groupResource); statusErr != nil {
@@ -405,10 +413,17 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				if matchCount > 0 {
 					// Adopting an existing group on the 404 path: we have not yet pushed
 					// the desired Spec to that backend group, so do not claim Synced=true.
-					// Persist the new ID and requeue immediately so the next reconcile
-					// runs the update path against the adopted ID.
+					// Reset the conditions so a stale Synced=true from a previous
+					// reconcile doesn't misreport the resource as in-sync, persist the
+					// new ID, and requeue immediately so the next reconcile runs the
+					// update path against the adopted ID.
 					onAPISuccess(accountKey, r.Recorder, groupResource)
 					groupResource.Status.ID = strconv.Itoa(adopted.ID)
+					groupResource.Status.Ready = false
+					adoptMsg := fmt.Sprintf("Adopted existing monitor group with ID %d after backend 404; pending sync", adopted.ID)
+					SetReadyCondition(&groupResource.Status.Conditions, false, ReasonReconcileDegraded, adoptMsg, groupResource.Generation)
+					SetSyncedCondition(&groupResource.Status.Conditions, false, ReasonSyncSkipped, "Adopted backend group; spec not yet applied", groupResource.Generation)
+					SetErrorCondition(&groupResource.Status.Conditions, false, ReasonReconcileDegraded, "", groupResource.Generation)
 					if statusErr := r.updateMonitorGroupStatus(ctx, groupResource); statusErr != nil {
 						return ctrl.Result{}, fmt.Errorf("status write after backend adopt-on-404: %w", statusErr)
 					}
