@@ -254,7 +254,7 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			if r.Recorder != nil {
 				r.Recorder.Event(groupResource, "Warning", "ValidationFailed", msg)
 			}
-			logger.Error(nil, msg, "monitorgroup", req.NamespacedName)
+			logger.Info(msg, "monitorgroup", req.NamespacedName)
 			if updateErr := r.updateMonitorGroupStatus(ctx, groupResource); updateErr != nil {
 				return ctrl.Result{}, fmt.Errorf("status write after validation failure: %w", updateErr)
 			}
@@ -402,41 +402,48 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 					}
 				}
 
-				var newID int
-				eventReason := "Recreated"
-				eventMsg := ""
 				if matchCount > 0 {
-					newID = adopted.ID
-					eventReason = "Adopted"
-					eventMsg = fmt.Sprintf("Adopted existing monitor group with ID %d after backend 404", newID)
-				} else {
-					creationPayload := uptimerobot.GroupCreationWireFormat{
-						Name:       groupResource.Spec.FriendlyName,
-						MonitorIDs: aggregatedMonitorIDs,
-						GroupIDs:   groupResource.Spec.PullFromGroups,
+					// Adopting an existing group on the 404 path: we have not yet pushed
+					// the desired Spec to that backend group, so do not claim Synced=true.
+					// Persist the new ID and requeue immediately so the next reconcile
+					// runs the update path against the adopted ID.
+					onAPISuccess(accountKey, r.Recorder, groupResource)
+					groupResource.Status.ID = strconv.Itoa(adopted.ID)
+					if statusErr := r.updateMonitorGroupStatus(ctx, groupResource); statusErr != nil {
+						return ctrl.Result{}, fmt.Errorf("status write after backend adopt-on-404: %w", statusErr)
 					}
-					backendResponse, recreationErr := backendClient.SpawnGroupInBackend(ctx, creationPayload)
-					if recreationErr != nil {
-						metrics.ReconciliationErrorsTotal.WithLabelValues("monitorgroup", "api_error").Inc()
-						groupResource.Status.Ready = false
-						msg := fmt.Sprintf("Group recreation failed: %v", recreationErr)
-						SetReadyCondition(&groupResource.Status.Conditions, false, ReasonAPIError, msg, groupResource.Generation)
-						SetSyncedCondition(&groupResource.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to recreate group in UptimeRobot: %v", recreationErr), groupResource.Generation)
-						SetErrorCondition(&groupResource.Status.Conditions, true, ReasonAPIError, msg, groupResource.Generation)
-						if r.Recorder != nil {
-							r.Recorder.Event(groupResource, "Warning", "SyncFailed", msg)
-						}
-						onAPIFailure(accountKey, recreationErr, r.Recorder, groupResource)
-						if statusUpdateErr := r.updateMonitorGroupStatus(ctx, groupResource); statusUpdateErr != nil {
-							return ctrl.Result{}, fmt.Errorf("status write after recreation failure: %w", statusUpdateErr)
-						}
-						return ctrl.Result{}, fmt.Errorf("group recreation failed: %w", recreationErr)
+					if r.Recorder != nil {
+						r.Recorder.Event(groupResource, "Normal", "Adopted",
+							fmt.Sprintf("Adopted existing monitor group with ID %d after backend 404", adopted.ID))
 					}
-					newID = backendResponse.ID
-					eventMsg = fmt.Sprintf("Monitor group recreated with ID %d", newID)
+					return ctrl.Result{Requeue: true}, nil
 				}
 
-				groupResource.Status.ID = strconv.Itoa(newID)
+				creationPayload := uptimerobot.GroupCreationWireFormat{
+					Name:       groupResource.Spec.FriendlyName,
+					MonitorIDs: aggregatedMonitorIDs,
+					GroupIDs:   groupResource.Spec.PullFromGroups,
+				}
+				backendResponse, recreationErr := backendClient.SpawnGroupInBackend(ctx, creationPayload)
+				if recreationErr != nil {
+					metrics.ReconciliationErrorsTotal.WithLabelValues("monitorgroup", "api_error").Inc()
+					groupResource.Status.Ready = false
+					msg := fmt.Sprintf("Group recreation failed: %v", recreationErr)
+					SetReadyCondition(&groupResource.Status.Conditions, false, ReasonAPIError, msg, groupResource.Generation)
+					SetSyncedCondition(&groupResource.Status.Conditions, false, ReasonSyncError, fmt.Sprintf("Failed to recreate group in UptimeRobot: %v", recreationErr), groupResource.Generation)
+					SetErrorCondition(&groupResource.Status.Conditions, true, ReasonAPIError, msg, groupResource.Generation)
+					if r.Recorder != nil {
+						r.Recorder.Event(groupResource, "Warning", "SyncFailed", msg)
+					}
+					onAPIFailure(accountKey, recreationErr, r.Recorder, groupResource)
+					if statusUpdateErr := r.updateMonitorGroupStatus(ctx, groupResource); statusUpdateErr != nil {
+						return ctrl.Result{}, fmt.Errorf("status write after recreation failure: %w", statusUpdateErr)
+					}
+					return ctrl.Result{}, fmt.Errorf("group recreation failed: %w", recreationErr)
+				}
+
+				// Recreate posted the desired Spec, so Synced=true is honest here.
+				groupResource.Status.ID = strconv.Itoa(backendResponse.ID)
 				groupResource.Status.Ready = true
 				groupResource.Status.MonitorCount = len(aggregatedMonitorIDs)
 				nowTimestamp := metav1.Now()
@@ -448,10 +455,11 @@ func (r *MonitorGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				// Same ordering as the create path: success signal, then status, then event.
 				onAPISuccess(accountKey, r.Recorder, groupResource)
 				if statusErr := r.updateMonitorGroupStatus(ctx, groupResource); statusErr != nil {
-					return ctrl.Result{}, fmt.Errorf("status write after backend recreate/adopt: %w", statusErr)
+					return ctrl.Result{}, fmt.Errorf("status write after backend recreate: %w", statusErr)
 				}
 				if r.Recorder != nil {
-					r.Recorder.Event(groupResource, "Normal", eventReason, eventMsg)
+					r.Recorder.Event(groupResource, "Normal", "Recreated",
+						fmt.Sprintf("Monitor group recreated with ID %d", backendResponse.ID))
 				}
 				return ctrl.Result{RequeueAfter: AddSyncJitter(groupResource.Spec.SyncInterval.Duration)}, nil
 			}
