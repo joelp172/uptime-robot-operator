@@ -1339,14 +1339,27 @@ func (c Client) PurgeGroupFromBackend(ctx context.Context, groupIDString string)
 	return err
 }
 
-// EnumerateGroupsFromBackend fetches all collections via GET
+// EnumerateGroupsFromBackend fetches all collections, following NextLink pagination
+// so callers adopting an existing group by name aren't blind to matches on later pages.
 func (c Client) EnumerateGroupsFromBackend(ctx context.Context) ([]GroupWireFormat, error) {
-	var responsePayload GroupListWireFormat
-	transmitErr := c.doJSON(ctx, http.MethodGet, "monitor-groups", nil, &responsePayload)
-	if transmitErr != nil {
-		return nil, transmitErr
+	var all []GroupWireFormat
+	var resp GroupListWireFormat
+	if err := c.doJSON(ctx, http.MethodGet, "monitor-groups", nil, &resp); err != nil {
+		return nil, err
 	}
-	return responsePayload.Groups, nil
+	all = append(all, resp.Groups...)
+	for resp.NextLink != nil && *resp.NextLink != "" {
+		nextURL := *resp.NextLink
+		if !strings.HasPrefix(nextURL, "http") {
+			nextURL = strings.TrimSuffix(c.url, "/") + "/" + strings.TrimPrefix(nextURL, "/")
+		}
+		resp = GroupListWireFormat{}
+		if err := c.doGetJSON(ctx, nextURL, &resp); err != nil {
+			return nil, err
+		}
+		all = append(all, resp.Groups...)
+	}
+	return all, nil
 }
 
 // PauseMonitor pauses a monitor by ID using the v3 API.

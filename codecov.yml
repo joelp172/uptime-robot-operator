@@ -31,3 +31,11 @@ flags:
       - internal/
       - api/
     carryforward: true
+
+# Exclude test-only infrastructure that exists solely to be exercised by tests
+# in other packages. Lines here would otherwise inflate patch denominators
+# without measuring production-code coverage.
+ignore:
+  - "internal/uptimerobot/uptimerobottest/"
+  - "**/*_test.go"
+  - "**/zz_generated_*.go"

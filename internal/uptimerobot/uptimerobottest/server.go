@@ -36,6 +36,18 @@ type ServerState struct {
 	createMonitorID int
 	integrations    map[int]map[string]any
 	nextIntegration int
+	// Stateful monitor-group backing for adoption-by-name lookups and the POST
+	// create-counter. Affects the list endpoint only — GET /monitor-groups/{id}
+	// still serves the legacy single-group fixture. Seeded with the legacy list
+	// fixture (id=12345 "Test Monitor Group") for backward compatibility.
+	monitorGroups              []map[string]any
+	nextMonitorGroupID         int
+	monitorGroupCreateCount    int
+	monitorGroupListPageSize   int // 0 = single page
+	forceMonitorGroupsListHTTP int
+	// forceMutateGroupHTTPStatus forces PATCH /monitor-groups/{id} to return the
+	// configured status code; used by tests to drive the IsNotFound recreate path.
+	forceMutateGroupHTTPStatus int
 	// Force specific HTTP status codes for certain endpoints (0 = normal behavior).
 	forceUserMeHTTPStatus        int
 	forceAlertContactsHTTPStatus int
@@ -67,14 +79,29 @@ func defaultIntegrations() (map[int]map[string]any, int) {
 	}, 102
 }
 
+func defaultMonitorGroups() ([]map[string]any, int) {
+	return []map[string]any{
+		{
+			"id":         12345,
+			"name":       "Test Monitor Group",
+			"createdAt":  "2026-02-06T20:00:00Z",
+			"updatedAt":  "2026-02-06T20:00:00Z",
+			"monitorIds": []int{},
+		},
+	}, 12346
+}
+
 // NewServerState creates a new server state tracker.
 func NewServerState() *ServerState {
 	integrations, next := defaultIntegrations()
+	groups, nextGroup := defaultMonitorGroups()
 	return &ServerState{
-		deletedMonitors: make(map[string]bool),
-		createMonitorID: 777810874,
-		integrations:    integrations,
-		nextIntegration: next,
+		deletedMonitors:    make(map[string]bool),
+		createMonitorID:    777810874,
+		integrations:       integrations,
+		nextIntegration:    next,
+		monitorGroups:      groups,
+		nextMonitorGroupID: nextGroup,
 	}
 }
 
@@ -104,16 +131,93 @@ func (s *ServerState) Reset() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	integrations, next := defaultIntegrations()
+	groups, nextGroup := defaultMonitorGroups()
 	s.deletedMonitors = make(map[string]bool)
 	s.createMonitorID = 777810874
 	s.integrations = integrations
 	s.nextIntegration = next
+	s.monitorGroups = groups
+	s.nextMonitorGroupID = nextGroup
+	s.monitorGroupCreateCount = 0
+	s.monitorGroupListPageSize = 0
+	s.forceMonitorGroupsListHTTP = 0
+	s.forceMutateGroupHTTPStatus = 0
 	s.forceUserMeHTTPStatus = 0
 	s.forceAlertContactsHTTPStatus = 0
 	s.forceIntegrationsHTTPStatus = 0
 	s.forceGlobalHTTPStatus = 0
 	s.intermittentFailStatus = 0
 	s.intermittentFailCount = 0
+}
+
+// SetMonitorGroups replaces the in-memory monitor-group list. Used by tests that
+// want to seed a specific population (e.g. multi-page or name-collision scenarios).
+// Each entry should contain at least "id" and "name"; other fields are passed
+// through verbatim.
+func (s *ServerState) SetMonitorGroups(groups []map[string]any) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.monitorGroups = make([]map[string]any, len(groups))
+	maxID := 0
+	for i, g := range groups {
+		entry := make(map[string]any, len(g))
+		for k, v := range g {
+			entry[k] = v
+		}
+		s.monitorGroups[i] = entry
+		if id, ok := toInt(entry["id"]); ok && id >= maxID {
+			maxID = id + 1
+		}
+	}
+	if maxID > s.nextMonitorGroupID {
+		s.nextMonitorGroupID = maxID
+	}
+}
+
+// SetMonitorGroupsListHTTPStatus forces GET /monitor-groups to return the given
+// status code. Set to 0 to restore normal behaviour.
+func (s *ServerState) SetMonitorGroupsListHTTPStatus(code int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.forceMonitorGroupsListHTTP = code
+}
+
+// SetMutateMonitorGroupHTTPStatus forces PATCH /monitor-groups/{id} to return
+// the given status code. Useful for driving the IsNotFound recreate path. Set
+// to 0 to restore normal behaviour.
+func (s *ServerState) SetMutateMonitorGroupHTTPStatus(code int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.forceMutateGroupHTTPStatus = code
+}
+
+// SetMonitorGroupListPageSize controls pagination for GET /monitor-groups.
+// 0 (default) returns the full list on a single page.
+func (s *ServerState) SetMonitorGroupListPageSize(n int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.monitorGroupListPageSize = n
+}
+
+// MonitorGroupCreateCount returns how many POST /monitor-groups requests have
+// been served since the last Reset. Used by tests to assert that a duplicate
+// create did or did not happen.
+func (s *ServerState) MonitorGroupCreateCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.monitorGroupCreateCount
+}
+
+func toInt(v any) (int, bool) {
+	switch n := v.(type) {
+	case int:
+		return n, true
+	case int64:
+		return int(n), true
+	case float64:
+		return int(n), true
+	}
+	return 0, false
 }
 
 // SetGlobalHTTPStatus forces every endpoint to return the given HTTP status code.
@@ -370,14 +474,22 @@ func NewServerWithState(state *ServerState) *httptest.Server {
 	mux.HandleFunc("DELETE /maintenance-windows/", handleDeleteMaintenanceWindow)
 
 	// GET /monitor-groups - List monitor groups
-	mux.HandleFunc("GET /monitor-groups", handleGetMonitorGroups)
-	mux.HandleFunc("GET /monitor-groups/", handleGetMonitorGroups)
+	mux.HandleFunc("GET /monitor-groups", func(w http.ResponseWriter, r *http.Request) {
+		handleGetMonitorGroups(w, r, state)
+	})
+	mux.HandleFunc("GET /monitor-groups/", func(w http.ResponseWriter, r *http.Request) {
+		handleGetMonitorGroups(w, r, state)
+	})
 
 	// POST /monitor-groups - Create monitor group
-	mux.HandleFunc("POST /monitor-groups", handleCreateMonitorGroup)
+	mux.HandleFunc("POST /monitor-groups", func(w http.ResponseWriter, r *http.Request) {
+		handleCreateMonitorGroup(w, r, state)
+	})
 
 	// PATCH /monitor-groups/{id} - Update monitor group
-	mux.HandleFunc("PATCH /monitor-groups/", handleUpdateMonitorGroup)
+	mux.HandleFunc("PATCH /monitor-groups/", func(w http.ResponseWriter, _ *http.Request) {
+		handleUpdateMonitorGroup(w, state)
+	})
 
 	// DELETE /monitor-groups/{id} - Delete monitor group
 	mux.HandleFunc("DELETE /monitor-groups/", handleDeleteMonitorGroup)
@@ -535,24 +647,121 @@ func handleDeleteMaintenanceWindow(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func handleGetMonitorGroups(w http.ResponseWriter, r *http.Request) {
+func handleGetMonitorGroups(w http.ResponseWriter, r *http.Request, state *ServerState) {
 	// Check for specific monitor group ID in path
 	path := strings.TrimPrefix(r.URL.Path, "/monitor-groups/")
 	if path != "" && path != r.URL.Path {
-		// Single monitor group request
+		// Single monitor group request — keep returning the legacy fixture to avoid
+		// rewriting unrelated tests that exercise FetchGroupFromBackend.
 		serveJSONFile(w, "monitor_group.json", 0)
 		return
 	}
 
-	// List monitor groups
-	serveJSONFile(w, "monitor_groups.json", 0)
+	state.mu.Lock()
+	if state.forceMonitorGroupsListHTTP != 0 {
+		code := state.forceMonitorGroupsListHTTP
+		state.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(code)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "forced error for testing"})
+		return
+	}
+	pageSize := state.monitorGroupListPageSize
+	groupsCopy := make([]map[string]any, len(state.monitorGroups))
+	for i, g := range state.monitorGroups {
+		entry := make(map[string]any, len(g))
+		for k, v := range g {
+			entry[k] = v
+		}
+		groupsCopy[i] = entry
+	}
+	state.mu.Unlock()
+
+	page := 1
+	if p := r.URL.Query().Get("page"); p != "" {
+		if parsed, err := strconv.Atoi(p); err == nil && parsed > 0 {
+			page = parsed
+		}
+	}
+
+	var pageItems []map[string]any
+	var nextLink any
+	if pageSize <= 0 || pageSize >= len(groupsCopy) {
+		pageItems = groupsCopy
+		nextLink = nil
+	} else {
+		start := (page - 1) * pageSize
+		if start >= len(groupsCopy) {
+			pageItems = []map[string]any{}
+		} else {
+			end := start + pageSize
+			if end > len(groupsCopy) {
+				end = len(groupsCopy)
+			}
+			pageItems = groupsCopy[start:end]
+		}
+		if (page * pageSize) < len(groupsCopy) {
+			scheme := "http"
+			if r.TLS != nil {
+				scheme = "https"
+			}
+			nextLink = fmt.Sprintf("%s://%s/monitor-groups?page=%d", scheme, r.Host, page+1)
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"data":     pageItems,
+		"nextLink": nextLink,
+	})
 }
 
-func handleCreateMonitorGroup(w http.ResponseWriter, r *http.Request) {
-	serveJSONFile(w, "monitor_group_create.json", http.StatusCreated)
+func handleCreateMonitorGroup(w http.ResponseWriter, r *http.Request, state *ServerState) {
+	var body map[string]any
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid json"})
+		return
+	}
+	name, _ := body["name"].(string)
+
+	state.mu.Lock()
+	id := state.nextMonitorGroupID
+	state.nextMonitorGroupID++
+	state.monitorGroupCreateCount++
+	monitorIDs := []int{}
+	if raw, ok := body["monitorIds"].([]any); ok {
+		for _, v := range raw {
+			if n, ok := toInt(v); ok {
+				monitorIDs = append(monitorIDs, n)
+			}
+		}
+	}
+	entry := map[string]any{
+		"id":         id,
+		"name":       name,
+		"createdAt":  "2026-02-06T20:00:00Z",
+		"updatedAt":  "2026-02-06T20:00:00Z",
+		"monitorIds": monitorIDs,
+	}
+	state.monitorGroups = append(state.monitorGroups, entry)
+	state.mu.Unlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(entry)
 }
 
-func handleUpdateMonitorGroup(w http.ResponseWriter, r *http.Request) {
+func handleUpdateMonitorGroup(w http.ResponseWriter, state *ServerState) {
+	state.mu.RLock()
+	code := state.forceMutateGroupHTTPStatus
+	state.mu.RUnlock()
+	if code != 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(code)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "forced error for testing"})
+		return
+	}
 	serveJSONFile(w, "monitor_group_update.json", 0)
 }
 
