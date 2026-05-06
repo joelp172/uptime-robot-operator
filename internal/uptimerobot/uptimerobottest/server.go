@@ -45,6 +45,9 @@ type ServerState struct {
 	monitorGroupCreateCount    int
 	monitorGroupListPageSize   int // 0 = single page
 	forceMonitorGroupsListHTTP int
+	// forceMutateGroupHTTPStatus forces PATCH /monitor-groups/{id} to return the
+	// configured status code; used by tests to drive the IsNotFound recreate path.
+	forceMutateGroupHTTPStatus int
 	// Force specific HTTP status codes for certain endpoints (0 = normal behavior).
 	forceUserMeHTTPStatus        int
 	forceAlertContactsHTTPStatus int
@@ -138,6 +141,7 @@ func (s *ServerState) Reset() {
 	s.monitorGroupCreateCount = 0
 	s.monitorGroupListPageSize = 0
 	s.forceMonitorGroupsListHTTP = 0
+	s.forceMutateGroupHTTPStatus = 0
 	s.forceUserMeHTTPStatus = 0
 	s.forceAlertContactsHTTPStatus = 0
 	s.forceIntegrationsHTTPStatus = 0
@@ -176,6 +180,15 @@ func (s *ServerState) SetMonitorGroupsListHTTPStatus(code int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.forceMonitorGroupsListHTTP = code
+}
+
+// SetMutateMonitorGroupHTTPStatus forces PATCH /monitor-groups/{id} to return
+// the given status code. Useful for driving the IsNotFound recreate path. Set
+// to 0 to restore normal behaviour.
+func (s *ServerState) SetMutateMonitorGroupHTTPStatus(code int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.forceMutateGroupHTTPStatus = code
 }
 
 // SetMonitorGroupListPageSize controls pagination for GET /monitor-groups.
@@ -474,7 +487,9 @@ func NewServerWithState(state *ServerState) *httptest.Server {
 	})
 
 	// PATCH /monitor-groups/{id} - Update monitor group
-	mux.HandleFunc("PATCH /monitor-groups/", handleUpdateMonitorGroup)
+	mux.HandleFunc("PATCH /monitor-groups/", func(w http.ResponseWriter, _ *http.Request) {
+		handleUpdateMonitorGroup(w, state)
+	})
 
 	// DELETE /monitor-groups/{id} - Delete monitor group
 	mux.HandleFunc("DELETE /monitor-groups/", handleDeleteMonitorGroup)
@@ -737,7 +752,16 @@ func handleCreateMonitorGroup(w http.ResponseWriter, r *http.Request, state *Ser
 	_ = json.NewEncoder(w).Encode(entry)
 }
 
-func handleUpdateMonitorGroup(w http.ResponseWriter, r *http.Request) {
+func handleUpdateMonitorGroup(w http.ResponseWriter, state *ServerState) {
+	state.mu.RLock()
+	code := state.forceMutateGroupHTTPStatus
+	state.mu.RUnlock()
+	if code != 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(code)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "forced error for testing"})
+		return
+	}
 	serveJSONFile(w, "monitor_group_update.json", 0)
 }
 

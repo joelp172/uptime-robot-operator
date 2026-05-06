@@ -424,6 +424,126 @@ var _ = Describe("MonitorGroup Controller", func() {
 			Expect(serverState.MonitorGroupCreateCount()).To(Equal(beforeCreates), "adoption across pages must not POST a duplicate")
 		})
 
+		It("should adopt instead of recreating when backend returns 404 on update and a matching group exists", func() {
+			// Update path: Status.ID is set, but the backend has lost the group (returns
+			// 404 on PATCH). A previous reconcile may have already recreated and lost the
+			// new ID — the controller must adopt the existing group rather than POST a
+			// duplicate.
+			DeferCleanup(serverState.Reset)
+			serverState.SetMonitorGroups([]map[string]any{
+				{"id": 8001, "name": "Recreate Adopt Group"},
+			})
+			serverState.SetMutateMonitorGroupHTTPStatus(http.StatusNotFound)
+
+			mg := CreateMonitorGroup(ctx, "test-recreate-adopt-mg", account.Name, uptimerobotv1.MonitorGroupSpec{
+				FriendlyName: "Recreate Adopt Group",
+			})
+			defer CleanupMonitorGroup(ctx, mg)
+
+			// Seed a stale Status.ID so the reconciler enters the update path.
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace}, mg)).To(Succeed())
+			mg.Status.ID = "9999"
+			mg.Status.Ready = true
+			Expect(k8sClient.Status().Update(ctx, mg)).To(Succeed())
+
+			beforeCreates := serverState.MonitorGroupCreateCount()
+			recorder := record.NewFakeRecorder(100)
+			reconciler := &MonitorGroupReconciler{
+				Client:   k8sClient,
+				Scheme:   k8sClient.Scheme(),
+				Recorder: recorder,
+			}
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(serverState.MonitorGroupCreateCount()).To(Equal(beforeCreates), "404-on-update must adopt rather than POST a duplicate")
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace}, mg)).To(Succeed())
+			Expect(mg.Status.ID).To(Equal("8001"))
+
+			close(recorder.Events)
+			sawAdopted := false
+			for event := range recorder.Events {
+				if strings.Contains(event, "Adopted") {
+					sawAdopted = true
+				}
+			}
+			Expect(sawAdopted).To(BeTrue(), "expected an Adopted event after recreate-via-adoption")
+		})
+
+		It("should recreate when backend returns 404 on update and no matching group exists", func() {
+			DeferCleanup(serverState.Reset)
+			// Empty backend: no name match available, so the recreate path must POST.
+			serverState.SetMonitorGroups([]map[string]any{})
+			serverState.SetMutateMonitorGroupHTTPStatus(http.StatusNotFound)
+
+			mg := CreateMonitorGroup(ctx, "test-recreate-spawn-mg", account.Name, uptimerobotv1.MonitorGroupSpec{
+				FriendlyName: "Recreate Spawn Group",
+			})
+			defer CleanupMonitorGroup(ctx, mg)
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace}, mg)).To(Succeed())
+			mg.Status.ID = "9999"
+			mg.Status.Ready = true
+			Expect(k8sClient.Status().Update(ctx, mg)).To(Succeed())
+
+			beforeCreates := serverState.MonitorGroupCreateCount()
+			recorder := record.NewFakeRecorder(100)
+			reconciler := &MonitorGroupReconciler{
+				Client:   k8sClient,
+				Scheme:   k8sClient.Scheme(),
+				Recorder: recorder,
+			}
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(serverState.MonitorGroupCreateCount()).To(Equal(beforeCreates+1), "no matching group means recreate must POST exactly once")
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace}, mg)).To(Succeed())
+			Expect(mg.Status.ID).NotTo(Equal("9999"))
+			Expect(mg.Status.Ready).To(BeTrue())
+
+			close(recorder.Events)
+			sawRecreated := false
+			for event := range recorder.Events {
+				if strings.Contains(event, "Recreated") {
+					sawRecreated = true
+				}
+			}
+			Expect(sawRecreated).To(BeTrue(), "expected a Recreated event after spawn")
+		})
+
+		It("should surface AdoptionLookupFailed when the recreate-path list call fails", func() {
+			DeferCleanup(serverState.Reset)
+			serverState.SetMutateMonitorGroupHTTPStatus(http.StatusNotFound)
+			serverState.SetMonitorGroupsListHTTPStatus(http.StatusInternalServerError)
+
+			mg := CreateMonitorGroup(ctx, "test-recreate-list-fail-mg", account.Name, uptimerobotv1.MonitorGroupSpec{
+				FriendlyName: "Recreate List Fail Group",
+			})
+			defer CleanupMonitorGroup(ctx, mg)
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace}, mg)).To(Succeed())
+			mg.Status.ID = "9999"
+			mg.Status.Ready = true
+			Expect(k8sClient.Status().Update(ctx, mg)).To(Succeed())
+
+			recorder := record.NewFakeRecorder(100)
+			reconciler := &MonitorGroupReconciler{
+				Client:   k8sClient,
+				Scheme:   k8sClient.Scheme(),
+				Recorder: recorder,
+			}
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace},
+			})
+			Expect(err).To(HaveOccurred())
+
+			Eventually(recorder.Events, 2*time.Second, 50*time.Millisecond).Should(Receive(ContainSubstring("AdoptionLookupFailed")))
+		})
+
 		It("should warn and adopt the lowest ID when multiple backend groups share the FriendlyName", func() {
 			DeferCleanup(serverState.Reset)
 			serverState.SetMonitorGroups([]map[string]any{
