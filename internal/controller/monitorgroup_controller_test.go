@@ -515,6 +515,49 @@ var _ = Describe("MonitorGroup Controller", func() {
 			Expect(sawRecreated).To(BeTrue(), "expected a Recreated event after spawn")
 		})
 
+		It("should warn about name collisions when the recreate path adopts across duplicates", func() {
+			DeferCleanup(serverState.Reset)
+			serverState.SetMonitorGroups([]map[string]any{
+				{"id": 7003, "name": "Recreate Collision Group"},
+				{"id": 7001, "name": "Recreate Collision Group"},
+				{"id": 7005, "name": "Recreate Collision Group"},
+			})
+			serverState.SetMutateMonitorGroupHTTPStatus(http.StatusNotFound)
+
+			mg := CreateMonitorGroup(ctx, "test-recreate-collision-mg", account.Name, uptimerobotv1.MonitorGroupSpec{
+				FriendlyName: "Recreate Collision Group",
+			})
+			defer CleanupMonitorGroup(ctx, mg)
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace}, mg)).To(Succeed())
+			mg.Status.ID = "9999"
+			mg.Status.Ready = true
+			Expect(k8sClient.Status().Update(ctx, mg)).To(Succeed())
+
+			recorder := record.NewFakeRecorder(100)
+			reconciler := &MonitorGroupReconciler{
+				Client:   k8sClient,
+				Scheme:   k8sClient.Scheme(),
+				Recorder: recorder,
+			}
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace}, mg)).To(Succeed())
+			Expect(mg.Status.ID).To(Equal("7001"), "lowest-ID match wins on the recreate path too")
+
+			close(recorder.Events)
+			sawCollision := false
+			for event := range recorder.Events {
+				if strings.Contains(event, "AdoptionNameCollision") {
+					sawCollision = true
+				}
+			}
+			Expect(sawCollision).To(BeTrue(), "expected an AdoptionNameCollision warning on the recreate path")
+		})
+
 		It("should surface AdoptionLookupFailed when the recreate-path list call fails", func() {
 			DeferCleanup(serverState.Reset)
 			serverState.SetMutateMonitorGroupHTTPStatus(http.StatusNotFound)
