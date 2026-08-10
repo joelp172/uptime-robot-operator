@@ -23,19 +23,16 @@ import (
 
 	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot/urtypes"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
 //+kubebuilder:webhook:path=/validate-uptimerobot-com-v1alpha1-monitor,mutating=false,failurePolicy=fail,sideEffects=None,groups=uptimerobot.com,resources=monitors,verbs=create;update,versions=v1alpha1,name=vmonitor.uptimerobot.com,admissionReviewVersions=v1
 
 func (r *Monitor) SetupWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).
-		For(r).
+	return ctrl.NewWebhookManagedBy(mgr, r).
 		WithValidator(&MonitorCustomValidator{
 			Client: mgr.GetClient(),
 		}).
@@ -48,32 +45,17 @@ type MonitorCustomValidator struct {
 	Client client.Reader
 }
 
-var _ webhook.CustomValidator = &MonitorCustomValidator{}
+var _ admission.Validator[*Monitor] = &MonitorCustomValidator{}
 
-func (v *MonitorCustomValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
-	monitor, ok := obj.(*Monitor)
-	if !ok {
-		return nil, fmt.Errorf("expected Monitor but got %T", obj)
-	}
-
+func (v *MonitorCustomValidator) ValidateCreate(ctx context.Context, monitor *Monitor) (admission.Warnings, error) {
 	return nil, v.validate(ctx, monitor, nil)
 }
 
-func (v *MonitorCustomValidator) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
-	monitor, ok := newObj.(*Monitor)
-	if !ok {
-		return nil, fmt.Errorf("expected Monitor but got %T", newObj)
-	}
-
-	old, ok := oldObj.(*Monitor)
-	if !ok {
-		return nil, fmt.Errorf("expected Monitor but got %T", oldObj)
-	}
-
+func (v *MonitorCustomValidator) ValidateUpdate(ctx context.Context, old, monitor *Monitor) (admission.Warnings, error) {
 	return nil, v.validate(ctx, monitor, old)
 }
 
-func (v *MonitorCustomValidator) ValidateDelete(_ context.Context, _ runtime.Object) (admission.Warnings, error) {
+func (v *MonitorCustomValidator) ValidateDelete(_ context.Context, _ *Monitor) (admission.Warnings, error) {
 	return nil, nil
 }
 

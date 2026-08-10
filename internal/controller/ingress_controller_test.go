@@ -49,6 +49,7 @@ var _ = Describe("Ingress Controller", func() {
 			pathTypePrefix networkingv1.PathType
 			mgr            ctrl.Manager
 			mgrCancel      context.CancelFunc
+			mgrStopped     chan struct{}
 			mgrClient      client.Client
 		)
 
@@ -86,11 +87,16 @@ var _ = Describe("Ingress Controller", func() {
 			})
 			Expect(err).NotTo(HaveOccurred())
 
-			// Start manager in background
+			// Start manager in background. mgrStopped is closed once Start returns so
+			// AfterEach can wait for a full shutdown; without that, this spec's manager
+			// is still tearing down while the next spec's manager comes up, and the two
+			// contend for the same envtest apiserver.
 			var mgrCtx context.Context
 			mgrCtx, mgrCancel = context.WithCancel(ctx)
+			mgrStopped = make(chan struct{})
 			go func() {
 				defer GinkgoRecover()
+				defer close(mgrStopped)
 				_ = mgr.Start(mgrCtx)
 			}()
 
@@ -115,6 +121,10 @@ var _ = Describe("Ingress Controller", func() {
 			if mgrClient == nil {
 				if mgrCancel != nil {
 					mgrCancel()
+				}
+				if mgrStopped != nil {
+					Eventually(mgrStopped, time.Second*15).Should(BeClosed())
+					mgrStopped = nil
 				}
 				return
 			}
@@ -160,9 +170,14 @@ var _ = Describe("Ingress Controller", func() {
 				CleanupAccount(ctx, account, secret)
 			}
 
-			// Stop manager after cleanup so finalizer-driven deletes can complete.
+			// Stop manager after cleanup so finalizer-driven deletes can complete, and
+			// wait for it to actually stop before the next spec starts its own.
 			if mgrCancel != nil {
 				mgrCancel()
+			}
+			if mgrStopped != nil {
+				Eventually(mgrStopped, time.Second*15).Should(BeClosed())
+				mgrStopped = nil
 			}
 		})
 
@@ -503,8 +518,14 @@ var _ = Describe("Ingress Controller", func() {
 			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
 
 			By("Verifying finalizer was removed")
-			Expect(mgrClient.Get(ctx, namespacedName, ingress)).To(Succeed())
-			Expect(ingress.Finalizers).To(BeEmpty())
+			// Same informer-cache lag as the finalizer-added assertion above: the
+			// removal is written by Reconcile, so poll rather than reading once.
+			Eventually(func() []string {
+				if err := mgrClient.Get(ctx, namespacedName, ingress); err != nil {
+					return []string{"<get failed>"}
+				}
+				return ingress.Finalizers
+			}, time.Second*5, time.Millisecond*250).Should(BeEmpty())
 		})
 
 		It("should handle multiple Ingress rules correctly", func() {

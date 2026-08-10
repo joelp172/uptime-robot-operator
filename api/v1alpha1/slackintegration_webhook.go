@@ -23,19 +23,16 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
 //+kubebuilder:webhook:path=/validate-uptimerobot-com-v1alpha1-slackintegration,mutating=false,failurePolicy=fail,sideEffects=None,groups=uptimerobot.com,resources=slackintegrations,verbs=create;update,versions=v1alpha1,name=vslackintegration.uptimerobot.com,admissionReviewVersions=v1
 
 func (r *SlackIntegration) SetupWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).
-		For(r).
+	return ctrl.NewWebhookManagedBy(mgr, r).
 		WithValidator(&SlackIntegrationCustomValidator{
 			Client: mgr.GetClient(),
 		}).
@@ -48,27 +45,17 @@ type SlackIntegrationCustomValidator struct {
 	Client client.Reader
 }
 
-var _ webhook.CustomValidator = &SlackIntegrationCustomValidator{}
+var _ admission.Validator[*SlackIntegration] = &SlackIntegrationCustomValidator{}
 
-func (v *SlackIntegrationCustomValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
-	si, ok := obj.(*SlackIntegration)
-	if !ok {
-		return nil, fmt.Errorf("expected SlackIntegration but got %T", obj)
-	}
-
+func (v *SlackIntegrationCustomValidator) ValidateCreate(ctx context.Context, si *SlackIntegration) (admission.Warnings, error) {
 	return nil, v.validate(ctx, si)
 }
 
-func (v *SlackIntegrationCustomValidator) ValidateUpdate(ctx context.Context, _, newObj runtime.Object) (admission.Warnings, error) {
-	si, ok := newObj.(*SlackIntegration)
-	if !ok {
-		return nil, fmt.Errorf("expected SlackIntegration but got %T", newObj)
-	}
-
+func (v *SlackIntegrationCustomValidator) ValidateUpdate(ctx context.Context, _, si *SlackIntegration) (admission.Warnings, error) {
 	return nil, v.validate(ctx, si)
 }
 
-func (v *SlackIntegrationCustomValidator) ValidateDelete(_ context.Context, _ runtime.Object) (admission.Warnings, error) {
+func (v *SlackIntegrationCustomValidator) ValidateDelete(_ context.Context, _ *SlackIntegration) (admission.Warnings, error) {
 	return nil, nil
 }
 

@@ -29,6 +29,30 @@ linters:
         - "-ST1000"  # Package comments
         - "-ST1001"  # Dot imports (used in test files with ginkgo/gomega)
         - "-ST1003"  # Naming conventions (Api vs API)
+  exclusions:
+    # Deprecations introduced by controller-runtime 0.24. Each needs deliberate
+    # follow-up that changes behaviour, so they are deferred rather than silently
+    # rewritten into something that only looks equivalent. Scoped by path so new
+    # instances elsewhere still surface.
+    rules:
+      # GetEventRecorder returns client-go's events.EventRecorder, a different
+      # interface from record.EventRecorder (different method signatures, emits
+      # events.k8s.io/v1). Migrating touches ~120 call sites across every
+      # controller and test.
+      - path: cmd/main\.go
+        linters: [staticcheck]
+        text: 'SA1019: mgr\.GetEventRecorderFor'
+      # monitorgroup_controller.go genuinely returns Requeue: true, so swapping
+      # these assertions for RequeueAfter/IsZero would change what they assert.
+      # Retiring Requeue means picking explicit backoff durations.
+      - path: _test\.go
+        linters: [staticcheck]
+        text: 'SA1019: result\.Requeue'
+      # scheme.Builder is the kubebuilder scaffold; dropping it means
+      # restructuring scheme registration across the api package.
+      - path: api/v1alpha1/groupversion_info\.go
+        linters: [staticcheck]
+        text: 'SA1019: scheme\.Builder'
 
 formatters:
   enable:
