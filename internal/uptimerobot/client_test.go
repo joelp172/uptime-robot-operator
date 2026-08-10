@@ -18,6 +18,7 @@ package uptimerobot
 
 import (
 	"testing"
+	"time"
 
 	uptimerobotv1 "github.com/joelp172/uptime-robot-operator/api/v1alpha1"
 	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot/urtypes"
@@ -246,9 +247,9 @@ func TestBuildUpdateMonitorRequest_PingOmitsUnsupportedFields(t *testing.T) {
 
 func TestBuildUpdateMonitorRequest_PortOmitsURL(t *testing.T) {
 	client := NewClient("test-api-key")
-	interval := metav1.Duration{Duration: 60000000000}    // 1m
-	timeout := metav1.Duration{Duration: 30000000000}     // 30s
-	gracePeriod := metav1.Duration{Duration: 60000000000} // 60s
+	interval := metav1.Duration{Duration: time.Minute}
+	timeout := metav1.Duration{Duration: 30 * time.Second}
+	gracePeriod := metav1.Duration{Duration: time.Minute}
 
 	monitor := uptimerobotv1.MonitorValues{
 		Name:        "Port Monitor",
@@ -270,7 +271,8 @@ func TestBuildUpdateMonitorRequest_PortOmitsURL(t *testing.T) {
 	if req.Port != 443 {
 		t.Errorf("expected Port to be preserved on port updates, got %d", req.Port)
 	}
-	if req.Timeout == 0 {
-		t.Errorf("expected Timeout to be kept for port updates, got %d", req.Timeout)
+	// buildUpdateMonitorRequest sends Timeout in whole seconds.
+	if wantTimeout := int(timeout.Seconds()); req.Timeout != wantTimeout {
+		t.Errorf("expected Timeout %d for port updates, got %d", wantTimeout, req.Timeout)
 	}
 }
