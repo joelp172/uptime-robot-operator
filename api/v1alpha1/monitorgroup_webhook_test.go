@@ -156,3 +156,32 @@ func TestMGValidatorAllowsDeleteWithoutValidation(t *testing.T) {
 		t.Fatalf("expected no error on delete, got: %v", err)
 	}
 }
+
+func TestMGValidatorAppliesValidationOnUpdate(t *testing.T) {
+	t.Parallel()
+
+	scheme := newMGScheme(t)
+	account := defaultAccount()
+
+	validator := &MonitorGroupCustomValidator{
+		Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(account).Build(),
+	}
+
+	oldMG := &MonitorGroup{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-mg", Namespace: "default"},
+		Spec: MonitorGroupSpec{
+			FriendlyName: "Test Group",
+		},
+	}
+
+	newMG := oldMG.DeepCopy()
+	newMG.Spec.Monitors = []corev1.LocalObjectReference{{Name: "nonexistent-monitor"}}
+
+	if _, err := validator.ValidateUpdate(context.Background(), oldMG, newMG); err == nil {
+		t.Fatal("expected validation error for unknown monitor reference on update")
+	}
+
+	if _, err := validator.ValidateUpdate(context.Background(), oldMG, oldMG.DeepCopy()); err != nil {
+		t.Fatalf("expected no validation error for unchanged update, got: %v", err)
+	}
+}
