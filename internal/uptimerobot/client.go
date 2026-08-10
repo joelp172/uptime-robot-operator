@@ -484,8 +484,8 @@ func (c Client) buildUpdateMonitorRequest(monitor uptimerobotv1.MonitorValues, c
 		// Note: Status is not supported in v3 PATCH requests - use pause/resume endpoints instead
 	}
 
-	// UptimeRobot v3 rejects URL updates for DNS/Heartbeat/PING monitors.
-	if effectiveType != urtypes.APITypeDNS && effectiveType != urtypes.APITypeHeartbeat && effectiveType != urtypes.APITypePing {
+	// UptimeRobot v3 rejects URL updates for DNS/Heartbeat/PING/PORT monitors.
+	if effectiveType != urtypes.APITypeDNS && effectiveType != urtypes.APITypeHeartbeat && effectiveType != urtypes.APITypePing && effectiveType != urtypes.APITypePort {
 		req.URL = monitor.URL
 	}
 	if effectiveType == urtypes.APITypeHTTP || effectiveType == urtypes.APITypeKeyword || effectiveType == urtypes.APITypeAPI {

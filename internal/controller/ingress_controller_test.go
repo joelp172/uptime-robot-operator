@@ -192,8 +192,14 @@ var _ = Describe("Ingress Controller", func() {
 			Expect(monitor.Spec.SourceRef.Name).To(Equal(namespacedName.Name))
 
 			By("Verifying finalizer was added to Ingress")
-			Expect(mgrClient.Get(ctx, namespacedName, ingress)).To(Succeed())
-			Expect(ingress.Finalizers).To(ContainElement("uptimerobot.com/finalizer"))
+			// mgrClient reads through the informer cache, which lags the write made
+			// by Reconcile, so poll rather than asserting on a single read.
+			Eventually(func() []string {
+				if err := mgrClient.Get(ctx, namespacedName, ingress); err != nil {
+					return nil
+				}
+				return ingress.Finalizers
+			}, time.Second*5, time.Millisecond*250).Should(ContainElement("uptimerobot.com/finalizer"))
 		})
 
 		It("should derive Monitor URL from Ingress rules when not specified", func() {

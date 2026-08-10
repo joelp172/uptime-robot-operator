@@ -18,6 +18,7 @@ package uptimerobot
 
 import (
 	"testing"
+	"time"
 
 	uptimerobotv1 "github.com/joelp172/uptime-robot-operator/api/v1alpha1"
 	"github.com/joelp172/uptime-robot-operator/internal/uptimerobot/urtypes"
@@ -241,5 +242,37 @@ func TestBuildUpdateMonitorRequest_PingOmitsUnsupportedFields(t *testing.T) {
 	}
 	if req.Timeout != 0 {
 		t.Errorf("expected Timeout to be omitted for ping updates, got %d", req.Timeout)
+	}
+}
+
+func TestBuildUpdateMonitorRequest_PortOmitsURL(t *testing.T) {
+	client := NewClient("test-api-key")
+	interval := metav1.Duration{Duration: time.Minute}
+	timeout := metav1.Duration{Duration: 30 * time.Second}
+	gracePeriod := metav1.Duration{Duration: time.Minute}
+
+	monitor := uptimerobotv1.MonitorValues{
+		Name:        "Port Monitor",
+		Type:        urtypes.TypePort,
+		URL:         "example.com",
+		Port:        &uptimerobotv1.MonitorPort{Number: 443},
+		Interval:    &interval,
+		Timeout:     &timeout,
+		GracePeriod: &gracePeriod,
+	}
+
+	req := client.buildUpdateMonitorRequest(monitor, nil)
+
+	// v3 rejects a URL on PORT edits with "Invalid URL for this monitor type",
+	// so the host is omitted on update (the port itself is still sent and editable).
+	if req.URL != "" {
+		t.Errorf("expected URL to be omitted for port updates, got %q", req.URL)
+	}
+	if req.Port != 443 {
+		t.Errorf("expected Port to be preserved on port updates, got %d", req.Port)
+	}
+	// buildUpdateMonitorRequest sends Timeout in whole seconds.
+	if wantTimeout := int(timeout.Seconds()); req.Timeout != wantTimeout {
+		t.Errorf("expected Timeout %d for port updates, got %d", wantTimeout, req.Timeout)
 	}
 }

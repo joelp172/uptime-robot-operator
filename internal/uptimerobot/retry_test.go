@@ -105,8 +105,10 @@ func TestParseRetryAfter(t *testing.T) {
 		{"empty string", "", 0, 0},
 		{"delay in seconds", "10", 10 * time.Second, 10 * time.Second},
 		{"large delay capped", "120", DefaultMaxDelay, DefaultMaxDelay},
-		{"HTTP date future", time.Now().Add(5 * time.Second).Format(http.TimeFormat), 4 * time.Second, 6 * time.Second},
-		{"HTTP date past", time.Now().Add(-5 * time.Second).Format(http.TimeFormat), 0, 0},
+		// http.TimeFormat labels the rendered clock time "GMT", so the time must be
+		// in UTC or the header is off by the local zone offset.
+		{"HTTP date future", time.Now().UTC().Add(5 * time.Second).Format(http.TimeFormat), 4 * time.Second, 6 * time.Second},
+		{"HTTP date past", time.Now().UTC().Add(-5 * time.Second).Format(http.TimeFormat), 0, 0},
 		{"invalid format", "invalid", 0, 0},
 	}
 

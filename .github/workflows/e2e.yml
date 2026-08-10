@@ -29,6 +29,7 @@ jobs:
     outputs:
       should_run: ${{ steps.check.outputs.should_run }}
       pr_ref: ${{ steps.check.outputs.pr_ref }}
+      pr_head_label: ${{ steps.check.outputs.pr_head_label }}
       pr_number: ${{ steps.check.outputs.pr_number }}
     permissions:
       pull-requests: read
@@ -98,9 +99,14 @@ jobs:
               console.log(`Could not add reaction (permissions may be insufficient): ${e.message}`);
             }
 
-            console.log(`Triggered! PR ref: ${pr.data.head.ref}`);
+            console.log(`Triggered! PR head: ${pr.data.head.label}`);
             core.setOutput('should_run', 'true');
-            core.setOutput('pr_ref', pr.data.head.ref);
+            // Check out the pull/N/merge ref rather than pr.data.head.ref: the head
+            // ref is only a branch name, and for a fork PR no such branch exists in
+            // this repository, so actions/checkout fails. The merge ref always
+            // resolves here and matches what the pull_request-triggered checks test.
+            core.setOutput('pr_ref', `refs/pull/${context.issue.number}/merge`);
+            core.setOutput('pr_head_label', pr.data.head.label);
             core.setOutput('pr_number', context.issue.number.toString());
 
   e2e:
@@ -123,7 +129,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: ${{ needs.check-trigger.outputs.pr_number }},
-              body: `**E2E Tests Started**\n\nRunning on branch \`${{ needs.check-trigger.outputs.pr_ref }}\`\n\n[View workflow run](${runUrl})`
+              body: `**E2E Tests Started**\n\nRunning on \`${{ needs.check-trigger.outputs.pr_head_label }}\`\n\n[View workflow run](${runUrl})`
             });
 
       - name: Checkout
@@ -201,7 +207,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: ${{ needs.check-trigger.outputs.pr_number }},
-              body: `**E2E Tests Passed**\n\nAll tests completed successfully on branch \`${{ needs.check-trigger.outputs.pr_ref }}\`\n\n[View workflow run](${runUrl})`
+              body: `**E2E Tests Passed**\n\nAll tests completed successfully on \`${{ needs.check-trigger.outputs.pr_head_label }}\`\n\n[View workflow run](${runUrl})`
             });
 
       - name: Comment - E2E Failed
@@ -214,7 +220,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: ${{ needs.check-trigger.outputs.pr_number }},
-              body: `**E2E Tests Failed**\n\nTests failed on branch \`${{ needs.check-trigger.outputs.pr_ref }}\`\n\n[View workflow run](${runUrl}) for details.`
+              body: `**E2E Tests Failed**\n\nTests failed on \`${{ needs.check-trigger.outputs.pr_head_label }}\`\n\n[View workflow run](${runUrl}) for details.`
             });
 
       - name: Cleanup
