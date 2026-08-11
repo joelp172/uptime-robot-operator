@@ -265,3 +265,54 @@ func TestMWValidatorIgnoresStartDateForNonOnceInterval(t *testing.T) {
 		t.Fatalf("expected no error when interval is daily (startDate not validated), got: %v", err)
 	}
 }
+
+func TestMWValidatorAppliesValidationOnUpdate(t *testing.T) {
+	t.Parallel()
+
+	scheme := newMWScheme(t)
+	account := defaultAccount()
+
+	validator := &MaintenanceWindowCustomValidator{
+		Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(account).Build(),
+	}
+
+	oldMW := &MaintenanceWindow{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-mw", Namespace: "default"},
+		Spec: MaintenanceWindowSpec{
+			Name:      "Test",
+			Interval:  "daily",
+			StartTime: "02:00:00",
+			Duration:  metav1.Duration{Duration: 30 * time.Minute},
+		},
+	}
+
+	newMW := oldMW.DeepCopy()
+	newMW.Spec.MonitorRefs = []corev1.LocalObjectReference{{Name: "nonexistent-monitor"}}
+
+	if _, err := validator.ValidateUpdate(context.Background(), oldMW, newMW); err == nil {
+		t.Fatal("expected validation error for unknown monitor reference on update")
+	}
+
+	if _, err := validator.ValidateUpdate(context.Background(), oldMW, oldMW.DeepCopy()); err != nil {
+		t.Fatalf("expected no validation error for unchanged update, got: %v", err)
+	}
+}
+
+func TestMWValidatorAllowsDeleteWithoutValidation(t *testing.T) {
+	t.Parallel()
+
+	scheme := newMWScheme(t)
+
+	validator := &MaintenanceWindowCustomValidator{
+		Client: fake.NewClientBuilder().WithScheme(scheme).Build(),
+	}
+
+	// No Account exists, so a create would be rejected; delete must not validate.
+	mw := &MaintenanceWindow{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-mw", Namespace: "default"},
+	}
+
+	if _, err := validator.ValidateDelete(context.Background(), mw); err != nil {
+		t.Fatalf("expected no error on delete, got: %v", err)
+	}
+}

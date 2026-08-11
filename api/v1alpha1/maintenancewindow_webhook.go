@@ -22,19 +22,16 @@ import (
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
 //+kubebuilder:webhook:path=/validate-uptimerobot-com-v1alpha1-maintenancewindow,mutating=false,failurePolicy=fail,sideEffects=None,groups=uptimerobot.com,resources=maintenancewindows,verbs=create;update,versions=v1alpha1,name=vmaintenancewindow.uptimerobot.com,admissionReviewVersions=v1
 
 func (r *MaintenanceWindow) SetupWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).
-		For(r).
+	return ctrl.NewWebhookManagedBy(mgr, r).
 		WithValidator(&MaintenanceWindowCustomValidator{
 			Client: mgr.GetClient(),
 		}).
@@ -47,27 +44,17 @@ type MaintenanceWindowCustomValidator struct {
 	Client client.Reader
 }
 
-var _ webhook.CustomValidator = &MaintenanceWindowCustomValidator{}
+var _ admission.Validator[*MaintenanceWindow] = &MaintenanceWindowCustomValidator{}
 
-func (v *MaintenanceWindowCustomValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
-	mw, ok := obj.(*MaintenanceWindow)
-	if !ok {
-		return nil, fmt.Errorf("expected MaintenanceWindow but got %T", obj)
-	}
-
+func (v *MaintenanceWindowCustomValidator) ValidateCreate(ctx context.Context, mw *MaintenanceWindow) (admission.Warnings, error) {
 	return nil, v.validate(ctx, mw)
 }
 
-func (v *MaintenanceWindowCustomValidator) ValidateUpdate(ctx context.Context, _, newObj runtime.Object) (admission.Warnings, error) {
-	mw, ok := newObj.(*MaintenanceWindow)
-	if !ok {
-		return nil, fmt.Errorf("expected MaintenanceWindow but got %T", newObj)
-	}
-
+func (v *MaintenanceWindowCustomValidator) ValidateUpdate(ctx context.Context, _, mw *MaintenanceWindow) (admission.Warnings, error) {
 	return nil, v.validate(ctx, mw)
 }
 
-func (v *MaintenanceWindowCustomValidator) ValidateDelete(_ context.Context, _ runtime.Object) (admission.Warnings, error) {
+func (v *MaintenanceWindowCustomValidator) ValidateDelete(_ context.Context, _ *MaintenanceWindow) (admission.Warnings, error) {
 	return nil, nil
 }
 

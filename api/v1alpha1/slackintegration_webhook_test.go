@@ -195,3 +195,35 @@ func TestSIValidatorAllowsDeleteWithoutValidation(t *testing.T) {
 		t.Fatalf("expected no error on delete, got: %v", err)
 	}
 }
+
+func TestSIValidatorAppliesValidationOnUpdate(t *testing.T) {
+	t.Parallel()
+
+	scheme := newWebhookCommonScheme(t)
+	account := defaultAccount()
+
+	validator := &SlackIntegrationCustomValidator{
+		Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(account).Build(),
+	}
+
+	oldSI := &SlackIntegration{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-si", Namespace: "default"},
+		Spec: SlackIntegrationSpec{
+			Integration: SlackIntegrationValues{
+				WebhookURL:   "https://example-slack-webhook.internal/test",
+				FriendlyName: "Test",
+			},
+		},
+	}
+
+	newSI := oldSI.DeepCopy()
+	newSI.Spec.Integration.WebhookURL = "not-a-valid-url"
+
+	if _, err := validator.ValidateUpdate(context.Background(), oldSI, newSI); err == nil {
+		t.Fatal("expected validation error for invalid webhook URL on update")
+	}
+
+	if _, err := validator.ValidateUpdate(context.Background(), oldSI, oldSI.DeepCopy()); err != nil {
+		t.Fatalf("expected no validation error for unchanged update, got: %v", err)
+	}
+}

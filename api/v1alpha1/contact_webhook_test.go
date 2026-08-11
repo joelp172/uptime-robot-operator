@@ -131,3 +131,32 @@ func TestContactValidatorRejectsUpdateToDefaultWhenAnotherExists(t *testing.T) {
 		t.Fatalf("expected validation error when updating second contact to default")
 	}
 }
+
+func TestContactValidatorAllowsDeleteWithoutValidation(t *testing.T) {
+	t.Parallel()
+
+	scheme := runtime.NewScheme()
+	if err := AddToScheme(scheme); err != nil {
+		t.Fatalf("failed to build scheme: %v", err)
+	}
+
+	existing := &Contact{
+		ObjectMeta: metav1.ObjectMeta{Name: "default-a"},
+		Spec:       ContactSpec{IsDefault: true},
+	}
+
+	validator := &ContactCustomValidator{
+		Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build(),
+	}
+
+	// Another default already exists, so a create would be rejected here; delete
+	// must not run the uniqueness check.
+	candidate := &Contact{
+		ObjectMeta: metav1.ObjectMeta{Name: "default-b"},
+		Spec:       ContactSpec{IsDefault: true},
+	}
+
+	if _, err := validator.ValidateDelete(context.Background(), candidate); err != nil {
+		t.Fatalf("expected no error on delete, got: %v", err)
+	}
+}

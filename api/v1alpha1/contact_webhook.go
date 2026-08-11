@@ -21,20 +21,17 @@ import (
 	"fmt"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
 //+kubebuilder:webhook:path=/validate-uptimerobot-com-v1alpha1-contact,mutating=false,failurePolicy=fail,sideEffects=None,groups=uptimerobot.com,resources=contacts,verbs=create;update,versions=v1alpha1,name=vcontact.uptimerobot.com,admissionReviewVersions=v1
 
 func (r *Contact) SetupWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).
-		For(r).
+	return ctrl.NewWebhookManagedBy(mgr, r).
 		WithValidator(&ContactCustomValidator{
 			Client: mgr.GetClient(),
 		}).
@@ -47,27 +44,17 @@ type ContactCustomValidator struct {
 	Client client.Reader
 }
 
-var _ webhook.CustomValidator = &ContactCustomValidator{}
+var _ admission.Validator[*Contact] = &ContactCustomValidator{}
 
-func (v *ContactCustomValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
-	contact, ok := obj.(*Contact)
-	if !ok {
-		return nil, fmt.Errorf("expected Contact but got %T", obj)
-	}
-
+func (v *ContactCustomValidator) ValidateCreate(ctx context.Context, contact *Contact) (admission.Warnings, error) {
 	return nil, v.validateUniqueDefault(ctx, contact)
 }
 
-func (v *ContactCustomValidator) ValidateUpdate(ctx context.Context, _, newObj runtime.Object) (admission.Warnings, error) {
-	contact, ok := newObj.(*Contact)
-	if !ok {
-		return nil, fmt.Errorf("expected Contact but got %T", newObj)
-	}
-
+func (v *ContactCustomValidator) ValidateUpdate(ctx context.Context, _, contact *Contact) (admission.Warnings, error) {
 	return nil, v.validateUniqueDefault(ctx, contact)
 }
 
-func (v *ContactCustomValidator) ValidateDelete(_ context.Context, _ runtime.Object) (admission.Warnings, error) {
+func (v *ContactCustomValidator) ValidateDelete(_ context.Context, _ *Contact) (admission.Warnings, error) {
 	return nil, nil
 }
 

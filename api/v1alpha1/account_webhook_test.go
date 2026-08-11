@@ -151,3 +151,38 @@ func TestAccountValidatorRejectsUpdateToDefaultWhenAnotherExists(t *testing.T) {
 		t.Fatalf("expected validation error when updating second account to default")
 	}
 }
+
+func TestAccountValidatorAllowsDeleteWithoutValidation(t *testing.T) {
+	t.Parallel()
+
+	scheme := runtime.NewScheme()
+	if err := AddToScheme(scheme); err != nil {
+		t.Fatalf("failed to build scheme: %v", err)
+	}
+
+	existing := &Account{
+		ObjectMeta: metav1.ObjectMeta{Name: "default-a"},
+		Spec: AccountSpec{
+			IsDefault: true,
+			ApiKeySecretRef: corev1.SecretKeySelector{
+				LocalObjectReference: corev1.LocalObjectReference{Name: "secret-a"},
+				Key:                  "apiKey",
+			},
+		},
+	}
+
+	validator := &AccountCustomValidator{
+		Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build(),
+	}
+
+	// Another default already exists, so a create would be rejected here; delete
+	// must not run the uniqueness check.
+	candidate := &Account{
+		ObjectMeta: metav1.ObjectMeta{Name: "default-b"},
+		Spec:       AccountSpec{IsDefault: true},
+	}
+
+	if _, err := validator.ValidateDelete(context.Background(), candidate); err != nil {
+		t.Fatalf("expected no error on delete, got: %v", err)
+	}
+}

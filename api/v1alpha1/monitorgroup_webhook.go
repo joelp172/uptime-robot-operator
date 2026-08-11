@@ -21,19 +21,16 @@ import (
 	"fmt"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
 //+kubebuilder:webhook:path=/validate-uptimerobot-com-v1alpha1-monitorgroup,mutating=false,failurePolicy=fail,sideEffects=None,groups=uptimerobot.com,resources=monitorgroups,verbs=create;update,versions=v1alpha1,name=vmonitorgroup.uptimerobot.com,admissionReviewVersions=v1
 
 func (r *MonitorGroup) SetupWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).
-		For(r).
+	return ctrl.NewWebhookManagedBy(mgr, r).
 		WithValidator(&MonitorGroupCustomValidator{
 			Client: mgr.GetClient(),
 		}).
@@ -46,27 +43,17 @@ type MonitorGroupCustomValidator struct {
 	Client client.Reader
 }
 
-var _ webhook.CustomValidator = &MonitorGroupCustomValidator{}
+var _ admission.Validator[*MonitorGroup] = &MonitorGroupCustomValidator{}
 
-func (v *MonitorGroupCustomValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
-	mg, ok := obj.(*MonitorGroup)
-	if !ok {
-		return nil, fmt.Errorf("expected MonitorGroup but got %T", obj)
-	}
-
+func (v *MonitorGroupCustomValidator) ValidateCreate(ctx context.Context, mg *MonitorGroup) (admission.Warnings, error) {
 	return nil, v.validate(ctx, mg)
 }
 
-func (v *MonitorGroupCustomValidator) ValidateUpdate(ctx context.Context, _, newObj runtime.Object) (admission.Warnings, error) {
-	mg, ok := newObj.(*MonitorGroup)
-	if !ok {
-		return nil, fmt.Errorf("expected MonitorGroup but got %T", newObj)
-	}
-
+func (v *MonitorGroupCustomValidator) ValidateUpdate(ctx context.Context, _, mg *MonitorGroup) (admission.Warnings, error) {
 	return nil, v.validate(ctx, mg)
 }
 
-func (v *MonitorGroupCustomValidator) ValidateDelete(_ context.Context, _ runtime.Object) (admission.Warnings, error) {
+func (v *MonitorGroupCustomValidator) ValidateDelete(_ context.Context, _ *MonitorGroup) (admission.Warnings, error) {
 	return nil, nil
 }
 

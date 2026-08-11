@@ -21,20 +21,17 @@ import (
 	"fmt"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
 //+kubebuilder:webhook:path=/validate-uptimerobot-com-v1alpha1-account,mutating=false,failurePolicy=fail,sideEffects=None,groups=uptimerobot.com,resources=accounts,verbs=create;update,versions=v1alpha1,name=vaccount.uptimerobot.com,admissionReviewVersions=v1
 
 func (r *Account) SetupWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).
-		For(r).
+	return ctrl.NewWebhookManagedBy(mgr, r).
 		WithValidator(&AccountCustomValidator{
 			Client: mgr.GetClient(),
 		}).
@@ -47,27 +44,17 @@ type AccountCustomValidator struct {
 	Client client.Reader
 }
 
-var _ webhook.CustomValidator = &AccountCustomValidator{}
+var _ admission.Validator[*Account] = &AccountCustomValidator{}
 
-func (v *AccountCustomValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
-	account, ok := obj.(*Account)
-	if !ok {
-		return nil, fmt.Errorf("expected Account but got %T", obj)
-	}
-
+func (v *AccountCustomValidator) ValidateCreate(ctx context.Context, account *Account) (admission.Warnings, error) {
 	return nil, v.validateUniqueDefault(ctx, account)
 }
 
-func (v *AccountCustomValidator) ValidateUpdate(ctx context.Context, _, newObj runtime.Object) (admission.Warnings, error) {
-	account, ok := newObj.(*Account)
-	if !ok {
-		return nil, fmt.Errorf("expected Account but got %T", newObj)
-	}
-
+func (v *AccountCustomValidator) ValidateUpdate(ctx context.Context, _, account *Account) (admission.Warnings, error) {
 	return nil, v.validateUniqueDefault(ctx, account)
 }
 
-func (v *AccountCustomValidator) ValidateDelete(_ context.Context, _ runtime.Object) (admission.Warnings, error) {
+func (v *AccountCustomValidator) ValidateDelete(_ context.Context, _ *Account) (admission.Warnings, error) {
 	return nil, nil
 }
 

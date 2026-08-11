@@ -26,6 +26,7 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
@@ -88,6 +89,10 @@ func (w *conflictInjectingStatusWriter) Update(ctx context.Context, obj client.O
 
 func (w *conflictInjectingStatusWriter) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
 	return w.inner.Patch(ctx, obj, patch, opts...)
+}
+
+func (w *conflictInjectingStatusWriter) Apply(ctx context.Context, obj runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+	return w.inner.Apply(ctx, obj, opts...)
 }
 
 var _ = Describe("MaintenanceWindow Controller", func() {
