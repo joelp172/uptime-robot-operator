@@ -49,6 +49,7 @@ var _ = Describe("Ingress Controller", func() {
 			pathTypePrefix networkingv1.PathType
 			mgr            ctrl.Manager
 			mgrCancel      context.CancelFunc
+			mgrStopped     chan struct{}
 			mgrClient      client.Client
 		)
 
@@ -86,13 +87,29 @@ var _ = Describe("Ingress Controller", func() {
 			})
 			Expect(err).NotTo(HaveOccurred())
 
-			// Start manager in background
+			// Start manager in background. mgrStopped is closed once Start returns so
+			// teardown can wait for a full shutdown; without that, this spec's manager
+			// is still tearing down while the next spec's manager comes up, and the two
+			// contend for the same envtest apiserver.
 			var mgrCtx context.Context
 			mgrCtx, mgrCancel = context.WithCancel(ctx)
+			mgrStopped = make(chan struct{})
 			go func() {
 				defer GinkgoRecover()
+				defer close(mgrStopped)
 				_ = mgr.Start(mgrCtx)
 			}()
+
+			// Stop the manager via DeferCleanup rather than at the end of AfterEach.
+			// DeferCleanup still runs after AfterEach -- so cleanup below can rely on the
+			// manager being up -- but it also runs when an AfterEach assertion fails.
+			// Previously a failed cleanup aborted AfterEach before the stop was reached,
+			// leaving the manager running, which in turn made testEnv.Stop() fail the
+			// whole suite with "timeout waiting for process kube-apiserver to stop".
+			DeferCleanup(func() {
+				mgrCancel()
+				Eventually(mgrStopped, time.Second*15).Should(BeClosed())
+			})
 
 			// Get client and event recorder before waiting (mgrClient must be set before Eventually uses it)
 			eventRecorder = record.NewFakeRecorder(10)
@@ -111,11 +128,9 @@ var _ = Describe("Ingress Controller", func() {
 		})
 
 		AfterEach(func() {
-			// Skip cleanup if mgrClient not initialized
+			// Skip cleanup if mgrClient not initialized. The manager is stopped by the
+			// DeferCleanup registered in BeforeEach, so nothing to do here.
 			if mgrClient == nil {
-				if mgrCancel != nil {
-					mgrCancel()
-				}
 				return
 			}
 
@@ -158,11 +173,6 @@ var _ = Describe("Ingress Controller", func() {
 			// Clean up account
 			if account != nil {
 				CleanupAccount(ctx, account, secret)
-			}
-
-			// Stop manager after cleanup so finalizer-driven deletes can complete.
-			if mgrCancel != nil {
-				mgrCancel()
 			}
 		})
 
@@ -397,19 +407,25 @@ var _ = Describe("Ingress Controller", func() {
 			By("Deleting the Ingress")
 			Expect(mgrClient.Delete(ctx, ingress)).To(Succeed())
 
+			// Reconcile until the Ingress is actually gone, rather than once. The
+			// reconciler reads the Ingress through the manager cache, so if that cache
+			// has not yet observed the delete it takes the normal branch and leaves the
+			// finalizer in place -- and with no controller running there is no watch
+			// event to trigger another pass. A single manual call is the test's
+			// artifice; retrying reproduces what a watch-driven controller does.
 			By("Reconciling the deletion")
-			_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
-			Expect(err).NotTo(HaveOccurred())
+			Eventually(func() bool {
+				if _, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName}); err != nil {
+					return false
+				}
+				// k8sClient talks to the apiserver directly; mgrClient would serve a
+				// deleted object from cache long after the fact.
+				return errors.IsNotFound(k8sClient.Get(ctx, namespacedName, ingress))
+			}, time.Second*15, time.Millisecond*250).Should(BeTrue())
 
 			By("Verifying Monitor was deleted")
 			Eventually(func() bool {
-				err := mgrClient.Get(ctx, namespacedName, monitor)
-				return errors.IsNotFound(err)
-			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
-
-			By("Verifying Ingress was fully deleted")
-			Eventually(func() bool {
-				err := mgrClient.Get(ctx, namespacedName, ingress)
+				err := k8sClient.Get(ctx, namespacedName, monitor)
 				return errors.IsNotFound(err)
 			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
 		})
@@ -431,10 +447,14 @@ var _ = Describe("Ingress Controller", func() {
 			}, time.Second*5, time.Millisecond*250).Should(Succeed())
 			Expect(monitor.Spec.Monitor.Name).To(Equal("Original Name"))
 
+			// Read-modify-write goes through k8sClient too. Reconcile has just added a
+			// finalizer, so the cached copy carries a stale resourceVersion and updating
+			// from it fails with a 409 Conflict. Reconcile is called synchronously above,
+			// so by here the apiserver state is settled and a direct read is current.
 			By("Updating Ingress annotations")
-			Expect(mgrClient.Get(ctx, namespacedName, ingress)).To(Succeed())
+			Expect(k8sClient.Get(ctx, namespacedName, ingress)).To(Succeed())
 			ingress.Annotations["uptimerobot.com/monitor.name"] = "Updated Name"
-			Expect(mgrClient.Update(ctx, ingress)).To(Succeed())
+			Expect(k8sClient.Update(ctx, ingress)).To(Succeed())
 
 			By("Reconciling the update and verifying Monitor was updated")
 			Eventually(func() string {
@@ -463,7 +483,7 @@ var _ = Describe("Ingress Controller", func() {
 			By("Verifying no Monitor was created")
 			monitor := &uptimerobotv1.Monitor{}
 			Consistently(func() bool {
-				err := mgrClient.Get(ctx, namespacedName, monitor)
+				err := k8sClient.Get(ctx, namespacedName, monitor)
 				return errors.IsNotFound(err)
 			}, time.Second*2, time.Millisecond*250).Should(BeTrue())
 
@@ -488,23 +508,30 @@ var _ = Describe("Ingress Controller", func() {
 			}, time.Second*5, time.Millisecond*250).Should(Succeed())
 
 			By("Updating Ingress to enabled=false")
-			Expect(mgrClient.Get(ctx, namespacedName, ingress)).To(Succeed())
+			Expect(k8sClient.Get(ctx, namespacedName, ingress)).To(Succeed())
 			ingress.Annotations["uptimerobot.com/enabled"] = "false"
-			Expect(mgrClient.Update(ctx, ingress)).To(Succeed())
+			Expect(k8sClient.Update(ctx, ingress)).To(Succeed())
 
+			// As with the deletion spec, reconcile until the effect lands: the annotation
+			// change reaches the reconciler through the manager cache, and a single pass
+			// against a stale cache still sees enabled=true and keeps the Monitor.
 			By("Reconciling the update")
-			_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Verifying Monitor was deleted")
 			Eventually(func() bool {
-				err := mgrClient.Get(ctx, namespacedName, monitor)
-				return errors.IsNotFound(err)
-			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
+				if _, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName}); err != nil {
+					return false
+				}
+				return errors.IsNotFound(k8sClient.Get(ctx, namespacedName, monitor))
+			}, time.Second*15, time.Millisecond*250).Should(BeTrue())
 
 			By("Verifying finalizer was removed")
-			Expect(mgrClient.Get(ctx, namespacedName, ingress)).To(Succeed())
-			Expect(ingress.Finalizers).To(BeEmpty())
+			// Same informer-cache lag as the finalizer-added assertion above: the
+			// removal is written by Reconcile, so poll rather than reading once.
+			Eventually(func() []string {
+				if err := mgrClient.Get(ctx, namespacedName, ingress); err != nil {
+					return []string{"<get failed>"}
+				}
+				return ingress.Finalizers
+			}, time.Second*5, time.Millisecond*250).Should(BeEmpty())
 		})
 
 		It("should handle multiple Ingress rules correctly", func() {
