@@ -67,9 +67,26 @@ stringData:
 		}
 
 		By("cleaning up Account and Contact resources")
-		cmd := exec.Command("kubectl", "delete", "contact", fmt.Sprintf("e2e-default-contact-%s", testRunID), "--ignore-not-found=true")
-		_, _ = utils.Run(cmd)
-		cmd = exec.Command("kubectl", "delete", "account", fmt.Sprintf("e2e-account-%s", testRunID), "--ignore-not-found=true")
+		// Every Contact this suite creates must be removed, and the default one
+		// especially: while a Contact with spec.isDefault=true survives here, the
+		// validating webhook correctly rejects the default Contact that
+		// ensureSharedAccountAndContact creates, so every later suite fails in
+		// BeforeAll with "at most one Contact can have spec.isDefault=true".
+		//
+		// This previously deleted "e2e-default-contact-%s", which no test creates --
+		// the real name is "e2e-contact-default-%s" (words transposed), so the delete
+		// silently matched nothing and the default Contact leaked.
+		for _, contactName := range []string{
+			fmt.Sprintf("e2e-contact-setup-%s", testRunID),
+			fmt.Sprintf("e2e-contact-default-%s", testRunID),
+			fmt.Sprintf("e2e-contact-second-default-%s", testRunID),
+		} {
+			cmd := exec.Command("kubectl", "delete", "contact", contactName, "--ignore-not-found=true")
+			_, _ = utils.Run(cmd)
+		}
+		// Contacts are deleted before the Account they reference, so their finalizers
+		// can still resolve credentials during cleanup.
+		cmd := exec.Command("kubectl", "delete", "account", fmt.Sprintf("e2e-account-%s", testRunID), "--ignore-not-found=true")
 		_, _ = utils.Run(cmd)
 		cmd = exec.Command("kubectl", "delete", "secret", "uptime-robot-e2e", "-n", namespace, "--ignore-not-found=true")
 		_, _ = utils.Run(cmd)
