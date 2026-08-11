@@ -17,6 +17,8 @@ limitations under the License.
 package uptimerobot
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -275,4 +277,64 @@ func TestBuildUpdateMonitorRequest_PortOmitsURL(t *testing.T) {
 	if wantTimeout := int(timeout.Seconds()); req.Timeout != wantTimeout {
 		t.Errorf("expected Timeout %d for port updates, got %d", wantTimeout, req.Timeout)
 	}
+}
+
+// TestMonitorRequestsCarryResponseTimeThreshold pins the field that the
+// "HTTPS Full" e2e spec reports as lost: it sets responseTimeThreshold=5000 and
+// the UptimeRobot API returns 0. This asserts the operator's side of that
+// exchange -- the value reaches both request structs and survives JSON
+// marshalling under the name the API spec uses (api-spec/monitor-post.json
+// documents "responseTimeThreshold", a number in 0..60000).
+func TestMonitorRequestsCarryResponseTimeThreshold(t *testing.T) {
+	client := NewClient("test-api-key")
+	threshold := 5000
+	interval := metav1.Duration{Duration: 5 * time.Minute}
+	timeout := metav1.Duration{Duration: 30 * time.Second}
+	gracePeriod := metav1.Duration{Duration: time.Minute}
+
+	monitor := uptimerobotv1.MonitorValues{
+		Name:                  "E2E HTTPS Full",
+		Type:                  urtypes.TypeHTTPS,
+		URL:                   "https://httpbin.org/get",
+		Interval:              &interval,
+		Timeout:               &timeout,
+		GracePeriod:           &gracePeriod,
+		ResponseTimeThreshold: &threshold,
+	}
+
+	t.Run("create request", func(t *testing.T) {
+		req := client.buildCreateMonitorRequest(monitor, uptimerobotv1.MonitorContacts{})
+		if req.ResponseTimeThreshold == nil {
+			t.Fatal("expected ResponseTimeThreshold to be set on create")
+		}
+		if *req.ResponseTimeThreshold != threshold {
+			t.Errorf("expected ResponseTimeThreshold %d on create, got %d", threshold, *req.ResponseTimeThreshold)
+		}
+
+		body, err := json.Marshal(req)
+		if err != nil {
+			t.Fatalf("failed to marshal create request: %v", err)
+		}
+		if !strings.Contains(string(body), `"responseTimeThreshold":5000`) {
+			t.Errorf("create request JSON missing responseTimeThreshold: %s", body)
+		}
+	})
+
+	t.Run("update request", func(t *testing.T) {
+		req := client.buildUpdateMonitorRequest(monitor, nil)
+		if req.ResponseTimeThreshold == nil {
+			t.Fatal("expected ResponseTimeThreshold to be set on update")
+		}
+		if *req.ResponseTimeThreshold != threshold {
+			t.Errorf("expected ResponseTimeThreshold %d on update, got %d", threshold, *req.ResponseTimeThreshold)
+		}
+
+		body, err := json.Marshal(req)
+		if err != nil {
+			t.Fatalf("failed to marshal update request: %v", err)
+		}
+		if !strings.Contains(string(body), `"responseTimeThreshold":5000`) {
+			t.Errorf("update request JSON missing responseTimeThreshold: %s", body)
+		}
+	})
 }
