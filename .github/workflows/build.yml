@@ -342,7 +342,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
       - name: Setup Flux CLI
-        uses: fluxcd/flux2/action@v2.8.8
+        uses: fluxcd/flux2/action@v2.9.4
       - name: Generate Installer
         run: make build-installer IMG=ghcr.io/${{ github.repository_owner }}/uptime-robot-operator:${{ github.ref_name }}
       - name: Publish
