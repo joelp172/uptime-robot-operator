@@ -5,7 +5,7 @@ go 1.26.5
 require (
 	github.com/dmarkham/enumer v1.6.3
 	github.com/go-viper/mapstructure/v2 v2.5.0
-	github.com/knadh/koanf/maps v0.1.1
+	github.com/knadh/koanf/maps v0.1.3
 	github.com/onsi/ginkgo/v2 v2.28.1
 	github.com/onsi/gomega v1.39.1
 	github.com/prometheus/client_golang v1.23.2
