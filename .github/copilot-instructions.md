@@ -149,7 +149,7 @@ kubectl rollout restart -n uptime-robot-system deployment/uptime-robot-controlle
 ### CI/CD Workflows
 
 **On PR/Push to main** (`.github/workflows/build.yml`):
-1. **lint**: golangci-lint v2.0.2 (via GitHub Action)
+1. **lint**: golangci-lint v2.13.2 (via GitHub Action)
 2. **verify-crds**: Ensures `make manifests` was run (checks git diff)
 3. **test**: Runs `make test`
 4. **build**: Builds multi-platform Docker image (amd64, arm/v7, arm64/v8)

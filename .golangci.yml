@@ -33,26 +33,39 @@ linters:
     # Deprecations introduced by controller-runtime 0.24. Each needs deliberate
     # follow-up that changes behaviour, so they are deferred rather than silently
     # rewritten into something that only looks equivalent. Scoped by path so new
-    # instances elsewhere still surface.
+    # instances elsewhere still surface. staticcheck reports the deprecated
+    # symbol by its fully qualified type, e.g.
+    # "(sigs.k8s.io/controller-runtime.Result).Requeue", so the patterns match
+    # on the trailing selector.
     rules:
+      # goconst treats repeated fixture strings in tests and the fake
+      # UptimeRobot server as candidates for constants. Hoisting test data into
+      # named constants hurts readability without improving correctness.
+      - path: _test\.go
+        linters: [goconst]
+      - path: internal/uptimerobot/uptimerobottest/
+        linters: [goconst]
       # GetEventRecorder returns client-go's events.EventRecorder, a different
       # interface from record.EventRecorder (different method signatures, emits
       # events.k8s.io/v1). Migrating touches ~120 call sites across every
       # controller and test.
       - path: cmd/main\.go
         linters: [staticcheck]
-        text: 'SA1019: mgr\.GetEventRecorderFor'
+        text: 'SA1019: .*\.GetEventRecorderFor is deprecated'
       # monitorgroup_controller.go genuinely returns Requeue: true, so swapping
       # these assertions for RequeueAfter/IsZero would change what they assert.
       # Retiring Requeue means picking explicit backoff durations.
       - path: _test\.go
         linters: [staticcheck]
-        text: 'SA1019: result\.Requeue'
+        text: 'SA1019: .*Result\)\.Requeue is deprecated'
+      - path: internal/controller/monitorgroup_controller\.go
+        linters: [staticcheck]
+        text: 'SA1019: .*Result\)\.Requeue is deprecated'
       # scheme.Builder is the kubebuilder scaffold; dropping it means
       # restructuring scheme registration across the api package.
       - path: api/v1alpha1/groupversion_info\.go
         linters: [staticcheck]
-        text: 'SA1019: scheme\.Builder'
+        text: 'SA1019: .*/scheme\.Builder is deprecated'
 
 formatters:
   enable:

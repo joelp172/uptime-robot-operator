@@ -195,12 +195,12 @@ func (r *ContactReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ContactReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &uptimerobotv1.Contact{}, "spec.isDefault", func(rawObj client.Object) []string {
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &uptimerobotv1.Contact{}, isDefaultIndexField, func(rawObj client.Object) []string {
 		contact := rawObj.(*uptimerobotv1.Contact)
 		if !contact.Spec.IsDefault {
 			return nil
 		}
-		return []string{"true"}
+		return []string{isDefaultIndexValue}
 	}); err != nil {
 		return err
 	}
@@ -223,7 +223,7 @@ func GetContact(ctx context.Context, c client.Client, contact *uptimerobotv1.Con
 
 	list := &uptimerobotv1.ContactList{}
 	err := c.List(ctx, list, &client.ListOptions{
-		FieldSelector: fields.OneTermEqualSelector("spec.isDefault", "true"),
+		FieldSelector: fields.OneTermEqualSelector(isDefaultIndexField, isDefaultIndexValue),
 	})
 	if err != nil {
 		return err

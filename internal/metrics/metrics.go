@@ -21,6 +21,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 )
 
+// Label names shared across the UptimeRobot API metrics.
+const (
+	labelMethod     = "method"
+	labelEndpoint   = "endpoint"
+	labelStatusCode = "status_code"
+	labelReason     = "reason"
+)
+
 var (
 	// APIRequestsTotal tracks total API requests to UptimeRobot
 	// Note: status_code label can have high cardinality (200-599 + "error").
@@ -30,7 +38,7 @@ var (
 			Name: "uptimerobot_api_requests_total",
 			Help: "Total number of API requests to UptimeRobot",
 		},
-		[]string{"method", "endpoint", "status_code"},
+		[]string{labelMethod, labelEndpoint, labelStatusCode},
 	)
 
 	// APIRequestDuration tracks API request latency
@@ -41,7 +49,7 @@ var (
 			// Custom buckets optimized for HTTP API calls (100ms to 30s)
 			Buckets: []float64{0.1, 0.25, 0.5, 1, 2, 5, 10, 30},
 		},
-		[]string{"method", "endpoint"},
+		[]string{labelMethod, labelEndpoint},
 	)
 
 	// APIRetriesTotal tracks API retry attempts
@@ -50,7 +58,7 @@ var (
 			Name: "uptimerobot_api_retries_total",
 			Help: "Total number of API retry attempts",
 		},
-		[]string{"endpoint", "reason"},
+		[]string{labelEndpoint, labelReason},
 	)
 
 	// ReconciliationErrorsTotal tracks reconciliation errors by controller
