@@ -43,6 +43,13 @@ import (
 
 var ClusterResourceNamespace = "uptime-robot-system"
 
+const (
+	// isDefaultIndexField is the field index used to find the default Account/Contact.
+	isDefaultIndexField = "spec.isDefault"
+	// isDefaultIndexValue is the indexed value for resources with spec.isDefault=true.
+	isDefaultIndexValue = "true"
+)
+
 // AccountReconciler reconciles a Account object
 type AccountReconciler struct {
 	client.Client
@@ -225,12 +232,12 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *AccountReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &uptimerobotv1.Account{}, "spec.isDefault", func(rawObj client.Object) []string {
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &uptimerobotv1.Account{}, isDefaultIndexField, func(rawObj client.Object) []string {
 		account := rawObj.(*uptimerobotv1.Account)
 		if !account.Spec.IsDefault {
 			return nil
 		}
-		return []string{"true"}
+		return []string{isDefaultIndexValue}
 	}); err != nil {
 		return err
 	}
@@ -273,7 +280,7 @@ func (r *AccountReconciler) mapIntegrationToAccount(ctx context.Context, obj cli
 
 	defaults := &uptimerobotv1.AccountList{}
 	if err := r.List(ctx, defaults, &client.ListOptions{
-		FieldSelector: fields.OneTermEqualSelector("spec.isDefault", "true"),
+		FieldSelector: fields.OneTermEqualSelector(isDefaultIndexField, isDefaultIndexValue),
 	}); err != nil {
 		return nil
 	}
@@ -317,7 +324,7 @@ func GetAccount(ctx context.Context, c client.Client, account *uptimerobotv1.Acc
 
 	list := &uptimerobotv1.AccountList{}
 	err := c.List(ctx, list, &client.ListOptions{
-		FieldSelector: fields.OneTermEqualSelector("spec.isDefault", "true"),
+		FieldSelector: fields.OneTermEqualSelector(isDefaultIndexField, isDefaultIndexValue),
 	})
 	if err != nil {
 		return err
