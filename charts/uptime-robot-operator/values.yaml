@@ -136,6 +136,10 @@ namespaceOverride: ''
 namespace:
   # Create the namespace as part of the Helm chart
   create: true
+  # Extra labels merged onto the created namespace (e.g. istio.io/dataplane-mode, pod-security.kubernetes.io/enforce)
+  labels: {}
+  # Extra annotations on the created namespace; both maps are ignored when create is false
+  annotations: {}
 
 # Network policy configuration
 networkPolicy:

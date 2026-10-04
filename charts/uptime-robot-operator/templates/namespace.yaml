@@ -5,5 +5,12 @@ metadata:
   name: {{ include "uptime-robot-operator.namespace" . }}
   labels:
     {{- include "uptime-robot-operator.labels" . | nindent 4 }}
+    {{- with .Values.namespace.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.namespace.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 {{- end }}
 

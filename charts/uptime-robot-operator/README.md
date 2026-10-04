@@ -46,6 +46,8 @@ kubectl delete crd accounts.uptimerobot.com contacts.uptimerobot.com monitors.up
 | `replicaCount`            | Number of operator replicas                      | `1`                                              |
 | `namespaceOverride`       | Override the namespace for installation          | `""`                                             |
 | `namespace.create`        | Create the namespace as part of the chart        | `true`                                           |
+| `namespace.labels`        | Extra labels for the created namespace           | `{}`                                             |
+| `namespace.annotations`   | Annotations for the created namespace            | `{}`                                             |
 
 ### Image Parameters
 
