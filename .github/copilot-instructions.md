@@ -5,8 +5,8 @@
 **Purpose**: Kubernetes operator that manages UptimeRobot monitors as Kubernetes Custom Resources. Enables declarative monitor configuration, automatic drift detection/correction, and GitOps workflows.
 
 **Technology Stack**:
-- Language: Go 1.24+ (go.mod: 1.24.1)
-- Framework: Kubebuilder v4 (controller-runtime v0.20.3)
+- Language: Go 1.27.4+ (go.mod: 1.27.4)
+- Framework: Kubebuilder v4 (controller-runtime v0.25.1)
 - Kubernetes: v0.32.3
 - Testing: Ginkgo/Gomega
 - Size: ~70 Go files, ~18,679 lines of code
@@ -51,7 +51,7 @@
 ## Build and Validation
 
 ### Prerequisites
-- Go 1.23+ (tested with 1.24.13)
+- Go 1.27.4+ (tested with 1.27.4)
 - Docker (tested with 29.1.5)
 - kubectl
 - make
@@ -90,7 +90,7 @@ make manifests generate fmt vet lint test
 ```bash
 make docker-build IMG=operator:dev
 ```
-- Uses multi-stage Dockerfile with `golang:1.24.1-alpine` and `gcr.io/distroless/static:nonroot`
+- Uses multi-stage Dockerfile with `golang:1.27.4-alpine` and `gcr.io/distroless/static:nonroot`
 - Build time: ~2-3 minutes on first run (with caching)
 
 ### E2E Testing
