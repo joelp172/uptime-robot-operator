@@ -3,7 +3,7 @@ module github.com/joelp172/uptime-robot-operator
 go 1.27.4
 
 require (
-	github.com/dmarkham/enumer v1.6.3
+	github.com/dmarkham/enumer v1.7.2
 	github.com/go-viper/mapstructure/v2 v2.5.0
 	github.com/knadh/koanf/maps v0.1.3
 	github.com/onsi/ginkgo/v2 v2.32.2
